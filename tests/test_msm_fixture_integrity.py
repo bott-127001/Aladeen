@@ -16,6 +16,7 @@ or strategy event sequencing.
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from datetime import datetime
 import pytest
@@ -46,7 +47,7 @@ class TestMSMFixtureIntegrity:
         assert len(acceptance_data["fixtures"]) >= 14
 
     def test_ohlc_geometry_and_chronology(self, acceptance_data):
-        """Every fixture candle must satisfy strict OHLC bounds and chronological order."""
+        """Every fixture candle must satisfy strict OHLC bounds, finite checks, and chronological order."""
         for fix_id, fix in acceptance_data["fixtures"].items():
             candles = fix.get("candles", [])
             assert len(candles) > 0, f"{fix_id}: empty candles"
@@ -55,28 +56,40 @@ class TestMSMFixtureIntegrity:
             for i, c in enumerate(candles):
                 o, h, l, cl = float(c["open"]), float(c["high"]), float(c["low"]), float(c["close"])
 
-                # Positive finite prices
-                assert o > 0 and h > 0 and l > 0 and cl > 0, f"{fix_id}[{i}]: non-positive prices"
+                # Positive finite prices (strictly rejecting +inf, -inf, nan)
+                for val, name in [(o, "open"), (h, "high"), (l, "low"), (cl, "close")]:
+                    assert math.isfinite(val), f"{fix_id}[{i}]: {name} is not finite ({val})"
+                    assert val > 0, f"{fix_id}[{i}]: {name} is non-positive ({val})"
 
                 # High is upper bound, Low is lower bound
                 assert h >= l, f"{fix_id}[{i}]: high < low"
                 assert h >= ub(c), f"{fix_id}[{i}]: high < upper body edge"
                 assert l <= lb(c), f"{fix_id}[{i}]: low > lower body edge"
 
-                # Chronological ordering
-                curr_time = datetime.fromisoformat(c["time"])
+                # Chronological ordering of open timestamps
+                curr_time = datetime.fromisoformat(c.get("open_time", c["time"]))
                 if prev_time is not None:
                     assert curr_time > prev_time, f"{fix_id}[{i}]: timestamps not strictly increasing"
                 prev_time = curr_time
 
+                # If close_time is provided, ensure close_time > open_time
+                if "close_time" in c:
+                    close_time = datetime.fromisoformat(c["close_time"])
+                    assert close_time > curr_time, f"{fix_id}[{i}]: close_time not after open_time"
+
     def test_referenced_indices_exist(self, acceptance_data):
-        """All referenced indices in search evaluations and events must exist in candles."""
+        """All referenced indices in search evaluations, events, and prefixes must exist in candles."""
         for fix_id, fix in acceptance_data["fixtures"].items():
             candles = fix.get("candles", [])
             c_indices = {c["index"] for c in candles}
 
             # Search evaluations
             for s in fix.get("search_evaluations", []):
+                # Search type validation: must strictly be MAX_UB or MIN_LB
+                assert s["search_type"] in ("MAX_UB", "MIN_LB"), (
+                    f"{fix_id}: invalid search_type '{s.get('search_type')}'"
+                )
+
                 start, end = s["search_window"]
                 assert start in c_indices, f"{fix_id}: search start index {start} not in candles"
                 assert end in c_indices, f"{fix_id}: search end index {end} not in candles"
@@ -87,8 +100,30 @@ class TestMSMFixtureIntegrity:
                 for idx in s["extreme_indices"]:
                     assert idx in c_indices, f"{fix_id}: extreme_index {idx} not in candles"
 
+            # Event indices validation
+            events = fix.get("expected_events", {})
+            if "pullback_candles" in events:
+                for idx in events["pullback_candles"]:
+                    assert idx in c_indices, f"{fix_id}: pullback candle {idx} not in candles"
+            if "tentative_high" in events and "candle_index" in events["tentative_high"]:
+                assert events["tentative_high"]["candle_index"] in c_indices
+            if "tentative_low" in events and "candle_index" in events["tentative_low"]:
+                assert events["tentative_low"]["candle_index"] in c_indices
+            if "confirmed_high" in events and "candle_index" in events["confirmed_high"]:
+                assert events["confirmed_high"]["candle_index"] in c_indices
+            if "confirmed_low" in events and "candle_index" in events["confirmed_low"]:
+                assert events["confirmed_low"]["candle_index"] in c_indices
+            if "next_search_start_index" in events:
+                assert events["next_search_start_index"] in c_indices
+
+            # Prefix indices validation
+            for p_name, p_data in fix.get("prefixes", {}).items():
+                if "available_indices" in p_data:
+                    for idx in p_data["available_indices"]:
+                        assert idx in c_indices, f"{fix_id} {p_name}: index {idx} not in candles"
+
     def test_body_edge_arithmetic_matches(self, acceptance_data):
-        """Expected extreme prices must match the exact upper or lower body edge of selected candle."""
+        """Expected extreme prices must exactly match the upper or lower body edge of selected candle."""
         for fix_id, fix in acceptance_data["fixtures"].items():
             c_map = {c["index"]: c for c in fix.get("candles", [])}
 
@@ -98,17 +133,17 @@ class TestMSMFixtureIntegrity:
 
                 if s["search_type"] == "MAX_UB":
                     actual_edge = ub(sel_candle)
-                    assert actual_edge == pytest.approx(expected_price), (
+                    assert actual_edge == expected_price, (
                         f"{fix_id}: {s['target']} UB mismatch: actual={actual_edge}, expected={expected_price}"
                     )
                 elif s["search_type"] == "MIN_LB":
                     actual_edge = lb(sel_candle)
-                    assert actual_edge == pytest.approx(expected_price), (
+                    assert actual_edge == expected_price, (
                         f"{fix_id}: {s['target']} LB mismatch: actual={actual_edge}, expected={expected_price}"
                     )
 
     def test_search_window_extremes_and_tie_breaking(self, acceptance_data):
-        """Independently verifies that selected indices obey extreme value selection and latest-index tie-breaking."""
+        """Independently verifies exact extreme value selection and latest-index tie-breaking (no approx)."""
         for fix_id, fix in acceptance_data["fixtures"].items():
             c_map = {c["index"]: c for c in fix.get("candles", [])}
 
@@ -121,12 +156,14 @@ class TestMSMFixtureIntegrity:
                 if s["search_type"] == "MAX_UB":
                     edges = [(idx, ub(c_map[idx])) for idx in window_indices]
                     target_val = max(v for _, v in edges)
-                else:
+                elif s["search_type"] == "MIN_LB":
                     edges = [(idx, lb(c_map[idx])) for idx in window_indices]
                     target_val = min(v for _, v in edges)
+                else:
+                    pytest.fail(f"Unknown search type {s['search_type']}")
 
-                # Collect all indices matching the extremum
-                matches = [idx for idx, v in edges if v == pytest.approx(target_val)]
+                # Collect all indices matching the extremum with EXACT equality (never approx)
+                matches = [idx for idx, v in edges if v == target_val]
                 expected_extremes = s["extreme_indices"]
                 assert matches == expected_extremes, (
                     f"{fix_id} {s['target']}: extreme indices mismatch: actual {matches} vs expected {expected_extremes}"
@@ -141,3 +178,23 @@ class TestMSMFixtureIntegrity:
                 # Tie flag verification
                 is_tied = len(matches) > 1
                 assert s["is_tied"] == is_tied, f"{fix_id} {s['target']}: is_tied flag mismatch"
+
+    def test_near_but_unequal_prices_not_treated_as_ties(self):
+        """Regression test: verifies that values differing by small floating point deltas are NOT classified as ties."""
+        # Synthetic test window with near prices
+        test_window = [
+            {"index": 0, "open": 100.0, "high": 105.0, "low": 99.0, "close": 104.000000},      # UB = 104.000000
+            {"index": 1, "open": 100.0, "high": 105.0, "low": 99.0, "close": 104.000001},      # UB = 104.000001 (strictly higher!)
+            {"index": 2, "open": 100.0, "high": 105.0, "low": 99.0, "close": 103.999999},      # UB = 103.999999 (strictly lower)
+        ]
+        edges = [(c["index"], ub(c)) for c in test_window]
+        target_val = max(v for _, v in edges)
+
+        # Exact equality check: only index 1 should match
+        exact_matches = [idx for idx, v in edges if v == target_val]
+        assert exact_matches == [1], f"Expected exact match [1], got {exact_matches}"
+        assert len(exact_matches) == 1  # Must NOT be a tie!
+
+        # Demonstrate that a flawed approx check would have falsely grouped them
+        flawed_matches = [idx for idx, v in edges if v == pytest.approx(target_val, rel=1e-5)]
+        assert len(flawed_matches) > 1, "Sanity check on flawed approx grouping"
