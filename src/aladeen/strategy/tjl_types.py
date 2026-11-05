@@ -1,0 +1,379 @@
+"""Domain models, enums, and immutable value objects for Trend Joining Level (TJL).
+
+Scope & Design Boundary:
+-------------------------
+- Independent of MT5, Dash, Plotly, network, and persistent storage.
+- All result structures, zones, snapshots, sets, and event records are strictly immutable (frozen dataclasses).
+- Level identity is stable and engineering-defined:
+    (symbol_feed_id, source_timeframe, source_open_time, HIGH|LOW)
+  Strictly independent of role name, set ID, calendar week, or activation ID.
+- Adjacency is tracked via chronological candle positions, NOT arithmetic on source candle IDs.
+"""
+
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from enum import Enum
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+
+from .types import Direction, StrategyCandle, SwingPoint, validate_and_normalize_timestamp
+
+
+class TJLLabel(str, Enum):
+    """Directional role designation for Trend Joining Levels."""
+    TJL1 = "TJL1"
+    TJL2_A_PLUS = "TJL2_A_PLUS"
+
+
+class TJLSide(str, Enum):
+    """Structural side of the originating swing candle."""
+    HIGH = "HIGH"
+    LOW = "LOW"
+
+
+class TJLTransitionType(str, Enum):
+    """Lifecycle transition classifications for TJL state machine."""
+    LABELS_ONLY = "LABELS_ONLY"
+    FIRST_CREATION = "FIRST_CREATION"
+    CONTINUATION_RETAINED = "CONTINUATION_RETAINED"
+    SET_REPLACEMENT = "SET_REPLACEMENT"
+    IDEMPOTENT_NO_OP = "IDEMPOTENT_NO_OP"
+    CHOCH_INVALIDATION = "CHOCH_INVALIDATION"
+    BLOCKED_UNRESOLVED = "BLOCKED_UNRESOLVED"
+
+
+@dataclass(frozen=True)
+class StableLevelId:
+    """Immutable, unique engineering identifier for a physical price level.
+
+    Formula: (symbol_feed_id, source_timeframe, source_open_time, HIGH|LOW)
+    Invariance:
+    - Independent of strategy role (TJL1 vs TJL2).
+    - Independent of current-set identity (Set 1 vs Set 2).
+    - Independent of week / calendar resets (retained across Monday 00:00).
+    - Independent of future activation state or execution ledger.
+    """
+    symbol_feed_id: str
+    source_timeframe: str
+    source_open_time: datetime
+    side: TJLSide
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.symbol_feed_id, str) or not self.symbol_feed_id.strip():
+            raise ValueError(f"symbol_feed_id must be a non-empty string, got {self.symbol_feed_id!r}")
+        if not isinstance(self.source_timeframe, str) or not self.source_timeframe.strip():
+            raise ValueError(f"source_timeframe must be a non-empty string, got {self.source_timeframe!r}")
+
+        norm_time = validate_and_normalize_timestamp(self.source_open_time, "source_open_time")
+        object.__setattr__(self, "source_open_time", norm_time)
+
+        if isinstance(self.side, str):
+            try:
+                object.__setattr__(self, "side", TJLSide(self.side.upper()))
+            except ValueError:
+                raise ValueError(f"Invalid side '{self.side}': must be 'HIGH' or 'LOW'")
+        elif not isinstance(self.side, TJLSide):
+            raise TypeError(f"side must be TJLSide enum, got {type(self.side).__name__}")
+
+    def to_tuple(self) -> Tuple[str, str, str, str]:
+        """Returns standard 4-element string tuple representation."""
+        return (
+            self.symbol_feed_id,
+            self.source_timeframe,
+            self.source_open_time.isoformat(),
+            self.side.value,
+        )
+
+    def to_list(self) -> List[str]:
+        """Returns standard 4-element list representation."""
+        return list(self.to_tuple())
+
+    def __eq__(self, other: Any) -> bool:
+        if isinstance(other, StableLevelId):
+            return (
+                self.symbol_feed_id == other.symbol_feed_id
+                and self.source_timeframe == other.source_timeframe
+                and self.source_open_time == other.source_open_time
+                and self.side == other.side
+            )
+        if isinstance(other, (list, tuple)) and len(other) == 4:
+            feed_id, tf, dt_raw, side_raw = other
+            if self.symbol_feed_id != feed_id or self.source_timeframe != tf:
+                return False
+            try:
+                other_dt = validate_and_normalize_timestamp(dt_raw, "comparison timestamp")
+                if self.source_open_time != other_dt:
+                    return False
+            except Exception:
+                return False
+            other_side = side_raw.value if isinstance(side_raw, TJLSide) else str(side_raw).upper()
+            return self.side.value == other_side
+        return False
+
+    def __hash__(self) -> int:
+        return hash((self.symbol_feed_id, self.source_timeframe, self.source_open_time, self.side))
+
+    def __repr__(self) -> str:
+        return (
+            f"StableLevelId(symbol_feed_id={self.symbol_feed_id!r}, "
+            f"source_timeframe={self.source_timeframe!r}, "
+            f"source_open_time={self.source_open_time.isoformat()!r}, "
+            f"side={self.side.value!r})"
+        )
+
+
+@dataclass(frozen=True)
+class TJLZone:
+    """An immutable structural zone derived from an original swing candle for TJL.
+
+    Geometry:
+    - High-Side: lower_price = upper_body_edge, upper_price = high.
+    - Low-Side: lower_price = low, upper_price = lower_body_edge.
+    - If lower_price == upper_price: zero-width line (is_line = True).
+    """
+    level_id: StableLevelId
+    label: TJLLabel
+    lower_price: float
+    upper_price: float
+    is_line: bool
+    source_candle_index: int
+    source_candle_open_time: datetime
+    confirmed_candle_index: int
+    confirmed_time: Optional[datetime] = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.level_id, StableLevelId):
+            raise TypeError(f"level_id must be StableLevelId instance, got {type(self.level_id).__name__}")
+        if not isinstance(self.label, TJLLabel):
+            if isinstance(self.label, str):
+                object.__setattr__(self, "label", TJLLabel(self.label))
+            else:
+                raise TypeError(f"label must be TJLLabel enum, got {type(self.label).__name__}")
+
+        for p_name, p_val in (("lower_price", self.lower_price), ("upper_price", self.upper_price)):
+            if isinstance(p_val, bool) or not isinstance(p_val, (int, float)):
+                raise TypeError(f"{p_name} must be numeric, got {type(p_val).__name__}")
+            if not math.isfinite(p_val) or p_val <= 0:
+                raise ValueError(f"{p_name} must be finite positive, got {p_val}")
+
+        if self.lower_price > self.upper_price:
+            raise ValueError(
+                f"TJLZone lower_price ({self.lower_price}) cannot exceed upper_price ({self.upper_price})"
+            )
+
+        expected_is_line = math.isclose(self.lower_price, self.upper_price, abs_tol=1e-9)
+        if self.is_line != expected_is_line:
+            raise ValueError(
+                f"TJLZone is_line={self.is_line} inconsistent with prices: lower={self.lower_price}, upper={self.upper_price}"
+            )
+
+        norm_open = validate_and_normalize_timestamp(self.source_candle_open_time, "source_candle_open_time")
+        object.__setattr__(self, "source_candle_open_time", norm_open)
+
+        if self.confirmed_time is not None:
+            norm_conf = validate_and_normalize_timestamp(self.confirmed_time, "confirmed_time")
+            object.__setattr__(self, "confirmed_time", norm_conf)
+
+    @classmethod
+    def from_candle(
+        cls,
+        candle: StrategyCandle,
+        label: TJLLabel,
+        is_high_side: bool,
+        feed_id: str,
+        timeframe: str,
+        confirmed_candle_index: int,
+        confirmed_time: Optional[datetime] = None,
+    ) -> TJLZone:
+        """Constructs an exact TJLZone directly from a raw source candle."""
+        if not isinstance(candle, StrategyCandle):
+            raise TypeError(f"candle must be StrategyCandle, got {type(candle).__name__}")
+
+        side = TJLSide.HIGH if is_high_side else TJLSide.LOW
+        level_id = StableLevelId(
+            symbol_feed_id=feed_id,
+            source_timeframe=timeframe,
+            source_open_time=candle.open_time,
+            side=side,
+        )
+
+        if is_high_side:
+            lower_price = candle.upper_body_edge
+            upper_price = candle.high
+        else:
+            lower_price = candle.low
+            upper_price = candle.lower_body_edge
+
+        is_line = math.isclose(lower_price, upper_price, abs_tol=1e-9)
+
+        return cls(
+            level_id=level_id,
+            label=label,
+            lower_price=lower_price,
+            upper_price=upper_price,
+            is_line=is_line,
+            source_candle_index=candle.index,
+            source_candle_open_time=candle.open_time,
+            confirmed_candle_index=confirmed_candle_index,
+            confirmed_time=confirmed_time,
+        )
+
+
+@dataclass(frozen=True)
+class TJLFingerprint:
+    """Unique structural fingerprint characterizing a complete current eligible set.
+
+    Formula: (source_engine_id, direction, ch_point_id, cl_point_id, p3_point_id)
+    """
+    source_engine_id: str
+    direction: Direction
+    ch_point_id: int
+    cl_point_id: int
+    p3_point_id: int
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.source_engine_id, str) or not self.source_engine_id.strip():
+            raise ValueError(f"source_engine_id must be non-empty string, got {self.source_engine_id!r}")
+        if isinstance(self.direction, str):
+            object.__setattr__(self, "direction", Direction(self.direction))
+        elif not isinstance(self.direction, Direction):
+            raise TypeError(f"direction must be Direction enum, got {type(self.direction).__name__}")
+
+        for name, val in (("ch_point_id", self.ch_point_id), ("cl_point_id", self.cl_point_id), ("p3_point_id", self.p3_point_id)):
+            if isinstance(val, bool) or not isinstance(val, int):
+                raise TypeError(f"{name} must be int, got {type(val).__name__}")
+
+    def to_tuple(self) -> Tuple[str, str, int, int, int]:
+        return (
+            self.source_engine_id,
+            self.direction.value,
+            self.ch_point_id,
+            self.cl_point_id,
+            self.p3_point_id,
+        )
+
+    def to_list(self) -> List[Any]:
+        return list(self.to_tuple())
+
+    def __eq__(self, other: Any) -> bool:
+        if isinstance(other, TJLFingerprint):
+            return self.to_tuple() == other.to_tuple()
+        if isinstance(other, (list, tuple)) and len(other) == 5:
+            eng_id, dir_raw, ch_id, cl_id, p3_id = other
+            dir_str = dir_raw.value if isinstance(dir_raw, Direction) else str(dir_raw)
+            return (
+                self.source_engine_id == eng_id
+                and self.direction.value == dir_str
+                and self.ch_point_id == ch_id
+                and self.cl_point_id == cl_id
+                and self.p3_point_id == p3_id
+            )
+        return False
+
+    def __hash__(self) -> int:
+        return hash(self.to_tuple())
+
+
+@dataclass(frozen=True)
+class CurrentEligibleSet:
+    """An immutable current eligible TJL set containing exactly two confirmed zones and tentative Point 3 anchor."""
+    set_id: str
+    fingerprint: TJLFingerprint
+    direction: Direction
+    source_engine_id: str
+    symbol_feed_id: str
+    source_timeframe: str
+    tjl1_zone: TJLZone
+    tjl2_zone: TJLZone
+    p3_source_index: int
+    p3_open_time: datetime
+    p3_price: float
+    eligibility_available_time: Optional[datetime]
+    created_at_candle_index: int
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.fingerprint, TJLFingerprint):
+            raise TypeError(f"fingerprint must be TJLFingerprint, got {type(self.fingerprint).__name__}")
+        if not isinstance(self.tjl1_zone, TJLZone) or not isinstance(self.tjl2_zone, TJLZone):
+            raise TypeError("tjl1_zone and tjl2_zone must be TJLZone instances")
+
+        norm_p3_time = validate_and_normalize_timestamp(self.p3_open_time, "p3_open_time")
+        object.__setattr__(self, "p3_open_time", norm_p3_time)
+
+        if self.eligibility_available_time is not None:
+            norm_avail = validate_and_normalize_timestamp(self.eligibility_available_time, "eligibility_available_time")
+            object.__setattr__(self, "eligibility_available_time", norm_avail)
+
+
+@dataclass(frozen=True)
+class TJLTransitionRecord:
+    """Immutable diagnostic record describing an atomic lifecycle transition."""
+    transition_type: TJLTransitionType
+    outgoing_cancellation_intent: bool
+    current_set: Optional[CurrentEligibleSet]
+    newly_labeled_zones: Tuple[TJLZone, ...]
+    transition_candle_index: int
+    transition_time: Optional[datetime]
+    diagnostic: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        if isinstance(self.transition_type, str):
+            object.__setattr__(self, "transition_type", TJLTransitionType(self.transition_type))
+        if self.transition_time is not None:
+            norm_time = validate_and_normalize_timestamp(self.transition_time, "transition_time")
+            object.__setattr__(self, "transition_time", norm_time)
+
+
+@dataclass(frozen=True)
+class TJLStructuralObservation:
+    """Input payload delivered to the pure TJL lifecycle reducer at each observation point.
+
+    Decouples reducer state logic from candle iteration or MT5 data types.
+    """
+    source_engine_id: str
+    symbol_feed_id: str
+    source_timeframe: str
+    direction: Direction
+    candle_index: int
+    candle_time: Optional[datetime]
+    ch_point: Optional[SwingPoint] = None
+    cl_point: Optional[SwingPoint] = None
+    tentative_p3: Optional[SwingPoint] = None
+    is_choch_event: bool = False
+    new_choch_direction: Optional[Direction] = None
+    is_unresolved: bool = False
+    unresolved_diagnostic: Optional[str] = None
+    source_candle_lookup: Dict[int, StrategyCandle] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.source_engine_id, str) or not self.source_engine_id.strip():
+            raise ValueError("source_engine_id must be non-empty string")
+        if not isinstance(self.symbol_feed_id, str) or not self.symbol_feed_id.strip():
+            raise ValueError("symbol_feed_id must be non-empty string")
+        if not isinstance(self.source_timeframe, str) or not self.source_timeframe.strip():
+            raise ValueError("source_timeframe must be non-empty string")
+        if isinstance(self.direction, str):
+            object.__setattr__(self, "direction", Direction(self.direction))
+        if self.candle_time is not None:
+            norm_time = validate_and_normalize_timestamp(self.candle_time, "candle_time")
+            object.__setattr__(self, "candle_time", norm_time)
+
+
+@dataclass(frozen=True)
+class TJLSnapshot:
+    """Immutable snapshot of the pure TJL engine state."""
+    source_engine_id: str
+    symbol_feed_id: str
+    source_timeframe: str
+    direction: Optional[Direction]
+    current_eligible_set: Optional[CurrentEligibleSet]
+    all_labeled_zones: Tuple[TJLZone, ...]
+    historical_sets: Tuple[CurrentEligibleSet, ...]
+    outgoing_cancellation_intent: bool
+    last_transition: Optional[TJLTransitionRecord]
+    is_unresolved: bool
+    unresolved_diagnostic: Optional[str]
+    last_processed_index: int
+    last_received_index: int

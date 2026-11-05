@@ -234,3 +234,32 @@ Last Updated: 2026-11-05 (MSM Dashboard Milestone Accepted — Transition to CHO
   4. CHOCH timing / identification-close question (`c1 == p2`) remains contained and unresolved.
   5. Missing-provenance execution is documented as blocked/unresolved and remains explicitly unsupported for authoritative integrated progression until a dedicated production guard is execution-tested.
 - **Transition**: Proceed to TJL requirements and lifecycle acceptance on branch `requirements/tjl-acceptance` (strictly no activation, taps, or trade execution).
+
+---
+
+## 8. Milestone Acceptance: TJL Requirements & Acceptance Specifications (HANDOFF-037)
+- **Accepted Milestone**: Trend Joining Level (TJL) Acceptance Specification & Fixture Validation (`HANDOFF-037`).
+- **Accepted Commit Hash**: `859cf12ae11b2198a6306a183364860e84b82724`
+- **Reviewer Status**: **ACCEPTED** by Perplexity on 2026-11-06 as the bounded TJL requirements baseline.
+- **Key Baseline Requirements & Timing Precision**:
+  1. **Timing Separation for Promoted Points**:
+     - At $t_1$ (confirmation): point receives its TJL label and original-candle zone.
+     - At $t_2$ (replacement): that point becomes a member of the new current eligible set.
+     - A newly confirmed label must not bypass the $t_1 / t_2$ lifecycle.
+  2. **Three Distinct Persistence & Provenance Cases**:
+     - **Case A (Point Provenance Promotion)**: P3 promoted to a confirmed TJL point preserving point provenance (`tjl_07a`).
+     - **Case B (Confirmed Member Persisting Across Replacement)**: Shared confirmed level ID preserved across set replacement (`tjl_07b`).
+     - **Case C (Outgoing Cancellation Intent Applies to Outgoing Set)**: Outgoing cancellation intent applies to the entire outgoing set despite surviving member identity.
+  3. **Usage Contracts Distinct from Implemented Behavior**:
+     - Future usage preservation remains an external ledger contract. No usage ledger code exists or is claimed as implemented in this phase.
+  4. **Historical Records vs. Epoch Eligibility**:
+     - Retained `confirmed_pairs` are historical records. After CHOCH, the historical list is not cleared, but current-direction eligibility is determined strictly from the new structural epoch and its fresh prerequisites.
+  5. **Stable Level ID Formula**:
+     `(symbol_feed_id, source_timeframe, source_open_time, HIGH|LOW)`.
+  6. **Independent Timelines**:
+     - Bullish First Set Creation: `ENGINE_EURUSD_H1` (Bars 0–7).
+     - Bearish Lifecycle ($t_0 \to t_1 \to t_2$): `ENGINE_GBPUSD_H1` (Bars 0–16).
+- **Current Milestone**: Pure offline TJL labeling, geometry, and current-set lifecycle engine.
+- **Active Branch**: `feature/tjl-engine` created from `859cf12ae11b2198a6306a183364860e84b82724`.
+- **Scope Boundaries**: Strictly zero UI, taps, activation engine, usage ledger, arbitration, entry signals, or order execution. Zero merging into `main`.
+
