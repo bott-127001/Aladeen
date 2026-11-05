@@ -2,19 +2,23 @@
 
 Provides read-only access to local MT5 market data:
 - Connects to an already-running local MT5 terminal using its existing session.
+- Distinguishes local terminal API responsiveness from trade broker connectivity.
 - Fetches symbol lists and recent OHLC candle history.
-- Never requests, stores, logs, or commits account credentials.
+- Never requests, stores, logs, or commits account credentials or balances.
 - Strictly read-only: contains zero order-execution or trading logic.
 - Safe when MetaTrader5 package is not installed (optional dependency).
+- Safe and idempotent disconnect / cleanup.
 """
 
 from __future__ import annotations
 
+import atexit
+from enum import Enum
 import logging
 from typing import Any
 import pandas as pd
 
-from aladeen.data.contract import validate_candle_data
+from aladeen.data.contract import BarStatus, validate_candle_data
 
 logger = logging.getLogger(__name__)
 
@@ -44,8 +48,14 @@ class MT5DataError(MT5Error):
     pass
 
 
+class MT5ConnectionState(str, Enum):
+    """Detailed connection state distinguishing local terminal from broker server."""
+    DISCONNECTED = "DISCONNECTED"                      # Terminal API not running or closed
+    TERMINAL_ONLY = "TERMINAL_ONLY"                    # Terminal API responsive, but broker connection is offline
+    CONNECTED_TO_BROKER = "CONNECTED_TO_BROKER"        # Terminal API responsive AND connected to broker
+
+
 # Supported timeframe labels mapped to MT5 standard integer constants.
-# These constants correspond to mt5.TIMEFRAME_* values without requiring MT5 import.
 TIMEFRAME_MAP: dict[str, int] = {
     "M1": 1,
     "M5": 5,
@@ -67,7 +77,7 @@ class MT5Adapter:
 
     def __init__(self, mt5_module: Any = None) -> None:
         self._mt5 = mt5_module
-        self._connected: bool = False
+        self._initialized: bool = False
 
     def _get_mt5(self) -> Any:
         """Return the MetaTrader5 module or raise MT5NotInstalledError."""
@@ -93,27 +103,56 @@ class MT5Adapter:
         except MT5NotInstalledError:
             return False
 
-    def is_connected(self) -> bool:
-        """Check whether the adapter is currently connected to the local MT5 terminal."""
-        if not self._connected:
-            return False
+    def get_connection_state(self) -> MT5ConnectionState:
+        """Inspect the terminal's reported connection health.
+
+        Distinguishes local terminal API responsiveness from broker server connectivity:
+        - DISCONNECTED: Local terminal process is not initialized or closed.
+        - TERMINAL_ONLY: Local terminal is responsive, but broker server is disconnected.
+        - CONNECTED_TO_BROKER: Local terminal is responsive AND connected to broker server.
+        """
+        if not self._initialized:
+            return MT5ConnectionState.DISCONNECTED
 
         try:
             mt5 = self._get_mt5()
             info = mt5.terminal_info()
             if info is None:
-                self._connected = False
-                return False
-            return True
-        except Exception:
-            self._connected = False
-            return False
+                self._initialized = False
+                return MT5ConnectionState.DISCONNECTED
 
-    def connect(self) -> None:
+            # Inspect the terminal's reported connected status to the trade server
+            is_broker_connected = getattr(info, "connected", False)
+            if is_broker_connected:
+                return MT5ConnectionState.CONNECTED_TO_BROKER
+            else:
+                return MT5ConnectionState.TERMINAL_ONLY
+        except Exception:
+            self._initialized = False
+            return MT5ConnectionState.DISCONNECTED
+
+    def is_terminal_responsive(self) -> bool:
+        """Check whether the local MT5 terminal process is responsive."""
+        return self.get_connection_state() != MT5ConnectionState.DISCONNECTED
+
+    def is_broker_connected(self) -> bool:
+        """Check whether the terminal is actively connected to the broker server."""
+        return self.get_connection_state() == MT5ConnectionState.CONNECTED_TO_BROKER
+
+    def is_connected(self) -> bool:
+        """Check whether the adapter is connected and terminal API is responsive."""
+        return self.is_terminal_responsive()
+
+    def connect(self) -> MT5ConnectionState:
         """Connect to the running local MT5 terminal using its existing session.
 
         Does NOT request, store, or accept any user credentials or passwords.
         Connects directly to the existing session via mt5.initialize().
+
+        Returns
+        -------
+        MT5ConnectionState
+            The resulting connection state (TERMINAL_ONLY or CONNECTED_TO_BROKER).
 
         Raises
         ------
@@ -124,17 +163,16 @@ class MT5Adapter:
         """
         mt5 = self._get_mt5()
 
-        # If already connected and terminal is responsive, reuse connection
-        if self._connected:
-            try:
-                if mt5.terminal_info() is not None:
-                    return
-            except Exception:
-                self._connected = False
+        # If already initialized and terminal is responsive, reuse connection
+        if self._initialized:
+            state = self.get_connection_state()
+            if state != MT5ConnectionState.DISCONNECTED:
+                return state
 
         # Attempt initialization without credentials
         success = mt5.initialize()
         if not success:
+            self._initialized = False
             err_code, err_msg = (None, None)
             try:
                 last_err = mt5.last_error()
@@ -153,20 +191,25 @@ class MT5Adapter:
                 + err_details
             )
 
-        self._connected = True
-        logger.info("Connected to local MT5 terminal.")
+        self._initialized = True
+        state = self.get_connection_state()
+        logger.info(f"Connected to local MT5 terminal. State: {state.value}")
+        return state
 
     def disconnect(self) -> None:
-        """Disconnect and cleanup the MT5 terminal connection."""
-        if self._connected:
-            try:
-                mt5 = self._get_mt5()
-                mt5.shutdown()
-            except Exception as e:
-                logger.warning(f"Error during MT5 shutdown: {e}")
-            finally:
-                self._connected = False
-                logger.info("Disconnected from MT5 terminal.")
+        """Disconnect and cleanup the MT5 terminal connection.
+
+        This method is strictly safe and idempotent: it can be called multiple
+        times or after a failed health check without raising errors.
+        """
+        try:
+            if self._mt5 is not None and hasattr(self._mt5, "shutdown"):
+                self._mt5.shutdown()
+        except Exception as e:
+            logger.warning(f"Error during MT5 shutdown: {e}")
+        finally:
+            self._initialized = False
+            logger.info("Disconnected from MT5 terminal (state reset).")
 
     def get_symbols(self) -> list[str]:
         """Fetch list of available symbols from the connected MT5 terminal.
@@ -205,6 +248,21 @@ class MT5Adapter:
         count: int = 100,
     ) -> pd.DataFrame:
         """Fetch recent OHLC candlestick data from the local MT5 terminal.
+
+        Bar Position Zero Semantics:
+        ----------------------------
+        In MT5 copy_rates_from_pos(symbol, tf, 0, count):
+        - Index pos = 0 returns the latest candle known to the terminal.
+        - Historical rows (pos >= 1) are verified completed historical candles
+          (is_forming = False, bar_status = 'CONFIRMED_COMPLETED').
+        - The latest row (pos = 0) represents the current bar.
+        - In a static snapshot or manual refresh, whether this latest bar is
+          still developing or closed depends on broker market session hours,
+          weekend closures, and live tick delivery. It CANNOT be verified
+          solely from the snapshot without real-time broker session confirmation.
+        - The adapter marks the latest row with is_forming = True and
+          bar_status = 'UNCONFIRMED_LATEST' to explicitly represent that its
+          completion is uncertified.
 
         Parameters
         ----------
@@ -284,11 +342,15 @@ class MT5Adapter:
         if not df.index.is_monotonic_increasing:
             df = df.sort_index()
 
-        # Distinguish forming vs completed candles:
-        # In copy_rates_from_pos starting from pos 0, the latest candle at index -1
-        # is the currently open/forming candle.
+        # Explicit candle completion flags:
+        # Preceding rows are completed historical bars
         df["is_forming"] = False
-        df.iloc[-1, df.columns.get_loc("is_forming")] = True
+        df["bar_status"] = "CONFIRMED_COMPLETED"
+
+        # The latest row (pos 0) is the latest known bar (unconfirmed completion)
+        if len(df) > 0:
+            df.iloc[-1, df.columns.get_loc("is_forming")] = True
+            df.iloc[-1, df.columns.get_loc("bar_status")] = "UNCONFIRMED_LATEST"
 
         # Validate against the contract
         validated = validate_candle_data(df)
@@ -305,3 +367,17 @@ def get_mt5_adapter() -> MT5Adapter:
     if _default_adapter is None:
         _default_adapter = MT5Adapter()
     return _default_adapter
+
+
+def _cleanup_default_adapter() -> None:
+    """Process exit handler to ensure clean terminal disconnection."""
+    global _default_adapter
+    if _default_adapter is not None:
+        try:
+            _default_adapter.disconnect()
+        except Exception:
+            pass
+
+
+# Register clean shutdown at Python process exit
+atexit.register(_cleanup_default_adapter)

@@ -10,14 +10,16 @@ from aladeen.data.contract import CandleValidationError
 from aladeen.data.mt5_adapter import (
     MT5Adapter,
     MT5ConnectionError,
+    MT5ConnectionState,
     MT5DataError,
     MT5NotInstalledError,
     MT5SymbolError,
     TIMEFRAME_MAP,
+    _cleanup_default_adapter,
 )
 
 
-def _make_mock_rate_record(n: int = 20) -> np.ndarray:
+def _make_mock_rate_record(n: int = 20, base_time: int = 1700000000) -> np.ndarray:
     """Create a mock numpy structured array matching MT5 copy_rates format."""
     dtype = [
         ("time", "<i8"),
@@ -30,7 +32,6 @@ def _make_mock_rate_record(n: int = 20) -> np.ndarray:
         ("real_volume", "<i8"),
     ]
     records = []
-    base_time = 1700000000  # Unix timestamp in seconds
     for i in range(n):
         t = base_time + i * 3600
         o = 1.1000 + i * 0.001
@@ -47,7 +48,6 @@ class TestMT5AdapterMissingDependency:
     def test_missing_dependency_raises_not_installed_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         adapter = MT5Adapter(mt5_module=None)
 
-        # Force import to fail
         import builtins
         real_import = builtins.__import__
 
@@ -64,9 +64,9 @@ class TestMT5AdapterMissingDependency:
 
 
 class TestMT5AdapterConnection:
-    """Verify connection lifecycle, error handling, and reconnection avoidance."""
+    """Verify connection lifecycle, broker connectivity distinction, and cleanup."""
 
-    def test_connect_success(self) -> None:
+    def test_connect_success_broker_connected(self) -> None:
         mock_mt5 = MagicMock()
         mock_mt5.initialize.return_value = True
         mock_mt5.terminal_info.return_value = MagicMock(connected=True)
@@ -75,9 +75,25 @@ class TestMT5AdapterConnection:
         assert adapter.is_package_installed()
         assert not adapter.is_connected()
 
-        adapter.connect()
+        state = adapter.connect()
+        assert state == MT5ConnectionState.CONNECTED_TO_BROKER
         assert adapter.is_connected()
+        assert adapter.is_terminal_responsive()
+        assert adapter.is_broker_connected()
         mock_mt5.initialize.assert_called_once_with()
+
+    def test_connect_success_terminal_only_broker_offline(self) -> None:
+        """Terminal API responsive but broker connection is offline."""
+        mock_mt5 = MagicMock()
+        mock_mt5.initialize.return_value = True
+        mock_mt5.terminal_info.return_value = MagicMock(connected=False)
+
+        adapter = MT5Adapter(mt5_module=mock_mt5)
+        state = adapter.connect()
+        assert state == MT5ConnectionState.TERMINAL_ONLY
+        assert adapter.is_terminal_responsive()
+        assert not adapter.is_broker_connected()
+        assert adapter.is_connected()
 
     def test_reconnect_avoidance_when_already_connected(self) -> None:
         mock_mt5 = MagicMock()
@@ -88,7 +104,6 @@ class TestMT5AdapterConnection:
         adapter.connect()
         assert mock_mt5.initialize.call_count == 1
 
-        # Second connect should reuse existing connection without re-initializing
         adapter.connect()
         assert mock_mt5.initialize.call_count == 1
 
@@ -102,11 +117,13 @@ class TestMT5AdapterConnection:
             adapter.connect()
 
         assert not adapter.is_connected()
+        assert adapter.get_connection_state() == MT5ConnectionState.DISCONNECTED
 
-    def test_disconnect_and_cleanup(self) -> None:
+    def test_disconnect_and_cleanup_idempotent(self) -> None:
+        """Calling disconnect multiple times is safe, idempotent, and never raises."""
         mock_mt5 = MagicMock()
         mock_mt5.initialize.return_value = True
-        mock_mt5.terminal_info.return_value = MagicMock()
+        mock_mt5.terminal_info.return_value = MagicMock(connected=True)
 
         adapter = MT5Adapter(mt5_module=mock_mt5)
         adapter.connect()
@@ -114,7 +131,34 @@ class TestMT5AdapterConnection:
 
         adapter.disconnect()
         assert not adapter.is_connected()
+        assert adapter.get_connection_state() == MT5ConnectionState.DISCONNECTED
         mock_mt5.shutdown.assert_called_once()
+
+        # Repeated disconnect calls must succeed idempotently
+        adapter.disconnect()
+        adapter.disconnect()
+        assert not adapter.is_connected()
+
+    def test_disconnect_after_failed_health_check(self) -> None:
+        """Disconnect must remain safe even after terminal_info becomes None."""
+        mock_mt5 = MagicMock()
+        mock_mt5.initialize.return_value = True
+        mock_mt5.terminal_info.return_value = MagicMock(connected=True)
+
+        adapter = MT5Adapter(mt5_module=mock_mt5)
+        adapter.connect()
+
+        # Terminal closed abruptly
+        mock_mt5.terminal_info.return_value = None
+        assert not adapter.is_connected()
+
+        # Disconnect should cleanly invoke shutdown without error
+        adapter.disconnect()
+        assert not adapter.is_connected()
+
+    def test_cleanup_default_adapter_function(self) -> None:
+        """Process exit helper executes safely."""
+        _cleanup_default_adapter()
 
 
 class TestMT5AdapterSymbols:
@@ -128,7 +172,7 @@ class TestMT5AdapterSymbols:
     def test_get_symbols_returns_sorted_list(self) -> None:
         mock_mt5 = MagicMock()
         mock_mt5.initialize.return_value = True
-        mock_mt5.terminal_info.return_value = MagicMock()
+        mock_mt5.terminal_info.return_value = MagicMock(connected=True)
 
         sym1 = MagicMock(name="sym1", visible=True)
         sym1.name = "XAUUSD"
@@ -147,7 +191,7 @@ class TestMT5AdapterSymbols:
     def test_get_symbols_handles_none_or_empty(self) -> None:
         mock_mt5 = MagicMock()
         mock_mt5.initialize.return_value = True
-        mock_mt5.terminal_info.return_value = MagicMock()
+        mock_mt5.terminal_info.return_value = MagicMock(connected=True)
         mock_mt5.symbols_get.return_value = None
 
         adapter = MT5Adapter(mt5_module=mock_mt5)
@@ -167,7 +211,7 @@ class TestMT5AdapterDataFetch:
     def test_unsupported_timeframe_raises_error(self) -> None:
         mock_mt5 = MagicMock()
         mock_mt5.initialize.return_value = True
-        mock_mt5.terminal_info.return_value = MagicMock()
+        mock_mt5.terminal_info.return_value = MagicMock(connected=True)
 
         adapter = MT5Adapter(mt5_module=mock_mt5)
         adapter.connect()
@@ -185,7 +229,7 @@ class TestMT5AdapterDataFetch:
     def test_correct_timeframe_and_symbol_passed(self, tf: str, expected_const: int) -> None:
         mock_mt5 = MagicMock()
         mock_mt5.initialize.return_value = True
-        mock_mt5.terminal_info.return_value = MagicMock()
+        mock_mt5.terminal_info.return_value = MagicMock(connected=True)
         mock_mt5.symbol_select.return_value = True
         mock_mt5.copy_rates_from_pos.return_value = _make_mock_rate_record(20)
 
@@ -200,7 +244,7 @@ class TestMT5AdapterDataFetch:
     def test_candle_count_bounding(self) -> None:
         mock_mt5 = MagicMock()
         mock_mt5.initialize.return_value = True
-        mock_mt5.terminal_info.return_value = MagicMock()
+        mock_mt5.terminal_info.return_value = MagicMock(connected=True)
         mock_mt5.symbol_select.return_value = True
         mock_mt5.copy_rates_from_pos.return_value = _make_mock_rate_record(15)
 
@@ -218,7 +262,7 @@ class TestMT5AdapterDataFetch:
     def test_symbol_select_failure_raises_symbol_error(self) -> None:
         mock_mt5 = MagicMock()
         mock_mt5.initialize.return_value = True
-        mock_mt5.terminal_info.return_value = MagicMock()
+        mock_mt5.terminal_info.return_value = MagicMock(connected=True)
         mock_mt5.symbol_select.return_value = False
 
         adapter = MT5Adapter(mt5_module=mock_mt5)
@@ -230,7 +274,7 @@ class TestMT5AdapterDataFetch:
     def test_empty_rates_raises_data_error(self) -> None:
         mock_mt5 = MagicMock()
         mock_mt5.initialize.return_value = True
-        mock_mt5.terminal_info.return_value = MagicMock()
+        mock_mt5.terminal_info.return_value = MagicMock(connected=True)
         mock_mt5.symbol_select.return_value = True
         mock_mt5.copy_rates_from_pos.return_value = None
         mock_mt5.last_error.return_value = (1, "No history")
@@ -241,10 +285,11 @@ class TestMT5AdapterDataFetch:
         with pytest.raises(MT5DataError, match="No candle data returned"):
             adapter.fetch_candles("EURUSD", "H4")
 
-    def test_forming_candle_flagging(self) -> None:
+    def test_forming_and_latest_candle_semantics(self) -> None:
+        """Position 0 candle marked as forming/unconfirmed latest, while historical are confirmed."""
         mock_mt5 = MagicMock()
         mock_mt5.initialize.return_value = True
-        mock_mt5.terminal_info.return_value = MagicMock()
+        mock_mt5.terminal_info.return_value = MagicMock(connected=True)
         mock_mt5.symbol_select.return_value = True
         mock_mt5.copy_rates_from_pos.return_value = _make_mock_rate_record(10)
 
@@ -253,17 +298,39 @@ class TestMT5AdapterDataFetch:
 
         df = adapter.fetch_candles("EURUSD", "H4", count=10)
         assert "is_forming" in df.columns
-        assert df["is_forming"].iloc[-1] is True or df["is_forming"].iloc[-1] == True
+        assert "bar_status" in df.columns
+        # Latest bar (index -1)
+        assert bool(df["is_forming"].iloc[-1]) is True
+        assert df["bar_status"].iloc[-1] == "UNCONFIRMED_LATEST"
+        # Preceding bars
         assert not df["is_forming"].iloc[:-1].any()
+        assert (df["bar_status"].iloc[:-1] == "CONFIRMED_COMPLETED").all()
+
+    def test_stale_latest_bar_and_closed_market_snapshot(self) -> None:
+        """A snapshot taken when the market is closed (stale latest bar) validates without error."""
+        mock_mt5 = MagicMock()
+        mock_mt5.initialize.return_value = True
+        mock_mt5.terminal_info.return_value = MagicMock(connected=False)  # Broker offline / weekend
+        mock_mt5.symbol_select.return_value = True
+        # Timestamp from 3 days ago (stale history)
+        stale_time = 1600000000
+        mock_mt5.copy_rates_from_pos.return_value = _make_mock_rate_record(10, base_time=stale_time)
+
+        adapter = MT5Adapter(mt5_module=mock_mt5)
+        adapter.connect()
+
+        df = adapter.fetch_candles("EURUSD", "H4", count=10)
+        assert len(df) == 10
+        assert bool(df["is_forming"].iloc[-1]) is True
+        assert df["bar_status"].iloc[-1] == "UNCONFIRMED_LATEST"
 
     def test_malformed_rates_fails_contract_validation(self) -> None:
         mock_mt5 = MagicMock()
         mock_mt5.initialize.return_value = True
-        mock_mt5.terminal_info.return_value = MagicMock()
+        mock_mt5.terminal_info.return_value = MagicMock(connected=True)
         mock_mt5.symbol_select.return_value = True
 
         bad_records = _make_mock_rate_record(10)
-        # Violate consistency: high < low
         bad_records["high"][0] = bad_records["low"][0] - 1.0
         mock_mt5.copy_rates_from_pos.return_value = bad_records
 

@@ -8,10 +8,13 @@ dedicated modules.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import logging
 from typing import Any
 import dash
 from dash import Dash, Input, Output, State, callback_context, dcc, html
 import plotly.graph_objects as go
+
+logger = logging.getLogger(__name__)
 
 from aladeen.data.contract import CandleValidationError
 from aladeen.data.fixtures import (
@@ -23,6 +26,7 @@ from aladeen.data.fixtures import (
 )
 from aladeen.data.mt5_adapter import (
     MT5ConnectionError,
+    MT5ConnectionState,
     MT5DataError,
     MT5Error,
     MT5NotInstalledError,
@@ -32,10 +36,35 @@ from aladeen.data.mt5_adapter import (
 from aladeen.ui.chart import create_candlestick_chart, create_empty_chart
 
 # ---------------------------------------------------------------------------
-# Layout helpers
+# Badge & Banner Styles
 # ---------------------------------------------------------------------------
 
-_BANNER_STYLE_DEMO = {
+BADGE_STYLE_CONNECTED_BROKER = {
+    "padding": "4px 8px",
+    "borderRadius": "4px",
+    "background": "#1b5e20",
+    "color": "#a5d6a7",
+    "fontSize": "12px",
+}
+
+BADGE_STYLE_TERMINAL_ONLY = {
+    "padding": "4px 8px",
+    "borderRadius": "4px",
+    "background": "#f57f17",
+    "color": "#212121",
+    "fontSize": "12px",
+    "fontWeight": "bold",
+}
+
+BADGE_STYLE_DISCONNECTED = {
+    "padding": "4px 8px",
+    "borderRadius": "4px",
+    "background": "#263238",
+    "color": "#b0bec5",
+    "fontSize": "12px",
+}
+
+BANNER_STYLE_DEMO = {
     "background": "#ff9800",
     "color": "#000",
     "textAlign": "center",
@@ -44,7 +73,7 @@ _BANNER_STYLE_DEMO = {
     "fontSize": "13px",
 }
 
-_BANNER_STYLE_MT5_CONNECTED = {
+BANNER_STYLE_MT5_CONNECTED = {
     "background": "#2e7d32",
     "color": "#fff",
     "textAlign": "center",
@@ -53,7 +82,16 @@ _BANNER_STYLE_MT5_CONNECTED = {
     "fontSize": "13px",
 }
 
-_BANNER_STYLE_MT5_DISCONNECTED = {
+BANNER_STYLE_MT5_TERMINAL_ONLY = {
+    "background": "#e65100",
+    "color": "#fff",
+    "textAlign": "center",
+    "padding": "8px",
+    "fontWeight": "bold",
+    "fontSize": "13px",
+}
+
+BANNER_STYLE_MT5_DISCONNECTED = {
     "background": "#37474f",
     "color": "#cfd8dc",
     "textAlign": "center",
@@ -86,7 +124,7 @@ def _build_controls() -> html.Div:
                     html.Div(
                         [
                             html.Label(
-                                "Data Source",
+                                "Chart Data Source",
                                 style={"color": "#aaa", "fontSize": "12px", "display": "block", "marginBottom": "4px"},
                             ),
                             dcc.RadioItems(
@@ -140,13 +178,7 @@ def _build_controls() -> html.Div:
                             html.Span(
                                 "Disconnected",
                                 id="connection-badge",
-                                style={
-                                    "padding": "4px 8px",
-                                    "borderRadius": "4px",
-                                    "background": "#263238",
-                                    "color": "#b0bec5",
-                                    "fontSize": "12px",
-                                },
+                                style=BADGE_STYLE_DISCONNECTED,
                             ),
                         ],
                     ),
@@ -260,7 +292,14 @@ def build_layout() -> html.Div:
         style={"fontFamily": "Segoe UI, sans-serif", "background": "#14141f", "minHeight": "100vh"},
         children=[
             # Hidden Stores for State Management
-            dcc.Store(id="mt5-connection-store", data={"connected": False, "symbols": []}),
+            dcc.Store(
+                id="mt5-connection-store",
+                data={"state": "DISCONNECTED", "symbols": []},
+            ),
+            dcc.Store(
+                id="connection-loss-trigger",
+                data=None,
+            ),
             # Title bar
             html.Div(
                 style={
@@ -276,9 +315,9 @@ def build_layout() -> html.Div:
             ),
             # Data source banner
             html.Div(
-                "⚠️  DEMO DATA — NOT CONNECTED TO MT5",
+                "⚠️ DEMO MODE — Viewing synthetic fixtures (MT5 disconnected)",
                 id="source-banner",
-                style=_BANNER_STYLE_DEMO,
+                style=BANNER_STYLE_DEMO,
             ),
             # Controls
             _build_controls(),
@@ -303,22 +342,146 @@ def build_layout() -> html.Div:
 
 
 # ---------------------------------------------------------------------------
-# Core Chart & Status Generation (Testable standalone function)
+# Pure Dashboard State Logic (Separated for Testing)
 # ---------------------------------------------------------------------------
 
 
-def generate_chart_and_status(
+def process_connection_and_banner(
+    triggered_id: str,
     data_source: str,
-    symbol: str,
+    store_data: dict,
+    loss_trigger_data: dict | None = None,
+    adapter: Any = None,
+) -> dict[str, Any]:
+    """Calculate connection badge, banner, and symbol options atomically."""
+    if adapter is None:
+        adapter = get_mt5_adapter()
+
+    conn_state_str = store_data.get("state", "DISCONNECTED") if store_data else "DISCONNECTED"
+    cached_symbols: list[str] = store_data.get("symbols", []) if store_data else []
+    error_msg: str | None = None
+
+    if triggered_id == "connection-loss-trigger" and loss_trigger_data:
+        adapter.disconnect()
+        conn_state_str = MT5ConnectionState.DISCONNECTED.value
+        cached_symbols = []
+        error_msg = f"Connection Lost during refresh: {loss_trigger_data.get('error', 'Unknown error')}"
+
+    elif triggered_id == "connect-btn":
+        try:
+            state_enum = adapter.connect()
+            conn_state_str = state_enum.value
+            cached_symbols = adapter.get_symbols()
+        except (MT5NotInstalledError, MT5ConnectionError) as e:
+            adapter.disconnect()
+            conn_state_str = MT5ConnectionState.DISCONNECTED.value
+            cached_symbols = []
+            error_msg = str(e)
+        except Exception as e:
+            adapter.disconnect()
+            conn_state_str = MT5ConnectionState.DISCONNECTED.value
+            cached_symbols = []
+            error_msg = f"Unexpected connection error: {e}"
+
+    elif triggered_id == "disconnect-btn":
+        adapter.disconnect()
+        conn_state_str = MT5ConnectionState.DISCONNECTED.value
+        cached_symbols = []
+
+    # Verify adapter connection health
+    current_adapter_state = adapter.get_connection_state().value
+    if conn_state_str != MT5ConnectionState.DISCONNECTED.value and current_adapter_state == MT5ConnectionState.DISCONNECTED.value:
+        conn_state_str = MT5ConnectionState.DISCONNECTED.value
+        cached_symbols = []
+
+    # Badge mapping
+    if conn_state_str == MT5ConnectionState.CONNECTED_TO_BROKER.value:
+        badge_text = "🟢 Connected to Broker"
+        badge_style = BADGE_STYLE_CONNECTED_BROKER
+    elif conn_state_str == MT5ConnectionState.TERMINAL_ONLY.value:
+        badge_text = "🟡 Terminal Ready (Broker Offline)"
+        badge_style = BADGE_STYLE_TERMINAL_ONLY
+    else:
+        badge_text = "Disconnected"
+        badge_style = BADGE_STYLE_DISCONNECTED
+
+    # Banner mapping
+    if data_source == "demo":
+        if conn_state_str == MT5ConnectionState.CONNECTED_TO_BROKER.value:
+            banner_text = "⚠️ DEMO MODE — Viewing synthetic fixtures (MT5 connected to broker in background)"
+        elif conn_state_str == MT5ConnectionState.TERMINAL_ONLY.value:
+            banner_text = "⚠️ DEMO MODE — Viewing synthetic fixtures (MT5 terminal ready, broker offline in background)"
+        else:
+            banner_text = "⚠️ DEMO MODE — Viewing synthetic fixtures (MT5 disconnected)"
+        banner_style = BANNER_STYLE_DEMO
+        sym_options = [{"label": s, "value": s} for s in available_symbols()]
+        sym_value = available_symbols()[0]
+        sym_disabled = True
+    else:
+        # MT5 mode
+        if conn_state_str == MT5ConnectionState.CONNECTED_TO_BROKER.value:
+            banner_text = "🟢 MT5 CONNECTED — Local Terminal Read-Only Market Data (Broker Connected)"
+            banner_style = BANNER_STYLE_MT5_CONNECTED
+        elif conn_state_str == MT5ConnectionState.TERMINAL_ONLY.value:
+            banner_text = "🟡 MT5 TERMINAL READY — Broker Offline (Cached local history only)"
+            banner_style = BANNER_STYLE_MT5_TERMINAL_ONLY
+        else:
+            banner_text = "🔴 MT5 DISCONNECTED — Click '⚡ Connect MT5' to load local terminal data"
+            banner_style = BANNER_STYLE_MT5_DISCONNECTED
+
+        if conn_state_str != MT5ConnectionState.DISCONNECTED.value and cached_symbols:
+            sym_options = [{"label": s, "value": s} for s in cached_symbols]
+            sym_value = cached_symbols[0]
+            sym_disabled = False
+        elif conn_state_str != MT5ConnectionState.DISCONNECTED.value and not cached_symbols:
+            sym_options = [{"label": "No symbols available", "value": ""}]
+            sym_value = ""
+            sym_disabled = True
+        else:
+            sym_options = [{"label": "Connect to MT5 first", "value": ""}]
+            sym_value = ""
+            sym_disabled = True
+
+    if error_msg:
+        alert_children = [html.B("MT5 Alert: "), html.Span(error_msg)]
+        alert_style = {
+            "display": "block",
+            "background": "#b71c1c",
+            "color": "#ffebee",
+            "padding": "8px 12px",
+            "borderRadius": "4px",
+            "fontSize": "13px",
+            "marginTop": "6px",
+        }
+    else:
+        alert_children = []
+        alert_style = {"display": "none"}
+
+    new_store = {"state": conn_state_str, "symbols": cached_symbols}
+
+    return {
+        "store_data": new_store,
+        "badge_text": badge_text,
+        "badge_style": badge_style,
+        "banner_text": banner_text,
+        "banner_style": banner_style,
+        "sym_options": sym_options,
+        "sym_value": sym_value,
+        "sym_disabled": sym_disabled,
+        "alert_children": alert_children,
+        "alert_style": alert_style,
+    }
+
+
+def generate_chart_and_status_with_trigger(
+    data_source: str,
+    symbol: str | None,
     timeframe: str,
     candle_count: int,
     is_connected: bool,
     adapter: Any = None,
-) -> tuple[go.Figure, str]:
-    """Generate the chart figure and status text according to selected source.
-
-    Separated from the Dash callback wrapper for direct unit testing.
-    """
+) -> tuple[go.Figure, str, dict | None]:
+    """Generate chart and status text. Returns (figure, status_text, loss_trigger)."""
     now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
     if adapter is None:
@@ -332,14 +495,13 @@ def generate_chart_and_status(
                 f"Supported demo timeframes: {', '.join(SUPPORTED_TIMEFRAMES)}."
             )
             fig = create_empty_chart(msg, title=f"Demo: {DEMO_SYMBOL} ({timeframe}) — Unsupported")
-            status = f"⚠️ Demo: {msg}"
-            return fig, status
+            return fig, f"⚠️ Demo: {msg}", None
 
         df = load_fixture(DEMO_SYMBOL, timeframe)
         if df is None or df.empty:
             msg = f"No demo data available for {DEMO_SYMBOL} on {timeframe}."
             fig = create_empty_chart(msg)
-            return fig, f"⚠️ {msg}"
+            return fig, f"⚠️ {msg}", None
 
         fig = create_candlestick_chart(
             df,
@@ -354,23 +516,25 @@ def generate_chart_and_status(
             f"Source: Demo | Symbol: {DEMO_SYMBOL} | TF: {timeframe} | "
             f"Count: {len(df)} candles | Last Fetch: {now_utc}"
         )
-        return fig, status
+        return fig, status, None
 
     # ------------------- MT5 MODE -------------------
     if not is_connected:
         msg = "MT5 terminal is not connected. Click '⚡ Connect MT5' above."
         fig = create_empty_chart(msg, title="MT5 Terminal: Disconnected")
         status = "🔴 MT5 Disconnected. Please connect to terminal."
-        return fig, status
+        return fig, status, None
 
     if not symbol:
         msg = "No symbol selected. Please select a valid symbol from MT5 MarketWatch."
         fig = create_empty_chart(msg, title="MT5: Select Symbol")
         status = "⚠️ No symbol selected."
-        return fig, status
+        return fig, status, None
 
     try:
         df = adapter.fetch_candles(symbol, timeframe, count=candle_count)
+        broker_connected = adapter.is_broker_connected()
+        broker_note = " (Broker Connected)" if broker_connected else " (Broker Offline - Cached)"
         fig = create_candlestick_chart(
             df,
             symbol=symbol,
@@ -382,40 +546,109 @@ def generate_chart_and_status(
             candle_count=len(df),
         )
         status = (
-            f"Source: MT5 Local Terminal | Symbol: {symbol} | TF: {timeframe} | "
+            f"Source: MT5 Terminal{broker_note} | Symbol: {symbol} | TF: {timeframe} | "
             f"Count: {len(df)} candles | Last Fetch: {now_utc}"
         )
-        return fig, status
+        return fig, status, None
+
+    except MT5ConnectionError as e:
+        # Connection failure during fetch
+        adapter.disconnect()
+        msg = f"Connection Lost: {e}"
+        fig = create_empty_chart(msg, title="MT5: Connection Lost")
+        status = f"❌ {msg}"
+        loss_trigger = {"error": str(e), "timestamp": now_utc}
+        return fig, status, loss_trigger
 
     except MT5SymbolError as e:
         msg = f"Symbol Error: {e}"
         fig = create_empty_chart(msg, title=f"MT5: Symbol Unavailable ({symbol})")
-        status = f"❌ {msg}"
-        return fig, status
+        return fig, f"❌ {msg}", None
 
     except MT5DataError as e:
         msg = f"Data Fetch Error: {e}"
         fig = create_empty_chart(msg, title=f"MT5: Fetch Failed ({symbol} {timeframe})")
-        status = f"❌ {msg}"
-        return fig, status
-
-    except MT5ConnectionError as e:
-        msg = f"Connection Lost: {e}"
-        fig = create_empty_chart(msg, title="MT5: Connection Lost")
-        status = f"❌ {msg}"
-        return fig, status
+        return fig, f"❌ Data Fetch Error: {e}", None
 
     except CandleValidationError as e:
         msg = f"Data Contract Violation: {e}"
         fig = create_empty_chart(msg, title="MT5: Malformed Data Received")
-        status = f"❌ {msg}"
-        return fig, status
+        return fig, f"❌ {msg}", None
 
     except Exception as e:
-        msg = f"Unexpected Error fetching MT5 data: {e}"
+        msg = f"Unexpected Error: {e}"
         fig = create_empty_chart(msg, title="MT5: Error")
-        status = f"❌ {msg}"
-        return fig, status
+        return fig, f"❌ {msg}", None
+
+
+def generate_chart_and_status(
+    data_source: str,
+    symbol: str | None,
+    timeframe: str,
+    candle_count: int,
+    is_connected: bool,
+    adapter: Any = None,
+) -> tuple[go.Figure, str]:
+    """Compatibility helper returning (figure, status_text)."""
+    fig, status, _ = generate_chart_and_status_with_trigger(
+        data_source=data_source,
+        symbol=symbol,
+        timeframe=timeframe,
+        candle_count=candle_count,
+        is_connected=is_connected,
+        adapter=adapter,
+    )
+    return fig, status
+
+
+# Unified coordinator helper for tests
+def process_dashboard_update(
+    triggered_id: str,
+    data_source: str,
+    current_symbol: str | None,
+    timeframe: str,
+    candle_count: int,
+    store_data: dict,
+    adapter: Any = None,
+) -> dict[str, Any]:
+    """Compatibility coordinator function for unit tests."""
+    if adapter is None:
+        adapter = get_mt5_adapter()
+
+    # If triggered by refresh-btn, check if fetch fails
+    conn_info = process_connection_and_banner(triggered_id, data_source, store_data, None, adapter)
+    is_conn = conn_info["store_data"].get("state") != MT5ConnectionState.DISCONNECTED.value
+    sym = current_symbol if current_symbol else conn_info["sym_value"]
+
+    fig, status, loss_trigger = generate_chart_and_status_with_trigger(
+        data_source=data_source,
+        symbol=sym,
+        timeframe=timeframe,
+        candle_count=candle_count,
+        is_connected=is_conn,
+        adapter=adapter,
+    )
+
+    if loss_trigger:
+        # Update connection state to disconnected
+        conn_info = process_connection_and_banner(
+            "connection-loss-trigger", data_source, store_data, loss_trigger, adapter
+        )
+
+    return {
+        "store_data": conn_info["store_data"],
+        "badge_text": conn_info["badge_text"],
+        "badge_style": conn_info["badge_style"],
+        "banner_text": conn_info["banner_text"],
+        "banner_style": conn_info["banner_style"],
+        "sym_options": conn_info["sym_options"],
+        "sym_value": sym if data_source == "mt5" and is_conn else conn_info["sym_value"],
+        "sym_disabled": conn_info["sym_disabled"],
+        "alert_children": conn_info["alert_children"],
+        "alert_style": conn_info["alert_style"],
+        "figure": fig,
+        "status_text": status,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -427,122 +660,61 @@ def register_callbacks(app: Dash) -> None:
     """Register all Dash callbacks on *app*."""
     adapter = get_mt5_adapter()
 
-    # Callback 1: MT5 Connection & Source Selector management
+    # Callback 1: Connection & Source & Symbol Options
     @app.callback(
         Output("mt5-connection-store", "data"),
         Output("connection-badge", "children"),
         Output("connection-badge", "style"),
+        Output("source-banner", "children"),
+        Output("source-banner", "style"),
         Output("symbol-selector", "options"),
         Output("symbol-selector", "value"),
         Output("symbol-selector", "disabled"),
         Output("error-alert", "children"),
         Output("error-alert", "style"),
-        Output("source-banner", "children"),
-        Output("source-banner", "style"),
         Input("connect-btn", "n_clicks"),
         Input("disconnect-btn", "n_clicks"),
         Input("data-source-selector", "value"),
-        State("symbol-selector", "value"),
+        Input("connection-loss-trigger", "data"),
         State("mt5-connection-store", "data"),
     )
-    def handle_connection_and_source(
+    def handle_connection_and_options(
         _connect_clicks: int,
         _disconnect_clicks: int,
         data_source: str,
-        current_symbol: str | None,
+        loss_trigger: dict | None,
         store_data: dict,
     ) -> tuple:
         ctx = callback_context
         triggered_id = ctx.triggered[0]["prop_id"].split(".")[0] if ctx.triggered else ""
+        logger.debug(f"handle_connection triggered={triggered_id}, source={data_source}")
 
-        is_connected = store_data.get("connected", False) if store_data else False
-        cached_symbols = store_data.get("symbols", []) if store_data else []
-        error_msg: str | None = None
-
-        if triggered_id == "connect-btn":
-            try:
-                adapter.connect()
-                is_connected = True
-                cached_symbols = adapter.get_symbols()
-            except MT5NotInstalledError as e:
-                is_connected = False
-                error_msg = str(e)
-            except MT5ConnectionError as e:
-                is_connected = False
-                error_msg = str(e)
-            except Exception as e:
-                is_connected = False
-                error_msg = f"Unexpected connection error: {e}"
-
-        elif triggered_id == "disconnect-btn":
-            adapter.disconnect()
-            is_connected = False
-            cached_symbols = []
-
-        # Synchronize connection state with adapter
-        if is_connected and not adapter.is_connected():
-            is_connected = False
-
-        new_store = {"connected": is_connected, "symbols": cached_symbols}
-
-        # Determine UI states
-        if is_connected:
-            badge_text = "🟢 Connected (Local Terminal)"
-            badge_style = {"padding": "4px 8px", "borderRadius": "4px", "background": "#1b5e20", "color": "#a5d6a7", "fontSize": "12px"}
-        else:
-            badge_text = "Disconnected"
-            badge_style = {"padding": "4px 8px", "borderRadius": "4px", "background": "#263238", "color": "#b0bec5", "fontSize": "12px"}
-
-        if data_source == "demo":
-            banner_text = "⚠️  DEMO DATA — NOT CONNECTED TO MT5"
-            banner_style = _BANNER_STYLE_DEMO
-            sym_options = [{"label": s, "value": s} for s in available_symbols()]
-            sym_value = available_symbols()[0]
-            sym_disabled = True
-        else:
-            # MT5 mode
-            if is_connected:
-                banner_text = "🟢 MT5 CONNECTED — Local Terminal Read-Only Data"
-                banner_style = _BANNER_STYLE_MT5_CONNECTED
-                if cached_symbols:
-                    sym_options = [{"label": s, "value": s} for s in cached_symbols]
-                    sym_value = current_symbol if current_symbol in cached_symbols else cached_symbols[0]
-                    sym_disabled = False
-                else:
-                    sym_options = [{"label": "No symbols available", "value": ""}]
-                    sym_value = ""
-                    sym_disabled = True
-            else:
-                banner_text = "🔴 MT5 DISCONNECTED — Click '⚡ Connect MT5' to stream local terminal data"
-                banner_style = _BANNER_STYLE_MT5_DISCONNECTED
-                sym_options = [{"label": "Connect to MT5 first", "value": ""}]
-                sym_value = ""
-                sym_disabled = True
-
-        if error_msg:
-            alert_children = [html.B("MT5 Connection Alert: "), html.Span(error_msg)]
-            alert_style = {"display": "block", "background": "#b71c1c", "color": "#ffebee", "padding": "8px 12px", "borderRadius": "4px", "fontSize": "13px"}
-        else:
-            alert_children = []
-            alert_style = {"display": "none"}
-
-        return (
-            new_store,
-            badge_text,
-            badge_style,
-            sym_options,
-            sym_value,
-            sym_disabled,
-            alert_children,
-            alert_style,
-            banner_text,
-            banner_style,
+        res = process_connection_and_banner(
+            triggered_id=triggered_id,
+            data_source=data_source,
+            store_data=store_data,
+            loss_trigger_data=loss_trigger,
+            adapter=adapter,
         )
 
-    # Callback 2: Chart and status area update
+        return (
+            res["store_data"],
+            res["badge_text"],
+            res["badge_style"],
+            res["banner_text"],
+            res["banner_style"],
+            res["sym_options"],
+            res["sym_value"],
+            res["sym_disabled"],
+            res["alert_children"],
+            res["alert_style"],
+        )
+
+    # Callback 2: Chart & Status Area Update
     @app.callback(
         Output("main-chart", "figure"),
         Output("status-area", "children"),
+        Output("connection-loss-trigger", "data"),
         Input("data-source-selector", "value"),
         Input("symbol-selector", "value"),
         Input("timeframe-selector", "value"),
@@ -552,15 +724,20 @@ def register_callbacks(app: Dash) -> None:
     )
     def update_chart(
         data_source: str,
-        symbol: str,
+        symbol: str | None,
         timeframe: str,
         candle_count: int,
         _n_clicks: int,
-        store_data: dict,
+        store_data: dict | None,
     ) -> tuple:
-        """Fetch and render data according to selected source and timeframe."""
-        is_connected = store_data.get("connected", False) if store_data else False
-        return generate_chart_and_status(
+        if not store_data:
+            store_data = {}
+        is_connected = store_data.get("state", "DISCONNECTED") != MT5ConnectionState.DISCONNECTED.value
+        logger.debug(
+            f"update_chart source={data_source}, sym={symbol}, tf={timeframe}, "
+            f"is_conn={is_connected}"
+        )
+        fig, status, loss_trigger = generate_chart_and_status_with_trigger(
             data_source=data_source,
             symbol=symbol,
             timeframe=timeframe,
@@ -568,3 +745,4 @@ def register_callbacks(app: Dash) -> None:
             is_connected=is_connected,
             adapter=adapter,
         )
+        return fig, status, loss_trigger

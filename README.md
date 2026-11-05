@@ -10,14 +10,23 @@ A Python and MetaTrader 5 (MT5) trading-analysis dashboard for monitoring, analy
 ## Current Status
 
 - ✅ Installable Python package with Dash/Plotly (`aladeen`)
-- ✅ Shared Candle Data Contract with strict chronological & OHLC integrity validation
+- ✅ Shared Candle Data Contract with strict UTC normalization, finite numeric checks, and chronological/OHLC integrity
+- ✅ Explicit Candle Completion Semantics:
+  - Documented MT5 bar position zero semantics (`copy_rates_from_pos(..., 0, count)`)
+  - Denoted unconfirmed completion explicitly (`UNCONFIRMED_LATEST` / `is_forming = True`)
+  - No client-clock bias or guessing broker close boundaries
+- ✅ Granular Connection Health Monitoring:
+  - Distinguishes local terminal process responsiveness (`mt5.terminal_info() != None`) from broker trade-server connectivity (`terminal_info().connected`)
+  - Distinct UI badges: `🟢 Connected to Broker` vs `🟡 Terminal Ready (Broker Offline)` vs `Disconnected`
+  - Atomic UI updates on refresh failure (clears green connected banner immediately, sets actionable error)
 - ✅ Dual Data Source Support:
   - **Demo Mode**: Built-in deterministic synthetic fixtures (works out of the box without MT5)
   - **MT5 Mode**: Read-only connection to local MetaTrader 5 desktop terminal
+- ✅ Safe Idempotent Disconnect & Process Cleanup (`atexit`)
 - ✅ Timeframe support: D1, H4, H1, M5, M1
 - ✅ Bounded candle count selection (50 to 1000 bars)
 - ✅ Forming candle distinction on chart (real-time bar highlighted)
-- ✅ 76 automated tests passing (fixtures, contract validation, mocked MT5 adapter, mode isolation)
+- ✅ 89 automated tests passing (fixtures, contract validation, mocked MT5 adapter, mode isolation, UI consistency)
 - ❌ No strategy logic (MSM, CHOCH, ISS, TJL, MTF) implemented yet
 - ❌ No SQLite caching / offline replay yet
 - ❌ No order execution (strictly out of scope)
@@ -102,7 +111,9 @@ Open your browser to: **http://127.0.0.1:8050**
 
 ## Running Tests
 
-All 76 automated unit tests run without requiring MT5 to be installed or running:
+### 1. Automated Unit Tests (Offline / Mocked)
+
+All 89 automated unit tests run without requiring MT5 to be installed or running:
 
 ```bash
 python -m pytest tests/ -v
@@ -110,10 +121,27 @@ python -m pytest tests/ -v
 
 Test coverage includes:
 - **`test_fixtures.py`**: Synthetic fixture validation, chronological order, and determinism
-- **`test_contract.py`**: Timezone awareness, positivity, chronological monotonicity, duplicate rejection, OHLC consistency, forming candle flag
-- **`test_chart.py`**: Candlestick and empty chart generation, title banners, edge cases
-- **`test_app.py`**: App construction, CLI arguments (`--debug` disabled by default), mode isolation, rejection of silent demo fallbacks
-- **`test_mt5_adapter.py`**: MT5 lifecycle, connection success/failure, reconnect avoidance, symbol fetching, timeframe mapping, count bounding, forming bar flag, malformed data rejection, absence of order-execution methods
+- **`test_contract.py`**: Strict UTC normalization, NaT rejection, numeric/finite price enforcement (+inf, -inf, string, boolean checks), OHLC consistency, forming bar validation, and stale/market-closed snapshots
+- **`test_chart.py`**: Candlestick and empty chart generation, manual refresh labels, forming bar annotations, edge cases
+- **`test_app.py`**: App construction, CLI arguments (`--debug` disabled by default), mode isolation, rejection of silent demo fallbacks, atomic connection loss banner updates, and Demo/MT5 background connection coexistence
+- **`test_mt5_adapter.py`**: Local terminal vs broker connectivity distinction (`TERMINAL_ONLY` vs `CONNECTED_TO_BROKER`), idempotent `disconnect()`, exit handler registration (`atexit`), symbol fetching, timeframe mapping, count bounding, forming candle semantics, malformed rates rejection with `CandleValidationError`, and absence of order-execution methods
+
+### 2. Live Integration & Verification Checks
+
+Optional scripts for verifying live environments:
+
+- **Startup Smoke Test** (verifies HTTP 200 on `/` and `/_dash-layout`):
+  ```bash
+  python tests/smoke_test.py
+  ```
+- **Real MT5 Terminal Check** (connects to live local terminal, checks broker state, fetches EURUSD, validates contract):
+  ```bash
+  python tests/check_real_terminal.py
+  ```
+- **End-to-End Browser Flow** (Playwright automated test: connect → fetch → change timeframe → disconnect → reconnect):
+  ```bash
+  python tests/browser_check.py
+  ```
 
 ---
 

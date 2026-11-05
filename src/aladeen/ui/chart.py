@@ -54,7 +54,7 @@ def create_candlestick_chart(
     if is_stale:
         title_parts.append("⚠️ <span style='color: #ff5252;'>STALE DATA — FETCH FAILED</span>")
     elif not is_demo:
-        source_label = "MT5 Local Terminal" if data_source.lower() == "mt5" else data_source.upper()
+        source_label = "MT5 Local Terminal (Manual Refresh)" if data_source.lower() == "mt5" else data_source.upper()
         title_parts.append(f"<span style='color: #4caf50;'>{source_label}</span>")
         title_parts.append(f"Candles: {count}")
         if last_fetch_time:
@@ -63,11 +63,11 @@ def create_candlestick_chart(
         title_parts.append("<span style='color: #ff9800;'>⚠️ DEMO DATA — NOT CONNECTED TO MT5</span>")
         title_parts.append(f"Candles: {count}")
 
-    # Build custom hover text distinguishing forming vs completed candles
+    # Build custom hover text distinguishing latest/unconfirmed vs confirmed completed candles
     hover_text = []
     if "is_forming" in df.columns:
         for idx, row in df.iterrows():
-            status = " [FORMING CANDLE]" if row["is_forming"] else " [COMPLETED]"
+            status = " [LATEST BAR — UNCONFIRMED COMPLETION]" if row["is_forming"] else " [COMPLETED]"
             hover_text.append(f"{idx.strftime('%Y-%m-%d %H:%M UTC')}{status}")
     else:
         hover_text = [idx.strftime("%Y-%m-%d %H:%M UTC") for idx in df.index]
@@ -87,7 +87,7 @@ def create_candlestick_chart(
         ]
     )
 
-    # Highlight forming candle if present
+    # Highlight latest unconfirmed candle if present
     shapes = []
     annotations = []
     if "is_forming" in df.columns and len(df) > 0 and df["is_forming"].iloc[-1]:
@@ -96,7 +96,7 @@ def create_candlestick_chart(
             dict(
                 x=last_time,
                 y=df["high"].iloc[-1],
-                text="⚡ Forming",
+                text="⚡ Latest Bar (Unconfirmed)",
                 showarrow=True,
                 arrowhead=2,
                 arrowsize=1,

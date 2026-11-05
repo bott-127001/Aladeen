@@ -1,7 +1,8 @@
-"""Tests for app construction, CLI arguments, and mode independence.
+"""Tests for app construction, CLI arguments, and UI consistency.
 
 Verifies the Dash app can be created without MT5 installed or running,
-and that debug mode is disabled by default.
+that debug mode is disabled by default, and that connection state changes
+update all UI components consistently.
 """
 
 from __future__ import annotations
@@ -13,8 +14,13 @@ import pytest
 
 from aladeen.app import create_app, parse_args
 from aladeen.data.fixtures import DEMO_SYMBOL
-from aladeen.data.mt5_adapter import MT5Adapter, MT5ConnectionError, MT5DataError
-from aladeen.ui.layout import generate_chart_and_status
+from aladeen.data.mt5_adapter import (
+    MT5Adapter,
+    MT5ConnectionError,
+    MT5ConnectionState,
+    MT5DataError,
+)
+from aladeen.ui.layout import generate_chart_and_status, process_dashboard_update
 
 
 class TestAppConstruction:
@@ -88,10 +94,8 @@ class TestModeIsolationAndFallbackRejection:
             adapter=mock_adapter,
         )
 
-        # Must NOT contain demo data or demo symbol
         assert "DEMO DATA" not in fig.layout.title.text
         assert DEMO_SYMBOL not in fig.layout.title.text
-        # Must show error status
         assert "❌ Data Fetch Error" in status
         assert "Network timeout" in status
 
@@ -107,3 +111,82 @@ class TestModeIsolationAndFallbackRejection:
         assert "DEMO DATA" not in fig.layout.title.text
         assert "MT5 Terminal: Disconnected" in fig.layout.title.text
         assert "🔴 MT5 Disconnected" in status
+
+
+class TestUIConsistencyAndStateSynchronization:
+    """Verify atomic state updates: badge, banner, chart, and errors stay in sync."""
+
+    def test_connection_loss_during_refresh_clears_green_banner_atomically(self) -> None:
+        """When connection is lost during refresh, banner must NOT remain green."""
+        mock_adapter = MagicMock()
+        mock_adapter.is_connected.return_value = True
+        mock_adapter.get_connection_state.return_value = MT5ConnectionState.CONNECTED_TO_BROKER
+        mock_adapter.fetch_candles.side_effect = MT5ConnectionError("Terminal pipe broken")
+
+        res = process_dashboard_update(
+            triggered_id="refresh-btn",
+            data_source="mt5",
+            current_symbol="EURUSD",
+            timeframe="H4",
+            candle_count=100,
+            store_data={"state": "CONNECTED_TO_BROKER", "symbols": ["EURUSD"]},
+            adapter=mock_adapter,
+        )
+
+        # Badge must be Disconnected
+        assert res["badge_text"] == "Disconnected"
+        # Banner must be Disconnected (NOT green connected!)
+        assert "🔴 MT5 DISCONNECTED" in res["banner_text"]
+        assert res["banner_style"]["background"] == "#37474f"
+        # Error alert must be visible
+        assert res["alert_style"]["display"] == "block"
+        assert "Connection Lost" in res["status_text"]
+        # Chart must NOT show demo data
+        assert "DEMO DATA" not in res["figure"].layout.title.text
+
+    def test_switch_to_demo_distinguishes_source_from_open_mt5_connection(self) -> None:
+        """Selecting demo mode keeps MT5 open in background and indicates both clearly."""
+        mock_adapter = MagicMock()
+        mock_adapter.is_connected.return_value = True
+        mock_adapter.get_connection_state.return_value = MT5ConnectionState.CONNECTED_TO_BROKER
+
+        res = process_dashboard_update(
+            triggered_id="data-source-selector",
+            data_source="demo",
+            current_symbol="EURUSD",
+            timeframe="H4",
+            candle_count=100,
+            store_data={"state": "CONNECTED_TO_BROKER", "symbols": ["EURUSD"]},
+            adapter=mock_adapter,
+        )
+
+        # Chart is demo data
+        assert "DEMO DATA" in res["figure"].layout.title.text
+        assert res["sym_value"] == DEMO_SYMBOL
+        assert res["sym_disabled"] is True
+        # MT5 connection badge remains Connected
+        assert res["badge_text"] == "🟢 Connected to Broker"
+        # Banner reflects selected chart source AND background MT5 connection
+        assert "DEMO MODE" in res["banner_text"]
+        assert "MT5 connected to broker in background" in res["banner_text"]
+
+    def test_terminal_only_broker_offline_distinction(self) -> None:
+        """Terminal responsive but broker offline shows distinct yellow/orange badge and banner."""
+        mock_adapter = MagicMock()
+        mock_adapter.is_connected.return_value = True
+        mock_adapter.get_connection_state.return_value = MT5ConnectionState.TERMINAL_ONLY
+        mock_adapter.connect.return_value = MT5ConnectionState.TERMINAL_ONLY
+        mock_adapter.get_symbols.return_value = ["EURUSD"]
+
+        res = process_dashboard_update(
+            triggered_id="connect-btn",
+            data_source="mt5",
+            current_symbol="EURUSD",
+            timeframe="H4",
+            candle_count=100,
+            store_data={"state": "DISCONNECTED", "symbols": []},
+            adapter=mock_adapter,
+        )
+
+        assert res["badge_text"] == "🟡 Terminal Ready (Broker Offline)"
+        assert "Broker Offline" in res["banner_text"]
