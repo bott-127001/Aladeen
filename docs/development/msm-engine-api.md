@@ -1,6 +1,6 @@
 # Market Structure Marking (MSM) — Engine API & Specification
 
-Last Updated: 2026-11-05 (Milestone: Offline MSM Engine Baseline — Hardened)
+Last Updated: 2026-11-05 (Milestone: Offline MSM Engine Baseline — Hardened R8)
 
 ---
 
@@ -18,7 +18,7 @@ The `aladeen.strategy` package provides a standalone, deterministic calculation 
 
 ---
 
-## 2. Ingestion & Reset Semantics (R7.3)
+## 2. Ingestion & Reset Semantics (R7.3, R8.1)
 
 The engine provides two clearly separated, distinct execution models:
 
@@ -27,47 +27,59 @@ The engine provides two clearly separated, distinct execution models:
    - Calling `process_candles(data)` or `replay(data)` performs transactional validation on `data` upfront. If all records pass validation, the engine resets to a clean run identity and executes over `data`.
    - Calling `process_candles` twice on the same engine never duplicates internal history.
    - Processing an extended snapshot cleanly recalculates without duplicating prior rows.
+   - **Start Coordinate Resolution (R8.1)**: Starting candle positions are resolved strictly in completed-buffer coordinates. If unconfirmed/forming rows precede the selected starting candle, they are excluded from the completed buffer and do not offset the starting position. Batch, sequential, and replay produce identical results.
    - **Fail-Closed Transactional Boundary**: If any candle in the batch is malformed, an exception is raised immediately and the engine's prior state is untouched.
 
 2. **Incremental Sequential Ingestion (`process_candle`)**:
    - **Contract**: Incremental forward streaming.
    - Strictly enforces that incoming candle timestamps are monotonically increasing (`candle.open_time > last_completed.open_time`).
-   - Duplicate or out-of-order candles raise `ValueError`.
+   - Duplicate source IDs or out-of-order timestamps raise `ValueError`.
    - Forming bars (`is_forming == True`) return the current completed state without mutating internal history.
 
 ---
 
-## 3. Index & Provenance Model (R7.1, R7.4)
+## 3. Index, Coordinate & Provenance Model (R7.1, R7.4, R8.4, R8.5)
 
 Internal buffer positions are strictly decoupled from external source candle indices:
 
-- **Internal Positions**:
+- **Internal Buffer Positions**:
   - The engine uses 0-based list positions (`_search_start_pos`, `_pullback_scan_pos`, `_next_eligible_pullback_pos`) exclusively for internal sliding window tests and array slicing.
-- **Source Candle Indices**:
+- **Source Candle Indices (R8.4)**:
   - Input candles may have arbitrary, nonzero, or noncontiguous indices (e.g. `100, 110, 120...` or filtered slices).
+  - Source IDs must be unique integers (lossy coercions like `1.5` or booleans like `True` are strictly rejected with `TypeError`).
   - The engine maps buffer positions back to the original source candle index on every generated event.
-- **Identification vs. Confirmation Provenance (R7.4)**:
+  - **No Fabricated Next Source ID**: When the next eligible pullback candle is beyond the currently ingested buffer, `snapshot.next_eligible_pullback_index` is strictly `None`. The internal ordinal position is exposed unambiguously as `snapshot.next_eligible_pullback_position`.
+- **Identification vs. Confirmation Provenance (R7.4, R8.5)**:
   - Every `SwingPoint` explicitly records both its identification event and confirmation event:
     - `identified_bar_index`: Source index of the bar whose completion established the level as tentative (pullback completion bar `p2`).
     - `identified_time`: Knowledge/availability time when the level was identified.
     - `confirmed_bar_index`: Source index of the break bar `k` that confirmed the level (`None` while tentative).
     - `confirmed_time`: Knowledge/availability time when the level was confirmed (`None` while tentative).
-  - Confirmation never overwrites or erases the original tentative identification provenance.
+  - **Confirmation Event Time Semantics (R8.5)**:
+    - If a point is confirmed (`is_confirmed is True`), its `event_time` is strictly `confirmed_time`. If the break candle's confirmation availability is unknown (`confirmed_time=None`), `event_time` remains `None` and does NOT fall back to `identified_time`.
+    - If tentative (`is_confirmed is False`), `event_time` is `identified_time`.
 
 ---
 
-## 4. Strict Validation at Every Public Entry Point (R7.2)
+## 4. Strict Validation at Every Public Entry Point (R7.2, R8.2, R8.3)
 
-Every entry point (`process_candles`, `process_candle`, `replay`) enforces the identical strict boundary:
+Every entry point (`StrategyCandle`, `MSMConfig`, `adapt_candles`, `process_candles`, `process_candle`, `replay`) enforces the identical strict boundary:
 
 - **Prices**: Must be real finite positive numbers (`float` or `int`, never `bool`, never strings, never `+inf`/`-inf`/`nan`).
 - **OHLC Geometry**: `high >= low`, `high >= max(open, close)`, `low <= min(open, close)`.
-- **Timestamps**:
-  - `open_time`: Must be a timezone-aware UTC datetime. Naive timestamps and `NaT` are strictly rejected.
-  - `close_time` (when supplied): Must be timezone-aware UTC datetime and strictly later than `open_time`.
+- **Timestamps & Normalization (R8.3)**:
+  - Validated by unified `validate_and_normalize_timestamp`.
+  - Missing, `NaT`, or naive timestamps are strictly rejected.
+  - Any valid timezone-aware timestamp is normalized to UTC (`tzinfo=timezone.utc`).
+  - `close_time` (when supplied): Must be timezone-aware and strictly later than `open_time`.
+- **Completion Evidence (R8.2)**:
+  - Explicit completion fields (`is_forming`, `bar_status`) are strictly required on all inputs (no defaulting).
+  - Supported bar status vocabulary: `{"CONFIRMED_COMPLETED", "UNCONFIRMED_LATEST", "FORMING"}`. Unknown statuses raise `ValueError`.
+  - Both contradiction directions are rejected:
+    - `is_forming=True` with `bar_status="CONFIRMED_COMPLETED"` -> `ValueError`.
+    - `is_forming=False` with `bar_status="UNCONFIRMED_LATEST"` or `"FORMING"` -> `ValueError`.
 - **Direction**: Must be an instance of `Direction` enum (`UPWARD` or `DOWNWARD`). Invalid strings or types are rejected before engine state initialization.
-- **Completion Evidence**: Explicit and coherent (`is_forming=True` with `bar_status='CONFIRMED_COMPLETED'` is rejected as contradictory).
-- **Start Candle Selection (OPEN-08)**: Must exist in dataset and be completed historical bar. Forming or absent start candles raise `ValueError("Invalid starting candle: start candle must be a verified completed historical candle.")`.
+- **Start Candle Selection (OPEN-08)**: Must exist in dataset and be a completed historical bar. Forming or absent start candles raise `ValueError("Invalid starting candle: start candle must be a verified completed historical candle.")`.
 
 ---
 

@@ -2,14 +2,15 @@
 
 Scope & Design Boundary:
 -------------------------
-- Independent of MT5, Dash, Plotly, network access, or persistent storage.
-- Purely deterministic, sequential state machine over completed historical candles.
-- Supports both fresh-run batch replay and streaming sequential completed-candle ingestion.
-- Zero side-effects on input data; returns immutable snapshots.
+Implements pure mathematical MSM algorithm from 'Market Structure Marking.docx'
+and 'approved-clarifications.md'.
+Strictly read-only calculation logic. Zero order execution, zero network access,
+zero MT5 dependencies, zero Plotly/Dash UI code, and zero mutable external state.
 """
 
 from __future__ import annotations
 
+import math
 from typing import List, Optional, Tuple, Union
 import pandas as pd
 
@@ -81,14 +82,14 @@ class MSMEngine:
         """
         # Validate all candles upfront before mutating state
         candles = adapt_candles(data)
-        start_pos, start_source_idx = validate_start_candle(self.config, candles)
+        start_completed_pos, start_source_idx = validate_start_candle(self.config, candles)
 
         # Reset state to clean run identity for fresh batch execution
         self.reset()
-        self._start_candle_pos = start_pos
-        self._search_start_pos = start_pos
-        self._next_eligible_pullback_pos = start_pos
-        self._pullback_scan_pos = start_pos
+        self._start_candle_pos = start_completed_pos
+        self._search_start_pos = start_completed_pos
+        self._next_eligible_pullback_pos = start_completed_pos
+        self._pullback_scan_pos = start_completed_pos
 
         for c in candles:
             self._ingest_candle(c)
@@ -101,6 +102,10 @@ class MSMEngine:
             # Adapt single dict/candle through strict validator
             adapted = adapt_candles([candle])
             candle = adapted[0]
+
+        # Validate unique source index
+        if any(c.index == candle.index for c in self._completed_candles):
+            raise ValueError(f"Duplicate candle source index detected: {candle.index}")
 
         # Validate sequential ordering against existing history
         if self._completed_candles:
@@ -138,13 +143,13 @@ class MSMEngine:
     ) -> List[MSMSnapshot]:
         """Processes candles step-by-step as a fresh run, returning an immutable snapshot at each bar."""
         candles = adapt_candles(data)
-        start_pos, start_source_idx = validate_start_candle(self.config, candles)
+        start_completed_pos, start_source_idx = validate_start_candle(self.config, candles)
 
         self.reset()
-        self._start_candle_pos = start_pos
-        self._search_start_pos = start_pos
-        self._next_eligible_pullback_pos = start_pos
-        self._pullback_scan_pos = start_pos
+        self._start_candle_pos = start_completed_pos
+        self._search_start_pos = start_completed_pos
+        self._next_eligible_pullback_pos = start_completed_pos
+        self._pullback_scan_pos = start_completed_pos
 
         snapshots: List[MSMSnapshot] = []
         for c in candles:
@@ -198,11 +203,11 @@ class MSMEngine:
                     # Search for tentative extreme
                     if self._direction == Direction.UPWARD:
                         best_pos, best_price = self._find_max_ub(window_start, window_end)
-                        tentative_candle = self._completed_candles[best_pos]
+                        best_candle = self._completed_candles[best_pos]
                         self._tentative_point = SwingPoint(
                             price=best_price,
-                            candle_index=tentative_candle.index,
-                            candle_open_time=tentative_candle.open_time,
+                            candle_index=best_candle.index,
+                            candle_open_time=best_candle.open_time,
                             identified_bar_index=c_p2.index,
                             identified_time=c_p2.close_time,
                             confirmed_bar_index=None,
@@ -210,11 +215,11 @@ class MSMEngine:
                         )
                     else:
                         best_pos, best_price = self._find_min_lb(window_start, window_end)
-                        tentative_candle = self._completed_candles[best_pos]
+                        best_candle = self._completed_candles[best_pos]
                         self._tentative_point = SwingPoint(
                             price=best_price,
-                            candle_index=tentative_candle.index,
-                            candle_open_time=tentative_candle.open_time,
+                            candle_index=best_candle.index,
+                            candle_open_time=best_candle.open_time,
                             identified_bar_index=c_p2.index,
                             identified_time=c_p2.close_time,
                             confirmed_bar_index=None,
@@ -308,39 +313,43 @@ class MSMEngine:
                         self._last_resistance = conf_high
                         self._search_start_pos = conf_high_pos
 
-                    pair_idx = len(self._confirmed_pairs) + 1
-                    new_pair = ConfirmedPair(
-                        pair_index=pair_idx,
+                    pair_num = len(self._confirmed_pairs) + 1
+                    confirmed_pair = ConfirmedPair(
+                        pair_index=pair_num,
                         high=conf_high,
                         low=conf_low,
                         confirmation_bar_index=c_k.index,
                         confirmation_time=c_k.close_time,
                     )
-                    self._confirmed_pairs.append(new_pair)
+                    self._confirmed_pairs.append(confirmed_pair)
                     self._update_trend_status()
 
-                    # Advance state
+                    # Reset cycle
                     self._tentative_point = None
-                    self._state = EngineState.SEARCHING_PULLBACK
-                    # Post-break restriction: candidate p1 > k (strictly after break candle)
                     self._next_eligible_pullback_pos = k_pos + 1
-                    self._pullback_scan_pos = k_pos + 1
+                    self._pullback_scan_pos = self._next_eligible_pullback_pos
+                    self._state = EngineState.SEARCHING_PULLBACK
                     continue
                 else:
+                    # Closing break did not occur at k_pos; advance to k_pos + 1
                     self._pullback_scan_pos = k_pos + 1
                     continue
 
     def _is_valid_pullback(self, p1: StrategyCandle, p2: StrategyCandle) -> bool:
+        """Determines if consecutive candles (p1, p2) constitute a valid pullback."""
         if self._direction == Direction.UPWARD:
+            # Upward: 2 consecutive red candles with p2 close strictly below p1 low
             if p1.color != CandleColor.RED or p2.color != CandleColor.RED:
                 return False
             return p2.close < p1.low
         else:
+            # Downward: 2 consecutive green candles with p2 close strictly above p1 high
             if p1.color != CandleColor.GREEN or p2.color != CandleColor.GREEN:
                 return False
             return p2.close > p1.high
 
     def _find_max_ub(self, start_pos: int, end_pos: int) -> Tuple[int, float]:
+        """Finds max UB in [start_pos, end_pos] with latest-candle tie-breaking."""
         best_pos = start_pos
         best_price = self._completed_candles[start_pos].upper_body_edge
 
@@ -356,6 +365,7 @@ class MSMEngine:
         return best_pos, best_price
 
     def _find_min_lb(self, start_pos: int, end_pos: int) -> Tuple[int, float]:
+        """Finds min LB in [start_pos, end_pos] with latest-candle tie-breaking."""
         best_pos = start_pos
         best_price = self._completed_candles[start_pos].lower_body_edge
 
@@ -403,12 +413,10 @@ class MSMEngine:
             search_start_idx = 0
 
         if self._completed_candles and self._next_eligible_pullback_pos < len(self._completed_candles):
-            next_pullback_idx = self._completed_candles[self._next_eligible_pullback_pos].index
-        elif self._completed_candles:
-            # If past the buffer, source index is last source index + 1
-            next_pullback_idx = self._completed_candles[-1].index + 1
+            next_pullback_idx: Optional[int] = self._completed_candles[self._next_eligible_pullback_pos].index
         else:
-            next_pullback_idx = 0
+            # If past the buffer, source index is unknown (not fabricated)
+            next_pullback_idx = None
 
         return MSMSnapshot(
             state=self._state,
@@ -421,4 +429,5 @@ class MSMEngine:
             last_support=self._last_support,
             last_resistance=self._last_resistance,
             next_eligible_pullback_index=next_pullback_idx,
+            next_eligible_pullback_position=self._next_eligible_pullback_pos,
         )

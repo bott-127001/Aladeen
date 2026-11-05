@@ -10,9 +10,53 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional, Tuple
+from typing import Any, Optional, Set, Tuple
+
+
+VALID_BAR_STATUSES: Set[str] = {"CONFIRMED_COMPLETED", "UNCONFIRMED_LATEST", "FORMING"}
+
+
+def validate_and_normalize_timestamp(dt: Any, field_name: str) -> datetime:
+    """Strictly validates and normalizes a timestamp to timezone-aware UTC datetime.
+
+    Rejects:
+    - None / missing
+    - NaT (pd.NaT, numpy nat)
+    - Naive datetimes (dt.tzinfo is None)
+    - Datetimes with invalid timezone offsets (tzinfo.utcoffset is None)
+    - Non-datetime types
+
+    Normalizes:
+    - Timezone-aware datetimes with valid offsets to UTC (+00:00).
+    """
+    if dt is None:
+        raise ValueError(f"{field_name} must not be None.")
+
+    try:
+        import pandas as pd
+        if pd.isna(dt):
+            raise ValueError(f"{field_name} cannot be NaT or NaN.")
+    except ImportError:
+        pass
+
+    if hasattr(dt, "to_pydatetime"):
+        dt = dt.to_pydatetime()
+
+    if isinstance(dt, str):
+        try:
+            dt = datetime.fromisoformat(dt)
+        except Exception as e:
+            raise ValueError(f"{field_name} invalid ISO timestamp string: {dt}") from e
+
+    if not isinstance(dt, datetime):
+        raise TypeError(f"{field_name} must be datetime, got {type(dt).__name__}")
+
+    if dt.tzinfo is None or dt.tzinfo.utcoffset(dt) is None:
+        raise ValueError(f"{field_name} must be timezone-aware (UTC), got naive datetime: {dt}")
+
+    return dt.astimezone(timezone.utc)
 
 
 class Direction(str, Enum):
@@ -52,26 +96,22 @@ class StrategyCandle:
     high: float
     low: float
     close: float
+    is_forming: bool
+    bar_status: str
     close_time: Optional[datetime] = None
-    is_forming: bool = False
-    bar_status: str = "CONFIRMED_COMPLETED"
 
     def __post_init__(self) -> None:
-        # Index validation
-        if not isinstance(self.index, int) or isinstance(self.index, bool):
+        # Index validation: integer only, strictly reject bool and float
+        if isinstance(self.index, bool) or not isinstance(self.index, int):
             raise TypeError(f"Candle index must be int, got {type(self.index).__name__}")
 
-        # Timestamp validation
-        if not isinstance(self.open_time, datetime):
-            raise TypeError(f"Candle open_time must be datetime, got {type(self.open_time).__name__}")
-        if self.open_time.tzinfo is None:
-            raise ValueError(f"Candle open_time must be timezone-aware (UTC), got naive: {self.open_time}")
+        # Timestamp validation and UTC normalization
+        norm_open = validate_and_normalize_timestamp(self.open_time, "Candle open_time")
+        object.__setattr__(self, "open_time", norm_open)
 
         if self.close_time is not None:
-            if not isinstance(self.close_time, datetime):
-                raise TypeError(f"Candle close_time must be datetime, got {type(self.close_time).__name__}")
-            if self.close_time.tzinfo is None:
-                raise ValueError(f"Candle close_time must be timezone-aware (UTC), got naive: {self.close_time}")
+            norm_close = validate_and_normalize_timestamp(self.close_time, "Candle close_time")
+            object.__setattr__(self, "close_time", norm_close)
             if self.close_time <= self.open_time:
                 raise ValueError(
                     f"Candle close_time ({self.close_time}) must be strictly later than open_time ({self.open_time})"
@@ -101,8 +141,15 @@ class StrategyCandle:
         if not isinstance(self.bar_status, str):
             raise TypeError(f"Candle bar_status must be str, got {type(self.bar_status).__name__}")
 
+        if self.bar_status not in VALID_BAR_STATUSES:
+            raise ValueError(
+                f"Unknown bar_status '{self.bar_status}'. Must be one of {sorted(VALID_BAR_STATUSES)}"
+            )
+
         if self.is_forming and self.bar_status == "CONFIRMED_COMPLETED":
             raise ValueError("Contradictory completion evidence: is_forming=True cannot have bar_status='CONFIRMED_COMPLETED'")
+        if not self.is_forming and self.bar_status in {"UNCONFIRMED_LATEST", "FORMING"}:
+            raise ValueError(f"Contradictory completion evidence: is_forming=False cannot have bar_status='{self.bar_status}'")
 
     @property
     def upper_body_edge(self) -> float:
@@ -136,14 +183,24 @@ class SwingPoint:
     confirmed_time: Optional[datetime] = None   # Knowledge/availability time of confirmation
 
     @property
+    def is_confirmed(self) -> bool:
+        """Returns True if the swing point has been confirmed by a closing break."""
+        return self.confirmed_bar_index is not None
+
+    @property
     def event_bar_index(self) -> int:
         """Returns confirmation bar index if confirmed, else identification bar index."""
         return self.confirmed_bar_index if self.confirmed_bar_index is not None else self.identified_bar_index
 
     @property
     def event_time(self) -> Optional[datetime]:
-        """Returns confirmation time if confirmed, else identification time."""
-        return self.confirmed_time if self.confirmed_time is not None else self.identified_time
+        """Returns confirmation time if confirmed, else identification time.
+
+        If confirmed, returns confirmed_time (remains None if confirmation time is unknown).
+        """
+        if self.confirmed_bar_index is not None:
+            return self.confirmed_time
+        return self.identified_time
 
 
 @dataclass(frozen=True)
@@ -163,10 +220,8 @@ class MSMConfig:
     direction: Direction
 
     def __post_init__(self) -> None:
-        if not isinstance(self.start_candle_time, datetime):
-            raise TypeError(f"start_candle_time must be datetime, got {type(self.start_candle_time).__name__}")
-        if self.start_candle_time.tzinfo is None:
-            raise ValueError(f"start_candle_time must be timezone-aware (UTC), got naive: {self.start_candle_time}")
+        norm_start = validate_and_normalize_timestamp(self.start_candle_time, "start_candle_time")
+        object.__setattr__(self, "start_candle_time", norm_start)
 
         if isinstance(self.direction, str):
             try:
@@ -189,4 +244,5 @@ class MSMSnapshot:
     last_processed_index: int = -1
     last_support: Optional[SwingPoint] = None
     last_resistance: Optional[SwingPoint] = None
-    next_eligible_pullback_index: int = 0
+    next_eligible_pullback_index: Optional[int] = None
+    next_eligible_pullback_position: int = 0

@@ -11,10 +11,10 @@ from __future__ import annotations
 
 import math
 from datetime import datetime, timezone
-from typing import List, Tuple, Union
+from typing import Any, List, Set, Tuple, Union
 import pandas as pd
 
-from .types import StrategyCandle, MSMConfig
+from .types import StrategyCandle, MSMConfig, validate_and_normalize_timestamp
 
 
 def adapt_candles(data: Union[pd.DataFrame, List[StrategyCandle], List[dict]]) -> List[StrategyCandle]:
@@ -44,9 +44,7 @@ def adapt_candles(data: Union[pd.DataFrame, List[StrategyCandle], List[dict]]) -
             raise ValueError(f"Missing required candle columns: {missing}")
 
         for idx_val, (ts, row) in enumerate(df.iterrows()):
-            open_time = ts.to_pydatetime() if hasattr(ts, "to_pydatetime") else ts
-            if pd.isna(open_time):
-                raise ValueError(f"Row {idx_val} has NaT open timestamp")
+            open_time = validate_and_normalize_timestamp(ts, f"Row {idx_val} open timestamp")
 
             # Validate price fields strictly without silent coercion
             for col in ["open", "high", "low", "close"]:
@@ -54,28 +52,36 @@ def adapt_candles(data: Union[pd.DataFrame, List[StrategyCandle], List[dict]]) -
                 if isinstance(val, bool) or not isinstance(val, (int, float)):
                     raise TypeError(f"Row {idx_val} column '{col}' must be numeric float, got {type(val).__name__} ({val})")
 
-            # Completion fields
+            # Completion fields: strictly require presence, reject missing / defaulted evidence
             if "is_forming" not in row or "bar_status" not in row:
                 raise ValueError(f"Row {idx_val} must have explicit 'is_forming' and 'bar_status' completion fields.")
 
             is_forming = row["is_forming"]
-            if not isinstance(is_forming, (bool,)):
+            if pd.isna(is_forming):
+                raise ValueError(f"Row {idx_val} 'is_forming' cannot be null/NaN.")
+            if isinstance(is_forming, bool):
+                pass
+            else:
                 raise TypeError(f"Row {idx_val} 'is_forming' must be bool, got {type(is_forming).__name__}")
 
             bar_status = row["bar_status"]
+            if pd.isna(bar_status):
+                raise ValueError(f"Row {idx_val} 'bar_status' cannot be null/NaN.")
             if not isinstance(bar_status, str):
                 raise TypeError(f"Row {idx_val} 'bar_status' must be str, got {type(bar_status).__name__}")
 
-            close_time = row.get("close_time", None)
-            if pd.isna(close_time):
-                close_time = None
-            elif isinstance(close_time, str):
-                close_time = datetime.fromisoformat(close_time)
-            elif hasattr(close_time, "to_pydatetime"):
-                close_time = close_time.to_pydatetime()
+            close_time = None
+            if "close_time" in row and pd.notna(row["close_time"]):
+                close_time = validate_and_normalize_timestamp(row["close_time"], f"Row {idx_val} close timestamp")
 
-            # Source index can be integer position or integer index if present
-            source_index = int(row.get("index", idx_val))
+            # Source index: strictly int, reject bool and float
+            if "index" in row and pd.notna(row["index"]):
+                raw_idx = row["index"]
+                if isinstance(raw_idx, bool) or not isinstance(raw_idx, int):
+                    raise TypeError(f"Row {idx_val} 'index' must be int, got {type(raw_idx).__name__} ({raw_idx})")
+                source_index = raw_idx
+            else:
+                source_index = idx_val
 
             candle = StrategyCandle(
                 index=source_index,
@@ -84,9 +90,9 @@ def adapt_candles(data: Union[pd.DataFrame, List[StrategyCandle], List[dict]]) -
                 high=float(row["high"]),
                 low=float(row["low"]),
                 close=float(row["close"]),
-                close_time=close_time,
                 is_forming=is_forming,
-                bar_status=bar_status
+                bar_status=bar_status,
+                close_time=close_time,
             )
             adapted.append(candle)
 
@@ -95,25 +101,34 @@ def adapt_candles(data: Union[pd.DataFrame, List[StrategyCandle], List[dict]]) -
             if isinstance(item, StrategyCandle):
                 adapted.append(item)
             elif isinstance(item, dict):
-                open_time = item.get("open_time", item.get("time"))
-                if open_time is None or pd.isna(open_time):
+                # Timestamp validation
+                raw_open = item.get("open_time", item.get("time"))
+                if raw_open is None or pd.isna(raw_open):
                     raise ValueError(f"Item {idx_val} missing open_time")
-                if isinstance(open_time, str):
-                    open_time = datetime.fromisoformat(open_time)
-                elif hasattr(open_time, "to_pydatetime"):
-                    open_time = open_time.to_pydatetime()
+                open_time = validate_and_normalize_timestamp(raw_open, f"Item {idx_val} open_time")
 
-                close_time = item.get("close_time", None)
-                if pd.isna(close_time):
-                    close_time = None
-                elif isinstance(close_time, str):
-                    close_time = datetime.fromisoformat(close_time)
-                elif hasattr(close_time, "to_pydatetime"):
-                    close_time = close_time.to_pydatetime()
+                close_time = None
+                raw_close = item.get("close_time", None)
+                if raw_close is not None and not pd.isna(raw_close):
+                    close_time = validate_and_normalize_timestamp(raw_close, f"Item {idx_val} close_time")
 
-                # Completion fields
-                is_forming = item.get("is_forming", False)
-                bar_status = item.get("bar_status", "CONFIRMED_COMPLETED")
+                # Completion fields: strictly require presence, reject missing / defaulted evidence
+                if "is_forming" not in item or "bar_status" not in item:
+                    raise ValueError(f"Item {idx_val} must have explicit 'is_forming' and 'bar_status' completion fields.")
+
+                is_forming = item["is_forming"]
+                if is_forming is None or pd.isna(is_forming):
+                    raise ValueError(f"Item {idx_val} 'is_forming' cannot be None.")
+                if isinstance(is_forming, bool):
+                    pass
+                else:
+                    raise TypeError(f"Item {idx_val} 'is_forming' must be bool, got {type(is_forming).__name__}")
+
+                bar_status = item["bar_status"]
+                if bar_status is None or pd.isna(bar_status):
+                    raise ValueError(f"Item {idx_val} 'bar_status' cannot be None.")
+                if not isinstance(bar_status, str):
+                    raise TypeError(f"Item {idx_val} 'bar_status' must be str, got {type(bar_status).__name__}")
 
                 # Strictly validate price fields
                 for col in ["open", "high", "low", "close"]:
@@ -123,7 +138,14 @@ def adapt_candles(data: Union[pd.DataFrame, List[StrategyCandle], List[dict]]) -
                     if isinstance(val, bool) or not isinstance(val, (int, float)):
                         raise TypeError(f"Item {idx_val} field '{col}' must be numeric float, got {type(val).__name__} ({val})")
 
-                source_index = int(item.get("index", idx_val))
+                # Source index: strictly int, reject bool and float
+                if "index" in item:
+                    raw_idx = item["index"]
+                    if isinstance(raw_idx, bool) or not isinstance(raw_idx, int):
+                        raise TypeError(f"Item {idx_val} 'index' must be int, got {type(raw_idx).__name__} ({raw_idx})")
+                    source_index = raw_idx
+                else:
+                    source_index = idx_val
 
                 candle = StrategyCandle(
                     index=source_index,
@@ -132,9 +154,9 @@ def adapt_candles(data: Union[pd.DataFrame, List[StrategyCandle], List[dict]]) -
                     high=float(item["high"]),
                     low=float(item["low"]),
                     close=float(item["close"]),
-                    close_time=close_time,
                     is_forming=is_forming,
-                    bar_status=bar_status
+                    bar_status=bar_status,
+                    close_time=close_time,
                 )
                 adapted.append(candle)
             else:
@@ -147,9 +169,16 @@ def adapt_candles(data: Union[pd.DataFrame, List[StrategyCandle], List[dict]]) -
 
 
 def _validate_candles_sequence(candles: List[StrategyCandle]) -> None:
-    """Validates chronological ordering and numeric bounds without modifying candles."""
+    """Validates chronological ordering, source index uniqueness, and numeric bounds."""
+    seen_indices: Set[int] = set()
     prev_time: datetime | None = None
+
     for i, c in enumerate(candles):
+        # Source index uniqueness
+        if c.index in seen_indices:
+            raise ValueError(f"Duplicate candle source index detected: {c.index}")
+        seen_indices.add(c.index)
+
         # Monotonic time check on candle open times
         if prev_time is not None:
             if c.open_time <= prev_time:
@@ -163,26 +192,28 @@ def _validate_candles_sequence(candles: List[StrategyCandle]) -> None:
 def validate_start_candle(config: MSMConfig, candles: List[StrategyCandle]) -> Tuple[int, int]:
     """Validates starting candle selection per OPEN-08.
 
-    Returns (buffer_position, source_candle_index).
+    Returns (completed_buffer_position, source_candle_index).
     Raises ValueError with standard message if start candle is absent, forming, or unconfirmed.
     """
     target_time = config.start_candle_time
     if target_time.tzinfo is None:
         raise ValueError(f"start_candle_time must be timezone-aware (UTC), got naive: {target_time}")
 
-    matched_pos: int | None = None
     matched_candle: StrategyCandle | None = None
+    completed_pos = 0
 
-    for pos, c in enumerate(candles):
+    for c in candles:
         if c.open_time == target_time:
-            matched_pos = pos
             matched_candle = c
             break
+        # Count preceding candles that are verified completed
+        if not c.is_forming and c.bar_status == "CONFIRMED_COMPLETED":
+            completed_pos += 1
 
-    if matched_pos is None or matched_candle is None:
+    if matched_candle is None:
         raise ValueError("Invalid starting candle: start candle must be a verified completed historical candle.")
 
     if matched_candle.is_forming or matched_candle.bar_status != "CONFIRMED_COMPLETED":
         raise ValueError("Invalid starting candle: start candle must be a verified completed historical candle.")
 
-    return matched_pos, matched_candle.index
+    return completed_pos, matched_candle.index
