@@ -1,7 +1,7 @@
 # Architecture Proposal — Aladeen / TopG Dashboard
 
 > [!IMPORTANT]
-> All technology choices below are **proposals, not approved decisions**. This document does not include order execution.
+> All technology choices below are **proposals, not approved decisions**, except where noted as used in the prototype. This document does not include order execution.
 
 ---
 
@@ -23,16 +23,16 @@ A local Python application that connects to a running MetaTrader 5 terminal, ret
 | Persistence | SQLite via `sqlite3` (stdlib) | Zero-config local storage for candle snapshots, marking state, signals |
 | Configuration | TOML or `.env` for connection; JSON/TOML for strategy params | Simple, no server infrastructure |
 
-### Frontend: Browser-Based Dashboard
+### Frontend: Browser-Based Dashboard — **Dash/Plotly selected for prototype**
 
 | Component | Proposal | Rationale |
 |-----------|----------|-----------|
-| App framework | `Dash` (by Plotly) | Python-native; no JS build step; supports callbacks and layout |
-| Chart library | `plotly` (via Dash) | Real candlestick charts with overlays, zoom, hover; interactive out of the box |
-| Alternative to evaluate | `Streamlit` | Simpler but less control over chart interactivity and layout |
+| App framework | `Dash` (by Plotly) — **used in prototype** | Python-native; no JS build step; supports callbacks and layout |
+| Chart library | `plotly` (via Dash) — **used in prototype** | Real candlestick charts with overlays, zoom, hover; interactive out of the box |
+| ~~Alternative to evaluate~~ | ~~`Streamlit`~~ | Dash was selected; Streamlit is no longer under evaluation |
 
 > [!NOTE]
-> Both Dash and Streamlit are proposals. The final choice depends on the required level of chart interactivity and layout control. A decision can be deferred until the app-shell stage.
+> Dash + Plotly was used for the app-shell prototype and is the stack going forward. Streamlit is no longer under active consideration.
 
 ### Why Not Desktop GUI?
 - Tkinter/PyQt require manual charting; no built-in candlestick support
@@ -154,21 +154,21 @@ TopG/
 
 ## 6. Staged Build Order
 
-| Stage | Scope | Depends On |
-|-------|-------|------------|
-| **1. App shell** | Empty Dash/Streamlit app; symbol and timeframe dropdowns; placeholder chart | — |
-| **2. MT5 data connection** | Connect to local MT5; fetch OHLC for selected symbol/TF; display real candlestick chart | Stage 1 |
-| **3. SQLite cache** | Cache fetched candles; offline chart from DB; manual refresh button | Stage 2 |
-| **4. MSM engine** | Implement Market Structure Marking module; unit tests with fixtures | — (parallel) |
-| **5. MSM chart overlay** | Render MSM tentative/confirmed levels and zones on the candlestick chart | Stages 3 + 4 |
-| **6. CHOCH engine + overlay** | CHOCH detection module; tests; chart overlay for CHOCH zones | Stage 5 |
-| **7. ISS engine + overlay** | ISS module; tests; chart overlay for ISS zones | Stage 6 |
-| **8. TJL engine + overlay** | TJL labeling module; tests; chart overlay for TJL zones | Stage 5 |
-| **9. MTF confirmation** | Multi-timeframe monitoring; activation/confirmation state; entry signals | Stages 6 + 7 + 8 |
-| **10. Replay and inspection** | Bar-by-bar replay; historical signal browser; marking-decision audit trail | Stage 9 |
+| Stage | Scope | Depends On | Status |
+|-------|-------|------------|--------|
+| **1. App shell** | Dash app; symbol and timeframe dropdowns; candlestick chart; placeholder panels | — | ✅ Complete |
+| **2. MT5 data connection** | Connect to local MT5; fetch OHLC for selected symbol/TF; display real candlestick chart | Stage 1 | Not started |
+| **3. SQLite cache** | Cache fetched candles; offline chart from DB; manual refresh button | Stage 2 | Not started |
+| **4. MSM engine** | Implement Market Structure Marking module; unit tests with fixtures | Stage 3 | Not started — see note below |
+| **5. MSM chart overlay** | Render MSM tentative/confirmed levels and zones on the candlestick chart | Stages 3 + 4 | Not started |
+| **6. CHOCH engine + overlay** | CHOCH detection module; tests; chart overlay for CHOCH zones | Stage 5 | Not started |
+| **7. ISS engine + overlay** | ISS module; tests; chart overlay for ISS zones | Stage 6 | Not started |
+| **8. TJL engine + overlay** | TJL labeling module; tests; chart overlay for TJL zones | Stage 5 | Not started |
+| **9. MTF confirmation** | Multi-timeframe monitoring; activation/confirmation state; entry signals | Stages 6 + 7 + 8 | Not started |
+| **10. Replay and inspection** | Bar-by-bar replay; historical signal browser; marking-decision audit trail | Stage 9 | Not started |
 
-> [!NOTE]
-> Stage 4 (MSM engine) can start in parallel with stages 1–3 since strategy modules have no UI or data dependencies. This is the recommended approach: build the data pipeline and strategy engine concurrently.
+> [!WARNING]
+> **Strategy implementation requires reconciliation with later approved clarifications.** The source documents (Market Structure Marking.docx, Choch.pdf, ISS.pdf, TJL.pdf, MTF-Analysis.pdf) may not reflect all user-approved decisions made after their publication dates. Before beginning MSM or any strategy module, all later clarifications must be collected, documented, and reconciled with the source-map ambiguities listed in `docs/requirements/source-map.md`. Do not start strategy implementation using only these source documents as authority.
 
 ---
 
@@ -179,4 +179,4 @@ TopG/
 - **Live trading automation**: dashboard is for analysis and review only
 - **Deployment**: runs locally only
 - **Authentication/multi-user**: single local user
-- **Approved decisions**: all technology choices require user approval before implementation
+- **Approved decisions**: all technology choices require user approval before implementation, except Dash/Plotly which is used in the prototype
