@@ -1,7 +1,8 @@
 # Fixture CHOCH-01: Bearish CHOCH Basic (End-to-End Confirmation)
 
-- **Source Section**: `Choch.pdf` / `docs/strategy/extracted/choch.md` Section 3 (Bearish CHOCH) & `docs/requirements/approved-clarifications.md` (OPEN-01, OPEN-03, OPEN-04, OPEN-08, OPEN-09, OPEN-10)
-- **Starting Structure**: Upward structure with Last Support at `1.105` (index 3), Confirmed High at `1.135` (index 1), and Tentative Point 3 at `1.155` (index 5, identified at index 7).
+- **Source Authority**: `docs/strategy/Choch.pdf` (Bearish CHOCH), with `docs/strategy/extracted/choch.md` (Version 2, 13 October 2026) as a review transcription aid; underlying MSM foundation from `Market Structure Marking.docx` Section 3 (Upward Algorithm); approved clarifications [`docs/requirements/approved-clarifications.md`](../../approved-clarifications.md) (OPEN-01, OPEN-03, OPEN-04, OPEN-08, OPEN-09, OPEN-10).
+- **Fixture Category**: `end_to_end_msm_derived`, `source_settled`
+- **Starting Structure**: Upward structure with Last Support at `1.105` (chronological index 3), Confirmed High at `1.135` (chronological index 1), and Tentative Point 3 at `1.155` (chronological index 5, identified at index 7).
 - **Machine-Readable Target**: `tests/fixtures/choch_acceptance.json` (`choch_bearish_basic_end_to_end`)
 
 ## OHLC Dataset
@@ -23,13 +24,13 @@
 
 1. **Prerequisite Verification**:
    - MSM Structure: `UPWARD`.
-   - Last Support: Confirmed at index `3` with Lower Body edge `1.105`.
-   - Confirmed High: Confirmed at index `1` with Upper Body edge `1.135`.
-   - Point 3 Candidate: Index `5` has Upper Body edge `1.155`. Valid 2-candle pullback formed at indices `6` and `7` (`close[7] < low[6]`), identifying Point 3 as active at index `7`.
+   - Last Support: Confirmed at chronological index `3` with Lower Body edge `1.105`.
+   - Confirmed High: Confirmed at chronological index `1` with Upper Body edge `1.135`.
+   - Point 3 Candidate: Index `5` has Upper Body edge `1.155`. Valid 2-candle pullback formed at chronological indices `6` and `7` (`close[7] < low[6]`), identifying Point 3 as active upon completion of index `7`.
 
 2. **CHOCH Confirmation Sequence**:
-   - Candle `8` completes at `2026-10-02 12:00 UTC`: `Close = 1.095 < 1.105` (Strict inequality satisfied, Close 1 recorded).
-   - Candle `9` completes at `2026-10-02 16:00 UTC`: `Close = 1.085 < 1.105` (Strict inequality satisfied, Close 2 consecutive).
+   - Candle `8` completes at `2026-10-02 12:00 UTC`: `Close = 1.095 < 1.105` (Strict inequality satisfied, Close 1 recorded). Note: Occurs strictly after Point 3 identification ($8 \ge 7 + 1$), representing the source-settled later-candle path.
+   - Candle `9` completes at `2026-10-02 16:00 UTC`: `Close = 1.085 < 1.105` (Strict inequality satisfied, Close 2 at the immediate next chronological completed position).
    - **Confirmation Event**: Bearish CHOCH confirmed upon completion of Candle `9` (`confirmed_at = 2026-10-02 16:00 UTC`).
 
 3. **Zone Construction**:
@@ -50,4 +51,4 @@
    - Previous upward cycle terminated.
    - New Direction: `DOWNWARD`.
    - New Cycle Search Reference: Index `5` (`2026-10-01 20:00 UTC`).
-   - First subsequent downward pullback search (`p1`): Must be strictly `> 9`.
+   - First subsequent downward pullback search (`p1`): Must be strictly after confirmation candle `9` in chronological position ($p_1 \ge 10$).

@@ -4,8 +4,9 @@ Scope & Verification Boundary:
 ------------------------------
 This module verifies the data consistency, OHLC geometry, chronological ordering,
 referenced index validity, body-edge calculations, zone boundary arithmetic,
-strict inequality assertions, and rejection fixture conditions of the independently
-documented CHOCH acceptance fixtures stored in `tests/fixtures/choch_acceptance.json`.
+strict inequality assertions, search-geometry non-overlap boundary conditions,
+and rejection fixture conditions of the independently documented CHOCH acceptance
+fixtures stored in `tests/fixtures/choch_acceptance.json`.
 
 IMPORTANT:
 This test verifies fixture geometry and documented acceptance contract rules only.
@@ -44,7 +45,15 @@ class TestCHOCHFixtureIntegrity:
 
     def test_fixture_file_exists_and_loads(self, choch_fixtures):
         assert "fixtures" in choch_fixtures
-        assert len(choch_fixtures["fixtures"]) >= 14
+        assert "categories" in choch_fixtures
+        valid_cats = set(choch_fixtures["categories"])
+        assert len(choch_fixtures["fixtures"]) >= 15
+
+        for fix_id, fix in choch_fixtures["fixtures"].items():
+            cats = fix.get("category", [])
+            assert isinstance(cats, list) and len(cats) > 0, f"{fix_id}: missing category"
+            for c in cats:
+                assert c in valid_cats, f"{fix_id}: invalid category '{c}'"
 
     def test_ohlc_geometry_finite_and_chronology(self, choch_fixtures):
         """Every fixture candle must satisfy strict OHLC bounds, finite checks, and chronological order."""
@@ -93,13 +102,12 @@ class TestCHOCHFixtureIntegrity:
 
         p3_idx = prereq["active_point_3"]["candle_idx"]
         assert ub(c_map[p3_idx]) == prereq["active_point_3"]["price"]
-        # Point 3 identified at index 7 (after 2-candle pullback at 6 and 7)
         assert prereq["active_point_3"]["identified_at_idx"] == 7
 
         exp = fix["expected_choch"]
         assert exp["confirmed"] is True
         assert exp["type"] == "BEARISH_CHOCH"
-        assert exp["c2_idx"] == exp["c1_idx"] + 1  # Consecutive
+        assert exp["c2_idx"] == exp["c1_idx"] + 1  # Consecutive chronological positions
 
         # Strict closing price comparison
         broken_price = prereq["last_support"]["price"]
@@ -213,10 +221,47 @@ class TestCHOCHFixtureIntegrity:
         assert fix_no_p3["prerequisite_state"]["active_point_3"] is None
         assert fix_no_p3["expected_choch"]["confirmed"] is False
 
-        # Closes before Point 3 identification
-        fix_early = choch_fixtures["fixtures"]["choch_closes_before_point_3_identification_rejected"]
-        assert fix_early["expected_choch"]["confirmed_at_idx_7"] is False
-        assert fix_early["expected_choch"]["confirmed_at_idx_8"] is False
+        # Strictly before Point 3 identification rejection
+        fix_before = choch_fixtures["fixtures"]["choch_closes_strictly_before_point_3_identification_rejected"]
+        assert fix_before["expected_choch"]["confirmed"] is False
+        assert fix_before["candle_strictly_before"]["idx"] < fix_before["prerequisite_state"]["point_3_identified_at_idx"]
+
+    def test_unresolved_same_close_boundary_fixture(self, choch_fixtures):
+        """Verifies that c1 == p2 is strictly isolated as UNRESOLVED with NO fabricated boolean outcome."""
+        fix = choch_fixtures["fixtures"]["choch_same_close_point_3_identification_unresolved"]
+        assert "unresolved_boundary" in fix["category"]
+        assert fix["eligibility_status"] == "UNRESOLVED_PENDING_RECONCILIATION"
+        assert fix["expected_confirmed"] is None  # Must NOT force True or False!
+
+        # Verify static geometry: p2 close is indeed below last support
+        sup_price = fix["prerequisite_state"]["last_support"]["price"]
+        p2_close = fix["candidate_candle_p2"]["close"]
+        assert p2_close < sup_price
+        assert fix["candidate_candle_p2"]["idx"] == fix["prerequisite_state"]["point_3_identified_at_idx"]
+        assert fix["static_geometry_check"]["p2_close_strictly_below_support"] is True
+
+        # Verify interpretation options are clearly articulated
+        assert "option_a_simultaneous_close_eligible" in fix["interpretation_options"]
+        assert "option_b_strictly_later_close_required" in fix["interpretation_options"]
+
+    def test_equal_level_search_geometry_boundary(self, choch_fixtures):
+        """Verifies mathematical non-overlap of continuation vs CHOCH using inclusive search geometry."""
+        fix = choch_fixtures["fixtures"]["choch_equal_level_search_geometry_boundary"]
+        c_start = fix["search_start_candle"]
+        assert ub(c_start) == lb(c_start)  # Flat doji
+
+        ded = fix["search_geometry_deduction"]
+        assert ded["tentative_high_price"] == ded["last_support_price"]
+        level = ded["tentative_high_price"]
+
+        for eval_case in fix["test_evaluations"]:
+            cl = eval_case["close"]
+            cont_sat = cl > level
+            choch_sat = cl < level
+            assert eval_case["continuation_satisfied"] == cont_sat
+            assert eval_case["choch_satisfied"] == choch_sat
+            # Core proof: they can NEVER both be True simultaneously
+            assert not (cont_sat and choch_sat), f"Simultaneous overlap violated at close={cl}"
 
     def test_zero_width_zones_geometry(self, choch_fixtures):
         """Validates zero-wick zones preserve single price line contracts with zero thickness."""

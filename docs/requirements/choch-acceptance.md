@@ -4,7 +4,7 @@ Last Updated: 2026-11-05
 
 > [!IMPORTANT]
 > **Specification Authority & Provenance**:
-> Derived directly from the original strategy document `docs/strategy/Choch.pdf` (transcribed at [`docs/strategy/extracted/choch.md`](../strategy/extracted/choch.md), Version 2, 13 October 2026), `TopG.pdf` (pages 9–12), `Market Structure Marking.docx`, and approved clarifications [`docs/requirements/approved-clarifications.md`](approved-clarifications.md) (OPEN-01, OPEN-03, OPEN-04, OPEN-08, OPEN-09, OPEN-10).
+> Derived directly from the original strategy document `docs/strategy/Choch.pdf` (with [`docs/strategy/extracted/choch.md`](../strategy/extracted/choch.md), Version 2, 13 October 2026, serving as a review transcription aid). Reference to `TopG.pdf` represents ancestry stated by the available strategy source rather than an independently inspected primary document. Original MSM algorithms are drawn from `Market Structure Marking.docx` Section 3 (Upward Algorithm) and Section 4 (Downward Algorithm), distinct from subsection numbering introduced by local acceptance specifications. Approved clarifications are governed by [`docs/requirements/approved-clarifications.md`](approved-clarifications.md) (OPEN-01, OPEN-03, OPEN-04, OPEN-08, OPEN-09, OPEN-10).
 > Operates alongside the Market Structure Marking (MSM) engine as a strict read-only structural transition module.
 > **Strict Non-Invention & Safety Boundary**: Pure structure phase. Strictly **zero trade entries, zero automated execution, zero position gating, and zero profitability claims**.
 
@@ -73,38 +73,41 @@ In all CHOCH comparisons, equality never qualifies:
 ### 3.1 Bearish CHOCH Confirmation
 Occurs while marking `UPWARD` structure:
 1. **Prerequisite**: An active tentative Point 3 (`tentative_high`) must already be identified.
-2. **Consecutive Closes**: Two adjacent, consecutive completed candles `(c1, c2)` where `c2 = c1 + 1` must both satisfy:
+2. **Consecutive Closes**: Two immediately adjacent, consecutive completed candles in the chronological series `(c1, c2)` (where `c2` is the immediate next chronological completed bar following `c1`, rather than an arithmetic operation on arbitrary source IDs) must both satisfy:
    - `close[c1] < last_support.price`
    - `close[c2] < last_support.price`
 3. **Confirmation Timing**: Bearish CHOCH is confirmed at the exact close of the second candle (`c2`).
 4. **Candidate Pair Failure**:
    - A single qualifying close (`close[c1] < last_support.price`) is NOT confirmed CHOCH.
    - If candle `c2` fails to close strictly below last support (i.e. `close[c2] >= last_support.price`), the pair `(c1, c2)` fails.
-   - `c1` cannot be combined with any subsequent non-consecutive close. The engine must search for a completely new adjacent qualifying pair `(c_next, c_next + 1)`.
+   - `c1` cannot be combined with any subsequent non-consecutive close. The engine must search for a completely new adjacent qualifying pair in chronological order.
 
 ### 3.2 Bullish CHOCH Confirmation
 Occurs while marking `DOWNWARD` structure:
 1. **Prerequisite**: An active tentative Point 3 (`tentative_low`) must already be identified.
-2. **Consecutive Closes**: Two adjacent, consecutive completed candles `(c1, c2)` where `c2 = c1 + 1` must both satisfy:
+2. **Consecutive Closes**: Two immediately adjacent, consecutive completed candles in the chronological series `(c1, c2)` (where `c2` is the immediate next chronological completed bar following `c1`, rather than an arithmetic operation on arbitrary source IDs) must both satisfy:
    - `close[c1] > last_resistance.price`
    - `close[c2] > last_resistance.price`
 3. **Confirmation Timing**: Bullish CHOCH is confirmed at the exact close of the second candle (`c2`).
 4. **Candidate Pair Failure**:
    - A single qualifying close (`close[c1] > last_resistance.price`) is NOT confirmed CHOCH.
    - If candle `c2` fails to close strictly above last resistance (i.e. `close[c2] <= last_resistance.price`), the pair `(c1, c2)` fails.
-   - `c1` cannot be combined with any subsequent non-consecutive close. The engine must search for a completely new adjacent qualifying pair `(c_next, c_next + 1)`.
+   - `c1` cannot be combined with any subsequent non-consecutive close. The engine must search for a completely new adjacent qualifying pair in chronological order.
 
 ---
 
 ## 4. Point 3 Eligibility, Timing & Lifecycle
 
-### 4.1 Identification Timing & Pre-Eligibility Prohibition
-- Point 3 must already be identified at or prior to the close of the first qualifying candle `c1`:
-  $$\text{identified\_at}(\text{Point 3}) \le \text{time}[c1]$$
-- Because Point 3 is identified at the close of the second pullback candle `p2` in the MSM cycle:
-  $$c1 > p2$$
-- Any candle closing prior to or during the pullback (i.e. before Point 3 identification) CANNOT count toward CHOCH confirmation.
-- If there is no active tentative Point 3 (e.g. no valid pullback has completed yet in the current cycle), CHOCH cannot be evaluated or confirmed.
+### 4.1 Identification Timing & Same-Close Interpretation Boundary
+- **Source Rule**: Point 3 must already be identified when the first qualifying CHOCH candle closes.
+- **Strictly Ineligible Closes**: Any candle completing strictly *before* Point 3 identification (e.g. candle `p1` or earlier in the cycle) cannot count toward CHOCH confirmation.
+- **Settled Later-Candle Case**: When the first qualifying close occurs on a candle strictly after Point 3 identification (chronological index $c_1 \ge p_2 + 1$), eligibility is established and fully authorized for implementation.
+- **Narrowly Scoped Same-Close Question ($c_1 == p_2$)**:
+  - Point 3 is identified upon the completed close of the second pullback candle `p2`.
+  - If that same candle `p2` also closes strictly beyond Last Support (in upward marking) or Last Resistance (in downward marking), can `p2` simultaneously serve as the identification bar for Point 3 and count as the first qualifying CHOCH close `c1`?
+  - **Status: UNRESOLVED PENDING SOURCE RECONCILIATION**.
+  - Neither "count" nor "do not count" is mandated by the source text. In accordance with strict non-invention, this specific edge case is isolated as pending source clarification. Engines must not silently adopt either default, and test fixtures must not force a boolean outcome for $c_1 == p_2$.
+- **Absence of Point 3**: If there is no active tentative Point 3 (e.g. no valid pullback has completed yet in the current cycle), CHOCH cannot be evaluated or confirmed; evaluation fails closed.
 
 ### 4.2 Point 3 Retention vs. Raw Extremes
 - Point 3 is strictly the active tentative swing level identified by the formal MSM pullback mechanism.
@@ -205,26 +208,34 @@ If the intra-bar event sequence cannot be determined, it must be marked `UNKNOWN
 
 ## 8. Same-Bar Ambiguity Analysis (MSM Continuation vs. CHOCH)
 
-### 8.1 Theoretical Conflict Analysis
-Can a single candle `k` simultaneously confirm an MSM continuation break AND confirm a CHOCH break?
+### 8.1 Mathematical Non-Overlap of Same-Close Continuation vs. CHOCH
+Can a single completed candle `k` simultaneously satisfy an MSM continuation break and a CHOCH break?
 
-1. **In Upward Structure**:
-   - MSM Continuation Break requires: `close[k] > tentative_high.price`.
-   - Bearish CHOCH Break requires: `close[k] < last_support.price`.
-   - Because `last_support` was confirmed prior to the pullback and `tentative_high` was formed at or above the prior high, in all standard upward structures:
-     $$\text{tentative\_high.price} > \text{last\_support.price}$$
-   - A single closing price `close[k]` cannot be simultaneously strictly greater than `tentative_high` and strictly less than `last_support`.
+1. **Upward Marking Search Geometry**:
+   - In `Market Structure Marking.docx` Section 3, the tentative-high search window begins at `search_start`, which is the confirmed-low reference candle (`last_support`).
+   - The tentative-high search evaluates upper body edges $\text{UB}$ across this window, which includes `last_support` itself.
+   - For any candle, $\text{UB} \ge \text{LB}$. Therefore, the maximum $\text{UB}$ over the search window is at least as large as the lower body edge of `last_support`:
+     $$\text{tentative\_high.price} \ge \text{last\_support.price}$$
+   - Non-strict level ordering $\text{tentative\_high} \ge \text{last\_support}$ holds unconditionally from the search geometry alone.
+   - Equality $\text{tentative\_high} == \text{last\_support}$ is theoretically constructible if the search window contains only a flat candle (e.g. doji where $\text{open} == \text{close} \implies \text{UB} == \text{LB}$).
+   - Break evaluation requires strict inequalities:
+     - Upward continuation break requires: $\text{close}[k] > \text{tentative\_high.price}$.
+     - Bearish CHOCH close requires: $\text{close}[k] < \text{last\_support.price}$.
+   - Because $\text{tentative\_high.price} \ge \text{last\_support.price}$, a single scalar value $\text{close}[k]$ cannot simultaneously satisfy $\text{close}[k] > \text{tentative\_high.price}$ and $\text{close}[k] < \text{last\_support.price}$. (If it did, $\text{close}[k] > \text{tentative\_high} \ge \text{last\_support} > \text{close}[k] \implies \text{close}[k] > \text{close}[k]$, a mathematical impossibility).
 
-2. **In Downward Structure**:
-   - MSM Continuation Break requires: `close[k] < tentative_low.price`.
-   - Bullish CHOCH Break requires: `close[k] > last_resistance.price`.
-   - Since $\text{tentative\_low.price} < \text{last\_resistance.price}$, a single closing price cannot satisfy both conditions simultaneously.
+2. **Downward Marking Search Geometry**:
+   - In `Market Structure Marking.docx` Section 4, the tentative-low search window begins at `search_start`, which is the confirmed-high reference candle (`last_resistance`).
+   - The tentative-low search evaluates lower body edges $\text{LB}$ across this window, which includes `last_resistance`.
+   - For any candle, $\text{LB} \le \text{UB}$. Therefore:
+     $$\text{tentative\_low.price} \le \text{last\_resistance.price}$$
+   - Break conditions:
+     - Downward continuation break requires: $\text{close}[k] < \text{tentative\_low.price}$.
+     - Bullish CHOCH close requires: $\text{close}[k] > \text{last\_resistance.price}$.
+   - Since $\text{tentative\_low.price} \le \text{last\_resistance.price}$, no single scalar close can satisfy $\text{close}[k] < \text{tentative\_low} \le \text{last\_resistance} < \text{close}[k]$.
 
-### 8.2 Intra-Bar Order Gaps & Fail-Closed Boundary
-- If an anomalous or extreme intra-bar candle spans both levels (e.g. huge wick or flash-crash):
-  - CHOCH evaluates **closing prices only**. Wicks do not confirm CHOCH.
-  - If a candle's close satisfies continuation, MSM continuation takes effect; if it satisfies CHOCH, CHOCH takes effect.
-- **Formal Ruling**: If an edge case arises where intra-bar sequence between a continuation condition and a CHOCH condition is ambiguous, it is designated as **"pending reconciliation with approved clarifications; do not invent a priority."**
+3. **Intra-Bar Wicks vs. Close-Only Qualification**:
+   - A wide candle whose wicks span across both structural levels (e.g. `high > tentative_high` and `low < last_support`) does not create an event ordering conflict. CHOCH and MSM continuation are **closing-price only** events; intra-bar wick touches do not constitute breaks.
+   - This mathematical non-overlap applies strictly to whether a single close can satisfy both opposite break conditions. It does **not** settle the separate question of whether $p_2$'s close can simultaneously establish Point 3 and count as the first CHOCH close $c_1$ (which remains isolated under Section 4.1).
 
 ---
 
@@ -240,7 +251,7 @@ Can a single candle `k` simultaneously confirm an MSM continuation break AND con
 | **AC-CHOCH-06** | Wick-Only Crossing | Wick breaches level but close does not | `low < support` but `close >= support` fails. |
 | **AC-CHOCH-07** | Color Independence | Mixed green/red/flat qualifying candles | CHOCH confirms if closing price condition is met. |
 | **AC-CHOCH-08** | Point 3 Prerequisite | No active tentative Point 3 identified | Closes below support do NOT confirm CHOCH without Point 3. |
-| **AC-CHOCH-09** | Timing Eligibility | Close occurs before Point 3 identified | `close[c1]` before `p2.close_time` does NOT count toward CHOCH. |
+| **AC-CHOCH-09** | Timing Eligibility | Close occurs strictly before Point 3 identified | Candle completing strictly before `p2.close_time` does NOT count toward CHOCH. Same-close case (`c1 == p2`) is explicitly isolated as UNRESOLVED. |
 | **AC-CHOCH-10** | Cycle Completion Reset | Continuation break before CHOCH confirms | Point 3 becomes confirmed; tentative status lost; in-progress close count resets. |
 | **AC-CHOCH-11** | High-Side Zone Geometry | Confirmed High, RBS, QML, Double Top | `[UB, High]` with body edge to wick tip. |
 | **AC-CHOCH-12** | Low-Side Zone Geometry | Confirmed Low, SBR, QML, Double Bottom | `[Low, LB]` with wick tip to lower body edge. |

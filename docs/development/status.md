@@ -36,6 +36,11 @@ Last Updated: 2026-11-05 (MSM Dashboard Milestone Accepted — Transition to CHO
 
 ## 3. Current Task: CHOCH Requirements & Acceptance Specification
 - **Active Branch**: `requirements/choch-acceptance` (branched from `133a76f1663bf0a940cc6ac2972a7bb86151832d`)
-- **Objective**: Author `docs/requirements/choch-acceptance.md`, 12 modular fixture documents under `docs/requirements/fixtures/choch/`, machine-readable acceptance test fixtures (`tests/fixtures/choch_acceptance.json`), and fixture-integrity checks (`tests/test_choch_fixture_integrity.py`).
+- **Objective**: Author `docs/requirements/choch-acceptance.md`, modular fixture documents under `docs/requirements/fixtures/choch/`, machine-readable acceptance test fixtures (`tests/fixtures/choch_acceptance.json`), and fixture-integrity checks (`tests/test_choch_fixture_integrity.py`).
 - **Scope Boundary**: Pure requirements specification and static fixture validation. **Strictly zero strategy engine implementation, zero zone activations, zero entry/order execution, and zero merging to `main`**.
-- **Current Status**: Complete and verified. Full offline test suite passes (214 tests, 0 failures). Ready for HANDOFF-017 review.
+- **Corrections Applied (Reviewer Feedback HANDOFF-017)**:
+  1. **Point-3 Timing Correction**: Removed unsupported blanket $c_1 > p_2$ exclusion. Strictly-before closes ($< p_2$) remain ineligible. The same-close case ($c_1 == p_2$) is explicitly isolated as `UNRESOLVED_PENDING_RECONCILIATION` with no forced boolean outcome. Settled later-candle cases ($c_1 \ge p_2 + 1$) remain available for implementation.
+  2. **Same-Bar Conflict Justification**: Derived non-overlap mathematically from inclusive search window geometry: $\text{tentative\_high} \ge \text{last\_support}$ in upward marking, and $\text{tentative\_low} \le \text{last\_resistance}$ in downward marking. Demonstrated non-overlap holds unconditionally under strict inequalities even at equal-level boundary.
+  3. **Provenance & Chronological Adjacency**: Primary source identified as `docs/strategy/Choch.pdf` (with markdown transcription as review aid); `TopG.pdf` recorded as ancestry stated by source; MSM source algorithms attributed to Section 3 and Section 4; $c_2 = c_1 + 1$ defined strictly as adjacent chronological completed candle positions.
+  4. **Fixture Categorization & Isolation**: Categorized 17 acceptance fixtures across `source_settled`, `end_to_end_msm_derived`, `synthetic_prerequisite_unit`, and `unresolved_boundary`. Added dedicated fixture documents for `choch-13-same-close-unresolved.md` and `choch-14-equal-level-search-geometry.md`.
+- **Current Status**: Complete, verified, and passing 216/216 offline tests (9 fixture integrity tests, 0 failures). Ready for HANDOFF-018 review.
