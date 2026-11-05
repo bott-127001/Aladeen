@@ -146,7 +146,7 @@ class TJLCoordinator:
         return snapshots
 
     def _ingest_candle(self, candle: StrategyCandle) -> None:
-        """Ingests a single candle with atomic staged transitions and unresolved containment."""
+        """Ingests a single candle with fully staged, atomic transaction semantics."""
         if not isinstance(candle, StrategyCandle):
             raise TypeError(f"Ingest candle requires StrategyCandle instance, got {type(candle).__name__}")
 
@@ -154,18 +154,23 @@ class TJLCoordinator:
             # Forming bars cause zero state mutations
             return
 
-        # Stage candle addition
-        self._candle_lookup[candle.index] = candle
+        # Stage entire transaction in temporary working copies
+        main_coord_copy = copy.deepcopy(self._main_coordinator)
+        reducer_copy = copy.deepcopy(self._reducer)
+        candle_lookup_copy = dict(self._candle_lookup)
+        prev_choch_count_copy = self._prev_choch_count
 
-        # Advance underlying MSMChochCoordinator
-        coord_snap = self._main_coordinator.process_candle(candle)
+        # 1. Stage candle addition to lookup
+        candle_lookup_copy[candle.index] = candle
 
-        # Check for confirmed CHOCH event on this bar
+        # 2. Stage underlying MSMChochCoordinator advancement
+        coord_snap = main_coord_copy.process_candle(candle)
+
+        # 3. Check for confirmed CHOCH event on this bar
         current_choch_count = len(coord_snap.confirmed_choch_events)
-        is_choch_event = current_choch_count > self._prev_choch_count
-        self._prev_choch_count = current_choch_count
+        is_choch_event = current_choch_count > prev_choch_count_copy
 
-        # Extract current-epoch confirmed high and low
+        # 4. Extract current-epoch confirmed high and low
         ch_point: Optional[SwingPoint] = None
         cl_point: Optional[SwingPoint] = None
         if coord_snap.msm_snapshot.confirmed_pairs:
@@ -173,14 +178,15 @@ class TJLCoordinator:
             ch_point = latest_pair.high
             cl_point = latest_pair.low
 
-        # Build structural observation
+        # 5. Build structural observation preserving unknown close time as None
         observation = TJLStructuralObservation(
             source_engine_id=self.source_engine_id,
             symbol_feed_id=self.symbol_feed_id,
             source_timeframe=self.source_timeframe,
             direction=coord_snap.active_direction,
             candle_index=candle.index,
-            candle_time=candle.close_time or candle.open_time,
+            candle_open_time=candle.open_time,
+            availability_time=candle.close_time,  # Strictly None if close_time is unknown!
             ch_point=ch_point,
             cl_point=cl_point,
             tentative_p3=coord_snap.msm_snapshot.tentative_point,
@@ -192,11 +198,19 @@ class TJLCoordinator:
                 if coord_snap.unresolved_diagnostic
                 else None
             ),
-            source_candle_lookup=self._candle_lookup,
+            source_candle_lookup=candle_lookup_copy,
         )
 
-        # Ingest observation into pure reducer
-        self._reducer.reduce(observation)
+        # 6. Stage reducer advance
+        reducer_copy.reduce(observation)
+
+        # -------------------------------------------------------------
+        # Commit all staged components only after ALL steps succeed
+        # -------------------------------------------------------------
+        self._main_coordinator = main_coord_copy
+        self._reducer = reducer_copy
+        self._candle_lookup = candle_lookup_copy
+        self._prev_choch_count = current_choch_count
 
     def get_snapshot(self) -> TJLSnapshot:
         """Returns an immutable snapshot of the TJL execution state."""

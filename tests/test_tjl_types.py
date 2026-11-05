@@ -8,6 +8,7 @@ import pytest
 from aladeen.strategy.types import Direction, StrategyCandle
 from aladeen.strategy.tjl_types import (
     CurrentEligibleSet,
+    PhysicalLevel,
     StableLevelId,
     TJLFingerprint,
     TJLLabel,
@@ -96,10 +97,10 @@ class TestTJLTypes:
         assert z_low.is_line is False
         assert z_low.level_id.side == TJLSide.LOW
 
-    def test_tjl_zone_zero_width_line(self) -> None:
-        """Zero-width wick correctly marks is_line=True."""
+    def test_exact_zero_width_vs_tiny_nonzero_wick(self) -> None:
+        """Exact zero-width wick marks is_line=True; tiny representable nonzero wick marks is_line=False."""
         t0 = datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc)
-        # Candle where close == high (no upper wick)
+        # 1. Genuine zero-width candle (close == high)
         c_marubozu = StrategyCandle(
             index=2,
             open_time=t0,
@@ -110,7 +111,7 @@ class TestTJLTypes:
             is_forming=False,
             bar_status="CONFIRMED_COMPLETED",
         )
-        z = TJLZone.from_candle(
+        z_zero = TJLZone.from_candle(
             candle=c_marubozu,
             label=TJLLabel.TJL1,
             is_high_side=True,
@@ -118,9 +119,32 @@ class TestTJLTypes:
             timeframe="H1",
             confirmed_candle_index=4,
         )
-        assert z.lower_price == 1.1350
-        assert z.upper_price == 1.1350
-        assert z.is_line is True
+        assert z_zero.lower_price == 1.1350
+        assert z_zero.upper_price == 1.1350
+        assert z_zero.is_line is True
+
+        # 2. Candle with a tiny nonzero wick (diff = 0.00001)
+        c_tiny_wick = StrategyCandle(
+            index=3,
+            open_time=t0,
+            open=1.1300,
+            high=1.13501,  # 0.00001 above close!
+            low=1.1290,
+            close=1.13500,
+            is_forming=False,
+            bar_status="CONFIRMED_COMPLETED",
+        )
+        z_nonzero = TJLZone.from_candle(
+            candle=c_tiny_wick,
+            label=TJLLabel.TJL1,
+            is_high_side=True,
+            feed_id="FEED_EURUSD_H1",
+            timeframe="H1",
+            confirmed_candle_index=4,
+        )
+        assert z_nonzero.lower_price == 1.13500
+        assert z_nonzero.upper_price == 1.13501
+        assert z_nonzero.is_line is False  # Must NOT be classified as line!
 
     def test_tjl_fingerprint_equality_and_hashing(self) -> None:
         """TJLFingerprint supports comparisons with tuples and lists and maintains stable hashing."""
@@ -129,3 +153,32 @@ class TestTJLTypes:
         assert fp == ["ENGINE_EURUSD_H1", "UPWARD", 1, 4, 5]
         assert fp.to_tuple() == ("ENGINE_EURUSD_H1", "UPWARD", 1, 4, 5)
         assert hash(fp) == hash(("ENGINE_EURUSD_H1", "UPWARD", 1, 4, 5))
+
+    def test_structural_observation_immutable_lookup(self) -> None:
+        """TJLStructuralObservation protects source_candle_lookup against external mutation."""
+        t0 = datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc)
+        c1 = StrategyCandle(
+            index=1,
+            open_time=t0,
+            open=1.130,
+            high=1.140,
+            low=1.129,
+            close=1.135,
+            is_forming=False,
+            bar_status="CONFIRMED_COMPLETED",
+        )
+        lookup = {1: c1}
+        obs = TJLStructuralObservation(
+            source_engine_id="ENGINE_1",
+            symbol_feed_id="FEED_1",
+            source_timeframe="H1",
+            direction=Direction.UPWARD,
+            candle_index=1,
+            candle_open_time=t0,
+            availability_time=None,  # Unknown close time!
+            source_candle_lookup=lookup,
+        )
+        assert obs.availability_time is None
+        # Attempting to mutate mappingproxy raises TypeError
+        with pytest.raises(TypeError):
+            obs.source_candle_lookup[2] = c1  # type: ignore[index]

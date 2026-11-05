@@ -16,7 +16,8 @@ import math
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from types import MappingProxyType
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
 from .types import Direction, StrategyCandle, SwingPoint, validate_and_normalize_timestamp
 
@@ -125,14 +126,46 @@ class StableLevelId:
 
 
 @dataclass(frozen=True)
-class TJLZone:
-    """An immutable structural zone derived from an original swing candle for TJL.
+class PhysicalLevel:
+    """Immutable physical level geometry and source provenance.
 
-    Geometry:
-    - High-Side: lower_price = upper_body_edge, upper_price = high.
-    - Low-Side: lower_price = low, upper_price = lower_body_edge.
-    - If lower_price == upper_price: zero-width line (is_line = True).
+    Independent of contextual directional role (TJL1 vs TJL2).
     """
+    level_id: StableLevelId
+    lower_price: float
+    upper_price: float
+    is_line: bool
+    source_candle_index: int
+    source_candle_open_time: datetime
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.level_id, StableLevelId):
+            raise TypeError(f"level_id must be StableLevelId, got {type(self.level_id).__name__}")
+        for p_name, p_val in (("lower_price", self.lower_price), ("upper_price", self.upper_price)):
+            if isinstance(p_val, bool) or not isinstance(p_val, (int, float)):
+                raise TypeError(f"{p_name} must be numeric, got {type(p_val).__name__}")
+            if not math.isfinite(p_val) or p_val <= 0:
+                raise ValueError(f"{p_name} must be finite positive, got {p_val}")
+
+        if self.lower_price > self.upper_price:
+            raise ValueError(
+                f"PhysicalLevel lower_price ({self.lower_price}) cannot exceed upper_price ({self.upper_price})"
+            )
+
+        # Exact zero-width line classification: equality on preserved price representation
+        expected_is_line = (self.lower_price == self.upper_price)
+        if self.is_line != expected_is_line:
+            raise ValueError(
+                f"PhysicalLevel is_line={self.is_line} inconsistent with exact prices: lower={self.lower_price}, upper={self.upper_price}"
+            )
+
+        norm_open = validate_and_normalize_timestamp(self.source_candle_open_time, "source_candle_open_time")
+        object.__setattr__(self, "source_candle_open_time", norm_open)
+
+
+@dataclass(frozen=True)
+class TJLZone:
+    """An immutable contextual structural zone referencing a physical level and directional role."""
     level_id: StableLevelId
     label: TJLLabel
     lower_price: float
@@ -163,10 +196,11 @@ class TJLZone:
                 f"TJLZone lower_price ({self.lower_price}) cannot exceed upper_price ({self.upper_price})"
             )
 
-        expected_is_line = math.isclose(self.lower_price, self.upper_price, abs_tol=1e-9)
+        # Exact zero-width classification: strict equality, no rounding or tolerance
+        expected_is_line = (self.lower_price == self.upper_price)
         if self.is_line != expected_is_line:
             raise ValueError(
-                f"TJLZone is_line={self.is_line} inconsistent with prices: lower={self.lower_price}, upper={self.upper_price}"
+                f"TJLZone is_line={self.is_line} inconsistent with exact prices: lower={self.lower_price}, upper={self.upper_price}"
             )
 
         norm_open = validate_and_normalize_timestamp(self.source_candle_open_time, "source_candle_open_time")
@@ -175,6 +209,9 @@ class TJLZone:
         if self.confirmed_time is not None:
             norm_conf = validate_and_normalize_timestamp(self.confirmed_time, "confirmed_time")
             object.__setattr__(self, "confirmed_time", norm_conf)
+
+        if isinstance(self.confirmed_candle_index, bool) or not isinstance(self.confirmed_candle_index, int):
+            raise TypeError(f"confirmed_candle_index must be int, got {type(self.confirmed_candle_index).__name__}")
 
     @classmethod
     def from_candle(
@@ -206,7 +243,8 @@ class TJLZone:
             lower_price = candle.low
             upper_price = candle.lower_body_edge
 
-        is_line = math.isclose(lower_price, upper_price, abs_tol=1e-9)
+        # Exact zero-width line classification: equality on preserved price representation
+        is_line = (lower_price == upper_price)
 
         return cls(
             level_id=level_id,
@@ -309,13 +347,18 @@ class CurrentEligibleSet:
 
 @dataclass(frozen=True)
 class TJLTransitionRecord:
-    """Immutable diagnostic record describing an atomic lifecycle transition."""
+    """Immutable diagnostic record describing an atomic lifecycle transition.
+
+    Explicitly identifies outgoing cancelled set ID and fingerprint when cancellation is emitted.
+    """
     transition_type: TJLTransitionType
     outgoing_cancellation_intent: bool
     current_set: Optional[CurrentEligibleSet]
     newly_labeled_zones: Tuple[TJLZone, ...]
     transition_candle_index: int
     transition_time: Optional[datetime]
+    outgoing_cancelled_set_id: Optional[str] = None
+    outgoing_cancelled_fingerprint: Optional[TJLFingerprint] = None
     diagnostic: Optional[str] = None
 
     def __post_init__(self) -> None:
@@ -330,14 +373,16 @@ class TJLTransitionRecord:
 class TJLStructuralObservation:
     """Input payload delivered to the pure TJL lifecycle reducer at each observation point.
 
-    Decouples reducer state logic from candle iteration or MT5 data types.
+    Decouples reducer state logic from candle iteration.
+    Maintains separate candle_open_time for chronology and availability_time for event availability.
     """
     source_engine_id: str
     symbol_feed_id: str
     source_timeframe: str
     direction: Direction
     candle_index: int
-    candle_time: Optional[datetime]
+    candle_open_time: datetime
+    availability_time: Optional[datetime] = None
     ch_point: Optional[SwingPoint] = None
     cl_point: Optional[SwingPoint] = None
     tentative_p3: Optional[SwingPoint] = None
@@ -345,7 +390,7 @@ class TJLStructuralObservation:
     new_choch_direction: Optional[Direction] = None
     is_unresolved: bool = False
     unresolved_diagnostic: Optional[str] = None
-    source_candle_lookup: Dict[int, StrategyCandle] = field(default_factory=dict)
+    source_candle_lookup: Mapping[int, StrategyCandle] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not isinstance(self.source_engine_id, str) or not self.source_engine_id.strip():
@@ -356,9 +401,60 @@ class TJLStructuralObservation:
             raise ValueError("source_timeframe must be non-empty string")
         if isinstance(self.direction, str):
             object.__setattr__(self, "direction", Direction(self.direction))
-        if self.candle_time is not None:
-            norm_time = validate_and_normalize_timestamp(self.candle_time, "candle_time")
-            object.__setattr__(self, "candle_time", norm_time)
+        elif not isinstance(self.direction, Direction):
+            raise TypeError(f"direction must be Direction, got {type(self.direction).__name__}")
+
+        norm_open = validate_and_normalize_timestamp(self.candle_open_time, "candle_open_time")
+        object.__setattr__(self, "candle_open_time", norm_open)
+
+        if self.availability_time is not None:
+            norm_avail = validate_and_normalize_timestamp(self.availability_time, "availability_time")
+            object.__setattr__(self, "availability_time", norm_avail)
+
+        # Make source_candle_lookup strictly immutable
+        if isinstance(self.source_candle_lookup, dict):
+            object.__setattr__(self, "source_candle_lookup", MappingProxyType(dict(self.source_candle_lookup)))
+        elif not isinstance(self.source_candle_lookup, MappingProxyType):
+            object.__setattr__(self, "source_candle_lookup", MappingProxyType(dict(self.source_candle_lookup)))
+
+        # Validate swing point kinds and provenance against lookup
+        if self.ch_point is not None:
+            if not isinstance(self.ch_point, SwingPoint):
+                raise TypeError(f"ch_point must be SwingPoint, got {type(self.ch_point).__name__}")
+            if self.ch_point.candle_index in self.source_candle_lookup:
+                c = self.source_candle_lookup[self.ch_point.candle_index]
+                if self.ch_point.candle_open_time != c.open_time:
+                    raise ValueError(
+                        f"ch_point open_time ({self.ch_point.candle_open_time}) does not match source candle open_time ({c.open_time})"
+                    )
+                if self.ch_point.price < c.lower_body_edge:
+                    raise ValueError(
+                        f"ch_point price ({self.ch_point.price}) is below source candle body"
+                    )
+
+        if self.cl_point is not None:
+            if not isinstance(self.cl_point, SwingPoint):
+                raise TypeError(f"cl_point must be SwingPoint, got {type(self.cl_point).__name__}")
+            if self.cl_point.candle_index in self.source_candle_lookup:
+                c = self.source_candle_lookup[self.cl_point.candle_index]
+                if self.cl_point.candle_open_time != c.open_time:
+                    raise ValueError(
+                        f"cl_point open_time ({self.cl_point.candle_open_time}) does not match source candle open_time ({c.open_time})"
+                    )
+                if self.cl_point.price > c.upper_body_edge:
+                    raise ValueError(
+                        f"cl_point price ({self.cl_point.price}) is above source candle body"
+                    )
+
+        if self.tentative_p3 is not None:
+            if not isinstance(self.tentative_p3, SwingPoint):
+                raise TypeError(f"tentative_p3 must be SwingPoint, got {type(self.tentative_p3).__name__}")
+            if self.tentative_p3.candle_index in self.source_candle_lookup:
+                c = self.source_candle_lookup[self.tentative_p3.candle_index]
+                if self.tentative_p3.candle_open_time != c.open_time:
+                    raise ValueError(
+                        f"tentative_p3 open_time ({self.tentative_p3.candle_open_time}) does not match source candle open_time ({c.open_time})"
+                    )
 
 
 @dataclass(frozen=True)

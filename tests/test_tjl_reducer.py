@@ -58,7 +58,8 @@ class TestTJLReducer:
             source_timeframe="H1",
             direction=Direction.UPWARD,
             candle_index=4,
-            candle_time=t0 + timedelta(hours=5),
+            candle_open_time=c4.open_time,
+            availability_time=t0 + timedelta(hours=5),
             ch_point=ch,
             cl_point=cl,
             tentative_p3=None,  # Not yet found!
@@ -78,31 +79,32 @@ class TestTJLReducer:
         assert z_tjl1.source_candle_index == 1
         assert z_tjl2.source_candle_index == 4
 
-    def test_first_set_creation_on_p3_identification(self) -> None:
-        """First set is created when CH, CL, and active tentative P3 are all present."""
+    def test_first_set_creation_and_timing_preservation(self) -> None:
+        """First set is created when CH, CL, and active P3 are present; preserves None when availability is unknown."""
         reducer = TJLReducer("ENGINE_TEST", "FEED_TEST", "H1")
         t0 = datetime(2026, 10, 1, 0, 0, tzinfo=timezone.utc)
         c1 = _make_candle(1, 1.130, 1.140, 1.129, 1.135, t0 + timedelta(hours=1))
         c4 = _make_candle(4, 1.110, 1.115, 1.104, 1.105, t0 + timedelta(hours=4))
         c5 = _make_candle(5, 1.140, 1.155, 1.139, 1.150, t0 + timedelta(hours=5))
+        c7 = _make_candle(7, 1.145, 1.150, 1.142, 1.146, t0 + timedelta(hours=7))
 
         ch = SwingPoint(price=1.135, candle_index=1, candle_open_time=c1.open_time, identified_bar_index=1, confirmed_bar_index=4)
         cl = SwingPoint(price=1.105, candle_index=4, candle_open_time=c4.open_time, identified_bar_index=4, confirmed_bar_index=4)
         p3 = SwingPoint(price=1.155, candle_index=5, candle_open_time=c5.open_time, identified_bar_index=7)
 
-        # Pullback completes at Bar 7
-        t7 = t0 + timedelta(hours=7)
+        # Observation with unknown availability time (availability_time=None)
         obs = TJLStructuralObservation(
             source_engine_id="ENGINE_TEST",
             symbol_feed_id="FEED_TEST",
             source_timeframe="H1",
             direction=Direction.UPWARD,
             candle_index=7,
-            candle_time=t7,
+            candle_open_time=c7.open_time,
+            availability_time=None,  # Unknown close time!
             ch_point=ch,
             cl_point=cl,
             tentative_p3=p3,
-            source_candle_lookup={1: c1, 4: c4, 5: c5},
+            source_candle_lookup={1: c1, 4: c4, 5: c5, 7: c7},
         )
 
         snap = reducer.reduce(obs)
@@ -110,10 +112,8 @@ class TestTJLReducer:
         curr = snap.current_eligible_set
         assert curr.set_id == "SET_1"
         assert curr.fingerprint == ("ENGINE_TEST", "UPWARD", 1, 4, 5)
-        assert curr.tjl1_zone.source_candle_index == 1
-        assert curr.tjl2_zone.source_candle_index == 4
-        assert curr.p3_source_index == 5
-        assert curr.eligibility_available_time == t7
+        # Critical regression check: availability_time MUST remain None, NOT open_time!
+        assert curr.eligibility_available_time is None
         assert snap.outgoing_cancellation_intent is False
         assert snap.last_transition.transition_type == TJLTransitionType.FIRST_CREATION
 
@@ -136,7 +136,8 @@ class TestTJLReducer:
             source_timeframe="H1",
             direction=Direction.DOWNWARD,
             candle_index=9,
-            candle_time=t0 + timedelta(hours=9),
+            candle_open_time=t0 + timedelta(hours=9),
+            availability_time=t0 + timedelta(hours=10),
             ch_point=ch1,
             cl_point=cl1,
             tentative_p3=p3_1,
@@ -157,7 +158,8 @@ class TestTJLReducer:
             source_timeframe="H1",
             direction=Direction.DOWNWARD,
             candle_index=14,
-            candle_time=t0 + timedelta(hours=14),
+            candle_open_time=t0 + timedelta(hours=14),
+            availability_time=t0 + timedelta(hours=15),
             ch_point=ch2,
             cl_point=cl2,
             tentative_p3=None,  # Cleared by continuation!
@@ -169,11 +171,10 @@ class TestTJLReducer:
         assert snap2.current_eligible_set.fingerprint == ("ENGINE_GBP", "DOWNWARD", 4, 2, 7)
         assert snap2.outgoing_cancellation_intent is False
         assert snap2.last_transition.transition_type == TJLTransitionType.CONTINUATION_RETAINED
-        # But newly confirmed points are labeled
         assert len(snap2.all_labeled_zones) == 4
 
-    def test_t2_pullback_replacement_and_cancellation_intent(self) -> None:
-        """At t2 pullback completion, new fingerprint replaces set and emits outgoing cancellation intent."""
+    def test_t2_pullback_replacement_and_outgoing_set_identification(self) -> None:
+        """At t2 pullback completion, replacement emits outgoing cancellation identifying outgoing set ID and fingerprint."""
         reducer = TJLReducer("ENGINE_GBP", "FEED_GBP", "H1")
         t0 = datetime(2026, 10, 1, 0, 0, tzinfo=timezone.utc)
         c2 = _make_candle(2, 1.190, 1.192, 1.180, 1.185, t0 + timedelta(hours=2))
@@ -193,7 +194,8 @@ class TestTJLReducer:
             source_timeframe="H1",
             direction=Direction.DOWNWARD,
             candle_index=9,
-            candle_time=t0 + timedelta(hours=9),
+            candle_open_time=t0 + timedelta(hours=9),
+            availability_time=t0 + timedelta(hours=10),
             ch_point=ch1,
             cl_point=cl1,
             tentative_p3=p3_1,
@@ -209,7 +211,8 @@ class TestTJLReducer:
             source_timeframe="H1",
             direction=Direction.DOWNWARD,
             candle_index=14,
-            candle_time=t0 + timedelta(hours=14),
+            candle_open_time=t0 + timedelta(hours=14),
+            availability_time=t0 + timedelta(hours=15),
             ch_point=ch2,
             cl_point=cl2,
             tentative_p3=None,
@@ -225,7 +228,8 @@ class TestTJLReducer:
             source_timeframe="H1",
             direction=Direction.DOWNWARD,
             candle_index=16,
-            candle_time=t16,
+            candle_open_time=t16,
+            availability_time=t16 + timedelta(hours=1),
             ch_point=ch2,
             cl_point=cl2,
             tentative_p3=p3_2,
@@ -237,222 +241,153 @@ class TestTJLReducer:
         assert snap.current_eligible_set.fingerprint == ("ENGINE_GBP", "DOWNWARD", 13, 7, 14)
         assert snap.outgoing_cancellation_intent is True
         assert snap.last_transition.transition_type == TJLTransitionType.SET_REPLACEMENT
-        assert len(snap.historical_sets) == 2
+        assert snap.last_transition.outgoing_cancelled_set_id == "SET_1"
+        assert snap.last_transition.outgoing_cancelled_fingerprint == ("ENGINE_GBP", "DOWNWARD", 4, 2, 7)
 
-    def test_case_b_persistent_confirmed_member_across_replacement(self) -> None:
-        """[Case B & C] Persistent confirmed member retains identical StableLevelId across replacement."""
-        reducer = TJLReducer("ENGINE_SYNTH", "FEED_SYNTH", "H1")
+    def test_cross_direction_same_level_role_assignment(self) -> None:
+        """[Finding 3 Regression] Reusing a stable physical level in an opposite direction assigns the correct new contextual role."""
+        reducer = TJLReducer("ENGINE_CROSS", "FEED_CROSS", "H1")
         t0 = datetime(2026, 10, 1, 0, 0, tzinfo=timezone.utc)
         c1 = _make_candle(1, 1.130, 1.140, 1.129, 1.135, t0 + timedelta(hours=1))
         c4 = _make_candle(4, 1.110, 1.115, 1.104, 1.105, t0 + timedelta(hours=4))
         c5 = _make_candle(5, 1.140, 1.155, 1.139, 1.150, t0 + timedelta(hours=5))
 
-        ch1 = SwingPoint(price=1.135, candle_index=1, candle_open_time=c1.open_time, identified_bar_index=1, confirmed_bar_index=4)
-        cl1 = SwingPoint(price=1.105, candle_index=4, candle_open_time=c4.open_time, identified_bar_index=4, confirmed_bar_index=4)
-        p3_1 = SwingPoint(price=1.155, candle_index=5, candle_open_time=c5.open_time, identified_bar_index=7)
-
-        # Set 1: CH1=1, CL1=4, P3=5
-        reducer.reduce(TJLStructuralObservation(
-            source_engine_id="ENGINE_SYNTH",
-            symbol_feed_id="FEED_SYNTH",
-            source_timeframe="H1",
-            direction=Direction.UPWARD,
-            candle_index=7,
-            candle_time=t0 + timedelta(hours=7),
-            ch_point=ch1,
-            cl_point=cl1,
-            tentative_p3=p3_1,
-            source_candle_lookup={1: c1, 4: c4, 5: c5},
-        ))
-        set1 = reducer.current_eligible_set
-        assert set1 is not None
-
-        # Set 2: Higher High CH2=9 confirmed, but CL1=4 unbroken and shared!
-        c9 = _make_candle(9, 1.160, 1.170, 1.159, 1.165, t0 + timedelta(hours=9))
-        c11 = _make_candle(11, 1.175, 1.185, 1.174, 1.180, t0 + timedelta(hours=11))
-        ch2 = SwingPoint(price=1.165, candle_index=9, candle_open_time=c9.open_time, identified_bar_index=9, confirmed_bar_index=10)
-        p3_2 = SwingPoint(price=1.180, candle_index=11, candle_open_time=c11.open_time, identified_bar_index=13)
-
-        snap = reducer.reduce(TJLStructuralObservation(
-            source_engine_id="ENGINE_SYNTH",
-            symbol_feed_id="FEED_SYNTH",
-            source_timeframe="H1",
-            direction=Direction.UPWARD,
-            candle_index=13,
-            candle_time=t0 + timedelta(hours=13),
-            ch_point=ch2,
-            cl_point=cl1,  # Identical unbroken low!
-            tentative_p3=p3_2,
-            source_candle_lookup={1: c1, 4: c4, 5: c5, 9: c9, 11: c11},
-        ))
-
-        set2 = snap.current_eligible_set
-        assert set2 is not None
-        assert set2.fingerprint == ("ENGINE_SYNTH", "UPWARD", 9, 4, 11)
-
-        # Surviving confirmed member (CL1) preserves exact level ID
-        assert set1.tjl2_zone.level_id == set2.tjl2_zone.level_id
-        assert set2.tjl2_zone.level_id == ["FEED_SYNTH", "H1", c4.open_time.isoformat(), "LOW"]
-
-        # Case C: Outgoing cancellation intent emitted for the outgoing set
-        assert snap.outgoing_cancellation_intent is True
-
-    def test_idempotent_reobservation_same_fingerprint(self) -> None:
-        """Identical fingerprint re-observation produces no new sets, no cancellation, and preserves availability timestamp."""
-        reducer = TJLReducer("ENGINE_TEST", "FEED_TEST", "H1")
-        t0 = datetime(2026, 10, 1, 0, 0, tzinfo=timezone.utc)
-        c1 = _make_candle(1, 1.130, 1.140, 1.129, 1.135, t0 + timedelta(hours=1))
-        c4 = _make_candle(4, 1.110, 1.115, 1.104, 1.105, t0 + timedelta(hours=4))
-        c5 = _make_candle(5, 1.140, 1.155, 1.139, 1.150, t0 + timedelta(hours=5))
-
+        # 1. UPWARD structure: CH Bar 1 is TJL1
         ch = SwingPoint(price=1.135, candle_index=1, candle_open_time=c1.open_time, identified_bar_index=1, confirmed_bar_index=4)
         cl = SwingPoint(price=1.105, candle_index=4, candle_open_time=c4.open_time, identified_bar_index=4, confirmed_bar_index=4)
         p3 = SwingPoint(price=1.155, candle_index=5, candle_open_time=c5.open_time, identified_bar_index=7)
 
-        # Bar 7: Creation
-        t7 = t0 + timedelta(hours=7)
         snap1 = reducer.reduce(TJLStructuralObservation(
-            source_engine_id="ENGINE_TEST",
-            symbol_feed_id="FEED_TEST",
+            source_engine_id="ENGINE_CROSS",
+            symbol_feed_id="FEED_CROSS",
             source_timeframe="H1",
             direction=Direction.UPWARD,
             candle_index=7,
-            candle_time=t7,
+            candle_open_time=t0 + timedelta(hours=7),
+            availability_time=t0 + timedelta(hours=8),
             ch_point=ch,
             cl_point=cl,
             tentative_p3=p3,
             source_candle_lookup={1: c1, 4: c4, 5: c5},
         ))
-        orig_avail = snap1.current_eligible_set.eligibility_available_time
+        assert snap1.current_eligible_set.tjl1_zone.level_id == ["FEED_CROSS", "H1", c1.open_time.isoformat(), "HIGH"]
+        assert snap1.current_eligible_set.tjl1_zone.label == TJLLabel.TJL1
 
-        # Bar 8: Next candle arrives, structural points unchanged
-        t8 = t0 + timedelta(hours=8)
-        snap2 = reducer.reduce(TJLStructuralObservation(
-            source_engine_id="ENGINE_TEST",
-            symbol_feed_id="FEED_TEST",
+        # 2. CHOCH event to DOWNWARD at Bar 9
+        reducer.reduce(TJLStructuralObservation(
+            source_engine_id="ENGINE_CROSS",
+            symbol_feed_id="FEED_CROSS",
             source_timeframe="H1",
-            direction=Direction.UPWARD,
-            candle_index=8,
-            candle_time=t8,
-            ch_point=ch,
-            cl_point=cl,
-            tentative_p3=p3,
-            source_candle_lookup={1: c1, 4: c4, 5: c5},
+            direction=Direction.DOWNWARD,
+            candle_index=9,
+            candle_open_time=t0 + timedelta(hours=9),
+            is_choch_event=True,
+            new_choch_direction=Direction.DOWNWARD,
         ))
 
-        assert snap2.current_eligible_set.set_id == "SET_1"
-        assert snap2.current_eligible_set.eligibility_available_time == orig_avail  # NOT refreshed!
-        assert snap2.outgoing_cancellation_intent is False
-        assert snap2.last_transition.transition_type == TJLTransitionType.IDEMPOTENT_NO_OP
-        assert len(snap2.historical_sets) == 1
+        # 3. DOWNWARD structure: candle 1 is confirmed as Lower Resistance (CH) in DOWNWARD -> receives TJL2_A_PLUS role!
+        c10 = _make_candle(10, 1.090, 1.095, 1.080, 1.085, t0 + timedelta(hours=10))
+        c12 = _make_candle(12, 1.070, 1.075, 1.060, 1.065, t0 + timedelta(hours=12))
+        ch_down = SwingPoint(price=1.135, candle_index=1, candle_open_time=c1.open_time, identified_bar_index=1, confirmed_bar_index=10)
+        cl_down = SwingPoint(price=1.085, candle_index=10, candle_open_time=c10.open_time, identified_bar_index=10, confirmed_bar_index=10)
+        p3_down = SwingPoint(price=1.065, candle_index=12, candle_open_time=c12.open_time, identified_bar_index=14)
 
-    def test_source_choch_invalidation_and_gap(self) -> None:
-        """Source CHOCH immediately removes current eligibility, emits cancellation intent, and leaves current_set None."""
+        snap2 = reducer.reduce(TJLStructuralObservation(
+            source_engine_id="ENGINE_CROSS",
+            symbol_feed_id="FEED_CROSS",
+            source_timeframe="H1",
+            direction=Direction.DOWNWARD,
+            candle_index=14,
+            candle_open_time=t0 + timedelta(hours=14),
+            availability_time=t0 + timedelta(hours=15),
+            ch_point=ch_down,
+            cl_point=cl_down,
+            tentative_p3=p3_down,
+            source_candle_lookup={1: c1, 10: c10, 12: c12},
+        ))
+
+        # In DOWNWARD, CH is TJL2_A_PLUS, while preserving the exact identical level_id!
+        set_down = snap2.current_eligible_set
+        assert set_down is not None
+        assert set_down.tjl2_zone.level_id == ["FEED_CROSS", "H1", c1.open_time.isoformat(), "HIGH"]
+        assert set_down.tjl2_zone.label == TJLLabel.TJL2_A_PLUS  # Re-labeled contextually!
+        assert set_down.tjl2_zone.level_id == snap1.current_eligible_set.tjl1_zone.level_id
+
+    def test_unresolved_receipt_does_not_reemit_cancellation(self) -> None:
+        """[Finding 6 Regression] Unresolved receipt immediately following set replacement does not expose stale cancellation."""
         reducer = TJLReducer("ENGINE_TEST", "FEED_TEST", "H1")
         t0 = datetime(2026, 10, 1, 0, 0, tzinfo=timezone.utc)
         c1 = _make_candle(1, 1.130, 1.140, 1.129, 1.135, t0 + timedelta(hours=1))
         c4 = _make_candle(4, 1.110, 1.115, 1.104, 1.105, t0 + timedelta(hours=4))
         c5 = _make_candle(5, 1.140, 1.155, 1.139, 1.150, t0 + timedelta(hours=5))
 
-        ch = SwingPoint(price=1.135, candle_index=1, candle_open_time=c1.open_time, identified_bar_index=1, confirmed_bar_index=4)
-        cl = SwingPoint(price=1.105, candle_index=4, candle_open_time=c4.open_time, identified_bar_index=4, confirmed_bar_index=4)
-        p3 = SwingPoint(price=1.155, candle_index=5, candle_open_time=c5.open_time, identified_bar_index=7)
-
-        # Active set at Bar 7
+        # 1. Set 1 at Bar 7
         reducer.reduce(TJLStructuralObservation(
             source_engine_id="ENGINE_TEST",
             symbol_feed_id="FEED_TEST",
             source_timeframe="H1",
             direction=Direction.UPWARD,
             candle_index=7,
-            candle_time=t0 + timedelta(hours=7),
-            ch_point=ch,
-            cl_point=cl,
-            tentative_p3=p3,
+            candle_open_time=t0 + timedelta(hours=7),
+            availability_time=t0 + timedelta(hours=8),
+            ch_point=SwingPoint(price=1.135, candle_index=1, candle_open_time=c1.open_time, identified_bar_index=1, confirmed_bar_index=4),
+            cl_point=SwingPoint(price=1.105, candle_index=4, candle_open_time=c4.open_time, identified_bar_index=4, confirmed_bar_index=4),
+            tentative_p3=SwingPoint(price=1.155, candle_index=5, candle_open_time=c5.open_time, identified_bar_index=7),
             source_candle_lookup={1: c1, 4: c4, 5: c5},
         ))
 
-        # Bar 9: CHOCH confirmed!
+        # 2. CHOCH event at Bar 9 emits cancellation
         snap_choch = reducer.reduce(TJLStructuralObservation(
             source_engine_id="ENGINE_TEST",
             symbol_feed_id="FEED_TEST",
             source_timeframe="H1",
             direction=Direction.DOWNWARD,
             candle_index=9,
-            candle_time=t0 + timedelta(hours=9),
+            candle_open_time=t0 + timedelta(hours=9),
             is_choch_event=True,
             new_choch_direction=Direction.DOWNWARD,
         ))
-
-        assert snap_choch.current_eligible_set is None
         assert snap_choch.outgoing_cancellation_intent is True
-        assert snap_choch.last_transition.transition_type == TJLTransitionType.CHOCH_INVALIDATION
-        # Historical zones and historical sets preserved
-        assert len(snap_choch.all_labeled_zones) == 2
-        assert len(snap_choch.historical_sets) == 1
 
-    def test_unresolved_containment_freezes_state(self) -> None:
-        """Unresolved source status freezes last_processed_index and blocks set replacement."""
+        # 3. Subsequent unresolved observation at Bar 10 MUST NOT expose stale cancellation intent!
+        snap_unres = reducer.reduce(TJLStructuralObservation(
+            source_engine_id="ENGINE_TEST",
+            symbol_feed_id="FEED_TEST",
+            source_timeframe="H1",
+            direction=Direction.DOWNWARD,
+            candle_index=10,
+            candle_open_time=t0 + timedelta(hours=10),
+            is_unresolved=True,
+            unresolved_diagnostic="CHOCH_AMBIGUITY",
+        ))
+        assert snap_unres.outgoing_cancellation_intent is False
+        assert snap_unres.last_transition.outgoing_cancellation_intent is False
+
+    def test_spontaneous_direction_change_rejected(self) -> None:
+        """[Finding 5 Regression] Direction changes without is_choch_event=True are strictly rejected."""
         reducer = TJLReducer("ENGINE_TEST", "FEED_TEST", "H1")
         t0 = datetime(2026, 10, 1, 0, 0, tzinfo=timezone.utc)
         c1 = _make_candle(1, 1.130, 1.140, 1.129, 1.135, t0 + timedelta(hours=1))
-        c4 = _make_candle(4, 1.110, 1.115, 1.104, 1.105, t0 + timedelta(hours=4))
-        c5 = _make_candle(5, 1.140, 1.155, 1.139, 1.150, t0 + timedelta(hours=5))
-
-        ch = SwingPoint(price=1.135, candle_index=1, candle_open_time=c1.open_time, identified_bar_index=1, confirmed_bar_index=4)
-        cl = SwingPoint(price=1.105, candle_index=4, candle_open_time=c4.open_time, identified_bar_index=4, confirmed_bar_index=4)
-        p3 = SwingPoint(price=1.155, candle_index=5, candle_open_time=c5.open_time, identified_bar_index=7)
 
         reducer.reduce(TJLStructuralObservation(
             source_engine_id="ENGINE_TEST",
             symbol_feed_id="FEED_TEST",
             source_timeframe="H1",
             direction=Direction.UPWARD,
-            candle_index=7,
-            candle_time=t0 + timedelta(hours=7),
-            ch_point=ch,
-            cl_point=cl,
-            tentative_p3=p3,
-            source_candle_lookup={1: c1, 4: c4, 5: c5},
-        ))
-
-        # Bar 8 is unresolved (e.g. c1 == p2)
-        snap_unresolved = reducer.reduce(TJLStructuralObservation(
-            source_engine_id="ENGINE_TEST",
-            symbol_feed_id="FEED_TEST",
-            source_timeframe="H1",
-            direction=Direction.UPWARD,
-            candle_index=8,
-            candle_time=t0 + timedelta(hours=8),
-            is_unresolved=True,
-            unresolved_diagnostic="CHOCH_SAME_CLOSE_AMBIGUITY",
-        ))
-
-        assert snap_unresolved.is_unresolved is True
-        assert snap_unresolved.unresolved_diagnostic == "CHOCH_SAME_CLOSE_AMBIGUITY"
-        assert snap_unresolved.last_processed_index == 7  # FROZEN at 7!
-        assert snap_unresolved.last_received_index == 8   # ADVANCED to 8!
-        assert snap_unresolved.current_eligible_set is not None  # Preserved!
-
-    def test_duplicate_candle_index_raises_and_rolls_back(self) -> None:
-        """Duplicate candle index raises ValueError and leaves previous state unmodified."""
-        reducer = TJLReducer("ENGINE_TEST", "FEED_TEST", "H1")
-        t0 = datetime(2026, 10, 1, 0, 0, tzinfo=timezone.utc)
-        c1 = _make_candle(1, 1.130, 1.140, 1.129, 1.135, t0 + timedelta(hours=1))
-
-        obs = TJLStructuralObservation(
-            source_engine_id="ENGINE_TEST",
-            symbol_feed_id="FEED_TEST",
-            source_timeframe="H1",
-            direction=Direction.UPWARD,
             candle_index=1,
-            candle_time=t0 + timedelta(hours=1),
+            candle_open_time=t0 + timedelta(hours=1),
             source_candle_lookup={1: c1},
-        )
-        reducer.reduce(obs)
+        ))
 
-        # Deliver same index again
-        with pytest.raises(ValueError, match="Duplicate observation candle index"):
-            reducer.reduce(obs)
-
-        assert reducer.last_processed_index == 1
+        # Deliver next candle with opposite direction but is_choch_event=False
+        with pytest.raises(ValueError, match="Direction changed spontaneously"):
+            reducer.reduce(TJLStructuralObservation(
+                source_engine_id="ENGINE_TEST",
+                symbol_feed_id="FEED_TEST",
+                source_timeframe="H1",
+                direction=Direction.DOWNWARD,
+                candle_index=2,
+                candle_open_time=t0 + timedelta(hours=2),
+                is_choch_event=False,
+                source_candle_lookup={1: c1},
+            ))

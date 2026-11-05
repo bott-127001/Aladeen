@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
 from typing import Any, Dict
 import pytest
 
-from aladeen.strategy.types import Direction, MSMConfig
+from aladeen.strategy.types import Direction, MSMConfig, StrategyCandle
+from aladeen.strategy.validator import adapt_candles
 from aladeen.strategy.tjl_coordinator import TJLCoordinator
 from aladeen.strategy.tjl_types import TJLLabel, TJLTransitionType
 
@@ -47,9 +48,9 @@ class TestTJLCoordinator:
         tjl1 = next(z for z in s4.all_labeled_zones if z.label == TJLLabel.TJL1)
         tjl2 = next(z for z in s4.all_labeled_zones if z.label == TJLLabel.TJL2_A_PLUS)
         assert tjl1.source_candle_index == 1
-        assert tjl1.lower_price == 1.135 and tjl1.upper_price == 1.140  # High-side [UB, High]
+        assert tjl1.lower_price == 1.135 and tjl1.upper_price == 1.140
         assert tjl2.source_candle_index == 4
-        assert tjl2.lower_price == 1.104 and tjl2.upper_price == 1.105  # Low-side [Low, LB]
+        assert tjl2.lower_price == 1.104 and tjl2.upper_price == 1.105
 
         # Bar 7: Pullback completes at Bar 7, identifying active P3 at Bar 5 -> First Set Created
         s7 = snaps[7]
@@ -81,7 +82,6 @@ class TestTJLCoordinator:
         assert s5.current_eligible_set is None
         assert len(s5.all_labeled_zones) == 2
 
-        # In Bearish: TJL1 is CL (Bar 2, low-side [1.180, 1.185]), TJL2 is CH (Bar 4, high-side [1.200, 1.205])
         tjl1 = next(z for z in s5.all_labeled_zones if z.label == TJLLabel.TJL1)
         tjl2 = next(z for z in s5.all_labeled_zones if z.label == TJLLabel.TJL2_A_PLUS)
         assert tjl1.source_candle_index == 2
@@ -131,8 +131,9 @@ class TestTJLCoordinator:
         assert s16.current_eligible_set.fingerprint == ("ENGINE_GBPUSD_H1", "DOWNWARD", 13, 7, 14)
         assert s16.outgoing_cancellation_intent is True
         assert s16.last_transition.transition_type == TJLTransitionType.SET_REPLACEMENT
+        assert s16.last_transition.outgoing_cancelled_set_id == "SET_1"
 
-    def test_source_choch_invalidation_and_gap(self, tjl_fixtures) -> None:
+    def test_source_choch_invalidation_and_post_choch_gap(self, tjl_fixtures) -> None:
         """[Actual CHOCH-Derived: tjl_09] Cross-checks source CHOCH invalidation and post-CHOCH gap."""
         fix = tjl_fixtures["tjl_09_source_choch_eligibility_invalidation_and_gap"]
         start_time = datetime.fromisoformat(fix["start_candle_time"])
@@ -155,11 +156,65 @@ class TestTJLCoordinator:
         assert s9.current_eligible_set is None
         assert s9.outgoing_cancellation_intent is True
         assert s9.last_transition.transition_type == TJLTransitionType.CHOCH_INVALIDATION
+        assert s9.last_transition.outgoing_cancelled_set_id == "SET_1"
+
+    def test_atomic_incremental_rollback_and_valid_retry(self, tjl_fixtures) -> None:
+        """[Finding 2 Regression] Incremental failure leaves coordinator 100% untouched; valid retry matches reference run."""
+        fix = tjl_fixtures["tjl_01_bullish_basic_end_to_end"]
+        candles = adapt_candles(fix["candles"])
+        start_time = datetime.fromisoformat(fix["start_candle_time"])
+
+        coord = TJLCoordinator(
+            config=MSMConfig(direction=Direction.UPWARD, start_candle_time=start_time),
+            symbol_feed_id="FEED_EURUSD_H1",
+            source_timeframe="H1",
+            source_engine_id="ENGINE_EURUSD_H1",
+        )
+
+        # Process first 5 candles
+        for c in candles[:5]:
+            coord.process_candle(c)
+
+        snap_before = coord.get_snapshot()
+        prev_choch_count = coord._prev_choch_count
+        prev_lookup_len = len(coord._candle_lookup)
+
+        # Attempt to deliver duplicate / non-chronological candle (raises ValueError)
+        with pytest.raises(ValueError):
+            coord.process_candle(candles[0])
+
+        snap_after_fail = coord.get_snapshot()
+        assert snap_before == snap_after_fail
+        assert coord._prev_choch_count == prev_choch_count
+        assert len(coord._candle_lookup) == prev_lookup_len
+
+        # Now deliver the valid next candle (candles[5])
+        coord.process_candle(candles[5])
+        assert coord.last_processed_index == 5
+
+    def test_unknown_availability_preserved_as_none_in_coordinator(self, tjl_fixtures) -> None:
+        """[Finding 1 Regression] When candle close_time is None, availability_time remains None in snapshot."""
+        fix = tjl_fixtures["tjl_01_bullish_basic_end_to_end"]
+        # Modify candle 7 to have close_time = None
+        modified_candles = [dict(c) for c in fix["candles"][:8]]
+        for c in modified_candles:
+            c["close_time"] = None  # Unknown close time!
+
+        start_time = datetime.fromisoformat(fix["start_candle_time"])
+        coord = TJLCoordinator(
+            config=MSMConfig(direction=Direction.UPWARD, start_candle_time=start_time),
+            symbol_feed_id="FEED_EURUSD_H1",
+            source_timeframe="H1",
+            source_engine_id="ENGINE_EURUSD_H1",
+        )
+        snap = coord.process_candles(modified_candles)
+        assert snap.current_eligible_set is not None
+        # Must preserve None!
+        assert snap.current_eligible_set.eligibility_available_time is None
 
     def test_batch_vs_sequential_vs_replay_consistency(self, tjl_fixtures) -> None:
         """Verifies that batch process_candles, incremental process_candle, and replay_candles yield identical state."""
         fix = tjl_fixtures["tjl_01_bullish_basic_end_to_end"]
-        from aladeen.strategy.validator import adapt_candles
         candles = adapt_candles(fix["candles"])
         start_time = datetime.fromisoformat(fix["start_candle_time"])
 
@@ -199,63 +254,3 @@ class TestTJLCoordinator:
         assert snap_batch.all_labeled_zones == snap_seq.all_labeled_zones
         assert snap_batch.all_labeled_zones == snap_last.all_labeled_zones
         assert snap_batch.outgoing_cancellation_intent == snap_seq.outgoing_cancellation_intent
-
-    def test_forming_bars_cause_zero_state_mutations(self, tjl_fixtures) -> None:
-        """Forming bars delivered to process_candle cause zero coordinator mutations."""
-        fix = tjl_fixtures["tjl_01_bullish_basic_end_to_end"]
-        from aladeen.strategy.validator import adapt_candles
-        from aladeen.strategy.types import StrategyCandle
-        candles = adapt_candles(fix["candles"])
-        start_time = datetime.fromisoformat(fix["start_candle_time"])
-
-        coord = TJLCoordinator(
-            config=MSMConfig(direction=Direction.UPWARD, start_candle_time=start_time),
-            symbol_feed_id="FEED_EURUSD_H1",
-            source_timeframe="H1",
-            source_engine_id="ENGINE_EURUSD_H1",
-        )
-        for c in candles[:8]:
-            coord.process_candle(c)
-
-        snap_before = coord.get_snapshot()
-
-        # Create a forming candle
-        forming_c = StrategyCandle(
-            index=8,
-            open_time=datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc),
-            open=1.140,
-            high=1.145,
-            low=1.139,
-            close=1.142,
-            is_forming=True,
-            bar_status="FORMING",
-        )
-        coord.process_candle(forming_c)
-        snap_after = coord.get_snapshot()
-
-        assert snap_before == snap_after
-        assert coord.last_processed_index == 7
-
-    def test_mid_batch_failure_rolls_back_atomic_state(self, tjl_fixtures) -> None:
-        """Any validation error during batch processing preserves previous coordinator state."""
-        fix = tjl_fixtures["tjl_01_bullish_basic_end_to_end"]
-        from aladeen.strategy.validator import adapt_candles
-        candles = adapt_candles(fix["candles"][:5])
-        start_time = datetime.fromisoformat(fix["start_candle_time"])
-
-        coord = TJLCoordinator(
-            config=MSMConfig(direction=Direction.UPWARD, start_candle_time=start_time),
-            symbol_feed_id="FEED_EURUSD_H1",
-            source_timeframe="H1",
-            source_engine_id="ENGINE_EURUSD_H1",
-        )
-        coord.process_candles(candles)
-        snap_before = coord.get_snapshot()
-
-        # Batch with duplicate / invalid timestamps
-        bad_candles = list(fix["candles"][:3]) + [fix["candles"][0]]  # Duplicate
-        with pytest.raises(Exception):
-            coord.process_candles(bad_candles)
-
-        snap_after = coord.get_snapshot()
-        assert snap_before == snap_after

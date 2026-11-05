@@ -30,13 +30,14 @@ Completed Market Candles
 ### Module Split
 - **`src/aladeen/strategy/tjl_types.py`**:
   - `StableLevelId`: Immutable 4-element value object `(symbol_feed_id, source_timeframe, source_open_time, side)`.
+  - `PhysicalLevel`: Physical price level geometry and provenance `(level_id, lower_price, upper_price, is_line, source_candle_index, source_candle_open_time)`.
   - `TJLLabel`: `TJL1` (confirmed extreme in trend direction), `TJL2_A_PLUS` (opposite confirmed extreme).
   - `TJLSide`: `HIGH`, `LOW`.
-  - `TJLZone`: Immutable structural zone computed directly from original swing candle OHLC.
+  - `TJLZone`: Contextual structural zone binding physical level geometry to a directional role.
   - `TJLFingerprint`: `(source_engine_id, direction, ch_point_id, cl_point_id, p3_point_id)`.
   - `CurrentEligibleSet`: Active eligible set container bundling two confirmed zones, Point 3 anchor, and availability time.
-  - `TJLTransitionRecord`: Atomic transition diagnostic record.
-  - `TJLStructuralObservation`: Decoupled input payload for the pure reducer.
+  - `TJLTransitionRecord`: Atomic transition diagnostic record identifying outgoing cancelled set ID and fingerprint.
+  - `TJLStructuralObservation`: Decoupled input payload with separate `candle_open_time` (chronology) and `availability_time` (transition availability, preserving `None` if unknown).
   - `TJLSnapshot`: Authoritative immutable engine state snapshot.
 
 - **`src/aladeen/strategy/tjl_reducer.py`**:

@@ -5,8 +5,8 @@ Scope & Design Boundary:
 - Pure calculation and state transition logic independent of MT5, UI, or IO.
 - Consumes validated structural observations (TJLStructuralObservation).
 - Strictly immutable snapshots and event records.
-- Enforces stable level identity formula, idempotent re-observation, and
-  atomic set replacement with outgoing cancellation intent.
+- Enforces stable level identity formula, exact zero-width geometry,
+  idempotent re-observation, and atomic set replacement with explicit outgoing set identification.
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from .types import Direction, StrategyCandle, SwingPoint
 from .tjl_types import (
     CurrentEligibleSet,
+    PhysicalLevel,
     StableLevelId,
     TJLFingerprint,
     TJLLabel,
@@ -54,7 +55,8 @@ class TJLReducer:
         self._current_direction: Optional[Direction] = None
         self._current_eligible_set: Optional[CurrentEligibleSet] = None
         self._historical_sets: List[CurrentEligibleSet] = []
-        self._labeled_zones: Dict[StableLevelId, TJLZone] = {}
+        self._physical_levels: Dict[StableLevelId, PhysicalLevel] = {}
+        self._role_zones: Dict[Tuple[StableLevelId, TJLLabel], TJLZone] = {}
         self._all_labeled_zones: List[TJLZone] = []
         self._outgoing_cancellation_intent: bool = False
         self._last_transition: Optional[TJLTransitionRecord] = None
@@ -62,9 +64,10 @@ class TJLReducer:
         self._unresolved_diagnostic: Optional[str] = None
         self._last_processed_index: int = -1
         self._last_received_index: int = -1
-        self._last_received_candle_time: Optional[datetime] = None
+        self._last_received_open_time: Optional[datetime] = None
         self._received_indices: Set[int] = set()
         self._set_counter: int = 0
+        self._last_choch_bar_index: Optional[int] = None
 
     @property
     def source_engine_id(self) -> str:
@@ -99,7 +102,8 @@ class TJLReducer:
         self._current_direction = None
         self._current_eligible_set = None
         self._historical_sets.clear()
-        self._labeled_zones.clear()
+        self._physical_levels.clear()
+        self._role_zones.clear()
         self._all_labeled_zones.clear()
         self._outgoing_cancellation_intent = False
         self._last_transition = None
@@ -107,19 +111,13 @@ class TJLReducer:
         self._unresolved_diagnostic = None
         self._last_processed_index = -1
         self._last_received_index = -1
-        self._last_received_candle_time = None
+        self._last_received_open_time = None
         self._received_indices.clear()
         self._set_counter = 0
+        self._last_choch_bar_index = None
 
     def reduce(self, observation: TJLStructuralObservation) -> TJLSnapshot:
-        """Atomically evaluates a structural observation and advances state.
-
-        Guarantees:
-        - Atomic execution: errors leave the reducer state completely unmutated.
-        - Unresolved containment: blocks speculative eligibility, freezes last_processed_index.
-        - CHOCH invalidation: immediately removes active set, preserves history.
-        - Idempotence: re-observation with same fingerprint produces zero replacements or availability refreshes.
-        """
+        """Atomically evaluates a structural observation and advances state."""
         if not isinstance(observation, TJLStructuralObservation):
             raise TypeError(f"reduce requires TJLStructuralObservation, got {type(observation).__name__}")
 
@@ -137,17 +135,35 @@ class TJLReducer:
                 f"Observation source_timeframe mismatch: expected '{self._source_timeframe}', got '{observation.source_timeframe}'"
             )
 
-        # Duplicate and chronological checks
+        # Duplicate and chronological checks using candle_open_time
         if observation.candle_index in self._received_indices:
             raise ValueError(f"Duplicate observation candle index detected: {observation.candle_index}")
         if (
-            self._last_received_candle_time is not None
-            and observation.candle_time is not None
-            and observation.candle_time <= self._last_received_candle_time
+            self._last_received_open_time is not None
+            and observation.candle_open_time <= self._last_received_open_time
         ):
             raise ValueError(
-                f"Non-chronological observation time: {observation.candle_time} <= {self._last_received_candle_time}"
+                f"Non-chronological observation open_time: {observation.candle_open_time} <= {self._last_received_open_time}"
             )
+
+        # Direction consistency check
+        if (
+            self._current_direction is not None
+            and observation.direction != self._current_direction
+            and not observation.is_choch_event
+        ):
+            raise ValueError(
+                f"Direction changed spontaneously from {self._current_direction} to {observation.direction} without is_choch_event=True"
+            )
+
+        # Post-CHOCH current-epoch provenance check
+        if self._last_choch_bar_index is not None and not observation.is_choch_event:
+            for pt_name, pt in (("ch_point", observation.ch_point), ("cl_point", observation.cl_point)):
+                if pt is not None and pt.confirmed_bar_index is not None:
+                    if pt.confirmed_bar_index <= self._last_choch_bar_index:
+                        raise ValueError(
+                            f"Pre-CHOCH point {pt_name} (confirmed at bar {pt.confirmed_bar_index}) cannot be reused in new structural epoch (CHOCH at bar {self._last_choch_bar_index})"
+                        )
 
         # -----------------------------------------------------------------
         # Stage mutation in local working variables to ensure full atomicity
@@ -155,13 +171,17 @@ class TJLReducer:
         staged_direction = observation.direction
         staged_current_set = self._current_eligible_set
         staged_historical_sets = list(self._historical_sets)
-        staged_labeled_zones = dict(self._labeled_zones)
+        staged_physical_levels = dict(self._physical_levels)
+        staged_role_zones = dict(self._role_zones)
         staged_all_labeled = list(self._all_labeled_zones)
         staged_outgoing_cancellation = False
+        staged_cancelled_set_id: Optional[str] = None
+        staged_cancelled_fp: Optional[TJLFingerprint] = None
         staged_is_unresolved = self._is_unresolved
         staged_unresolved_diag = self._unresolved_diagnostic
         staged_last_processed = self._last_processed_index
         staged_set_counter = self._set_counter
+        staged_last_choch = self._last_choch_bar_index
         newly_labeled: List[TJLZone] = []
 
         # 1. Unresolved State Handling
@@ -174,22 +194,28 @@ class TJLReducer:
                 current_set=staged_current_set,
                 newly_labeled_zones=(),
                 transition_candle_index=observation.candle_index,
-                transition_time=observation.candle_time,
+                transition_time=observation.availability_time,
+                outgoing_cancelled_set_id=None,
+                outgoing_cancelled_fingerprint=None,
                 diagnostic=staged_unresolved_diag,
             )
             # Commit receipt metadata without advancing authoritative processed state
             self._received_indices.add(observation.candle_index)
             self._last_received_index = observation.candle_index
-            self._last_received_candle_time = observation.candle_time
+            self._last_received_open_time = observation.candle_open_time
             self._is_unresolved = staged_is_unresolved
             self._unresolved_diagnostic = staged_unresolved_diag
             self._last_transition = record
+            self._outgoing_cancellation_intent = False
             return self.get_snapshot()
 
         # 2. Source CHOCH Invalidation
         if observation.is_choch_event:
             had_active_set = staged_current_set is not None
             if had_active_set:
+                assert staged_current_set is not None
+                staged_cancelled_set_id = staged_current_set.set_id
+                staged_cancelled_fp = staged_current_set.fingerprint
                 staged_current_set = None
                 staged_outgoing_cancellation = True
             else:
@@ -197,6 +223,7 @@ class TJLReducer:
 
             if observation.new_choch_direction is not None:
                 staged_direction = observation.new_choch_direction
+            staged_last_choch = observation.candle_index
 
             record = TJLTransitionRecord(
                 transition_type=TJLTransitionType.CHOCH_INVALIDATION,
@@ -204,23 +231,23 @@ class TJLReducer:
                 current_set=None,
                 newly_labeled_zones=(),
                 transition_candle_index=observation.candle_index,
-                transition_time=observation.candle_time,
+                transition_time=observation.availability_time,
+                outgoing_cancelled_set_id=staged_cancelled_set_id,
+                outgoing_cancelled_fingerprint=staged_cancelled_fp,
                 diagnostic="Invalidated by source CHOCH confirmation",
             )
-            # Commit CHOCH invalidation transition
             self._current_direction = staged_direction
             self._current_eligible_set = None
             self._outgoing_cancellation_intent = staged_outgoing_cancellation
             self._last_transition = record
             self._last_processed_index = observation.candle_index
             self._last_received_index = observation.candle_index
-            self._last_received_candle_time = observation.candle_time
+            self._last_received_open_time = observation.candle_open_time
             self._received_indices.add(observation.candle_index)
+            self._last_choch_bar_index = staged_last_choch
             return self.get_snapshot()
 
         # 3. Label Confirmed Swing Points and Compute Zones
-        # Bullish (UPWARD): TJL1 = CH (high-side), TJL2 / A+ = CL (low-side)
-        # Bearish (DOWNWARD): TJL1 = CL (low-side), TJL2 / A+ = CH (high-side)
         ch_zone: Optional[TJLZone] = None
         cl_zone: Optional[TJLZone] = None
 
@@ -237,19 +264,40 @@ class TJLReducer:
                 source_open_time=ch_candle.open_time,
                 side=TJLSide.HIGH,
             )
-            if ch_level_id in staged_labeled_zones:
-                ch_zone = staged_labeled_zones[ch_level_id]
+            # Physical level geometry
+            if ch_level_id not in staged_physical_levels:
+                staged_physical_levels[ch_level_id] = PhysicalLevel(
+                    level_id=ch_level_id,
+                    lower_price=ch_candle.upper_body_edge,
+                    upper_price=ch_candle.high,
+                    is_line=(ch_candle.upper_body_edge == ch_candle.high),
+                    source_candle_index=ch_candle.index,
+                    source_candle_open_time=ch_candle.open_time,
+                )
+            phys = staged_physical_levels[ch_level_id]
+
+            # Contextual role zone
+            role_key = (ch_level_id, ch_label)
+            if role_key in staged_role_zones:
+                ch_zone = staged_role_zones[role_key]
             else:
-                ch_zone = TJLZone.from_candle(
-                    candle=ch_candle,
+                conf_idx = (
+                    observation.ch_point.confirmed_bar_index
+                    if observation.ch_point.confirmed_bar_index is not None
+                    else observation.candle_index
+                )
+                ch_zone = TJLZone(
+                    level_id=ch_level_id,
                     label=ch_label,
-                    is_high_side=True,
-                    feed_id=self._symbol_feed_id,
-                    timeframe=self._source_timeframe,
-                    confirmed_candle_index=observation.ch_point.confirmed_bar_index or observation.candle_index,
+                    lower_price=phys.lower_price,
+                    upper_price=phys.upper_price,
+                    is_line=phys.is_line,
+                    source_candle_index=phys.source_candle_index,
+                    source_candle_open_time=phys.source_candle_open_time,
+                    confirmed_candle_index=conf_idx,
                     confirmed_time=observation.ch_point.confirmed_time,
                 )
-                staged_labeled_zones[ch_level_id] = ch_zone
+                staged_role_zones[role_key] = ch_zone
                 staged_all_labeled.append(ch_zone)
                 newly_labeled.append(ch_zone)
 
@@ -266,19 +314,40 @@ class TJLReducer:
                 source_open_time=cl_candle.open_time,
                 side=TJLSide.LOW,
             )
-            if cl_level_id in staged_labeled_zones:
-                cl_zone = staged_labeled_zones[cl_level_id]
+            # Physical level geometry
+            if cl_level_id not in staged_physical_levels:
+                staged_physical_levels[cl_level_id] = PhysicalLevel(
+                    level_id=cl_level_id,
+                    lower_price=cl_candle.low,
+                    upper_price=cl_candle.lower_body_edge,
+                    is_line=(cl_candle.low == cl_candle.lower_body_edge),
+                    source_candle_index=cl_candle.index,
+                    source_candle_open_time=cl_candle.open_time,
+                )
+            phys = staged_physical_levels[cl_level_id]
+
+            # Contextual role zone
+            role_key = (cl_level_id, cl_label)
+            if role_key in staged_role_zones:
+                cl_zone = staged_role_zones[role_key]
             else:
-                cl_zone = TJLZone.from_candle(
-                    candle=cl_candle,
+                conf_idx = (
+                    observation.cl_point.confirmed_bar_index
+                    if observation.cl_point.confirmed_bar_index is not None
+                    else observation.candle_index
+                )
+                cl_zone = TJLZone(
+                    level_id=cl_level_id,
                     label=cl_label,
-                    is_high_side=False,
-                    feed_id=self._symbol_feed_id,
-                    timeframe=self._source_timeframe,
-                    confirmed_candle_index=observation.cl_point.confirmed_bar_index or observation.candle_index,
+                    lower_price=phys.lower_price,
+                    upper_price=phys.upper_price,
+                    is_line=phys.is_line,
+                    source_candle_index=phys.source_candle_index,
+                    source_candle_open_time=phys.source_candle_open_time,
+                    confirmed_candle_index=conf_idx,
                     confirmed_time=observation.cl_point.confirmed_time,
                 )
-                staged_labeled_zones[cl_level_id] = cl_zone
+                staged_role_zones[role_key] = cl_zone
                 staged_all_labeled.append(cl_zone)
                 newly_labeled.append(cl_zone)
 
@@ -290,7 +359,6 @@ class TJLReducer:
         )
 
         if not has_full_structure:
-            # Missing one or more elements (e.g. active P3 cleared during continuation break)
             if staged_current_set is not None:
                 # Continuation break (t1): record new labels, retain previous current set
                 transition_type = TJLTransitionType.CONTINUATION_RETAINED
@@ -302,12 +370,10 @@ class TJLReducer:
                 )
                 staged_outgoing_cancellation = False
         else:
-            # Full structure present: CH, CL, and active tentative P3
             assert observation.ch_point is not None
             assert observation.cl_point is not None
             assert observation.tentative_p3 is not None
 
-            # Construct unique structural fingerprint
             fp = TJLFingerprint(
                 source_engine_id=self._source_engine_id,
                 direction=staged_direction,
@@ -316,7 +382,6 @@ class TJLReducer:
                 p3_point_id=observation.tentative_p3.candle_index,
             )
 
-            # Assign zone roles according to direction
             assert ch_zone is not None
             assert cl_zone is not None
             tjl1_zone = ch_zone if staged_direction == Direction.UPWARD else cl_zone
@@ -337,7 +402,7 @@ class TJLReducer:
                     p3_source_index=observation.tentative_p3.candle_index,
                     p3_open_time=observation.tentative_p3.candle_open_time,
                     p3_price=observation.tentative_p3.price,
-                    eligibility_available_time=observation.candle_time,
+                    eligibility_available_time=observation.availability_time,  # Preserves None if unknown!
                     created_at_candle_index=observation.candle_index,
                 )
                 staged_current_set = new_set
@@ -345,13 +410,14 @@ class TJLReducer:
                 staged_outgoing_cancellation = False
                 transition_type = TJLTransitionType.FIRST_CREATION
             else:
-                # Current set exists: compare fingerprint
                 if fp == staged_current_set.fingerprint:
                     # Idempotent re-observation: preserve set without refreshing availability
                     staged_outgoing_cancellation = False
                     transition_type = TJLTransitionType.IDEMPOTENT_NO_OP
                 else:
                     # Set Replacement (t2 pullback): new set, emit outgoing cancellation intent
+                    staged_cancelled_set_id = staged_current_set.set_id
+                    staged_cancelled_fp = staged_current_set.fingerprint
                     staged_set_counter += 1
                     new_set = CurrentEligibleSet(
                         set_id=f"SET_{staged_set_counter}",
@@ -365,7 +431,7 @@ class TJLReducer:
                         p3_source_index=observation.tentative_p3.candle_index,
                         p3_open_time=observation.tentative_p3.candle_open_time,
                         p3_price=observation.tentative_p3.price,
-                        eligibility_available_time=observation.candle_time,
+                        eligibility_available_time=observation.availability_time,
                         created_at_candle_index=observation.candle_index,
                     )
                     staged_current_set = new_set
@@ -379,7 +445,9 @@ class TJLReducer:
             current_set=staged_current_set,
             newly_labeled_zones=tuple(newly_labeled),
             transition_candle_index=observation.candle_index,
-            transition_time=observation.candle_time,
+            transition_time=observation.availability_time,
+            outgoing_cancelled_set_id=staged_cancelled_set_id,
+            outgoing_cancelled_fingerprint=staged_cancelled_fp,
             diagnostic=None,
         )
 
@@ -389,15 +457,17 @@ class TJLReducer:
         self._current_direction = staged_direction
         self._current_eligible_set = staged_current_set
         self._historical_sets = staged_historical_sets
-        self._labeled_zones = staged_labeled_zones
+        self._physical_levels = staged_physical_levels
+        self._role_zones = staged_role_zones
         self._all_labeled_zones = staged_all_labeled
         self._outgoing_cancellation_intent = staged_outgoing_cancellation
         self._last_transition = record
         self._last_processed_index = observation.candle_index
         self._last_received_index = observation.candle_index
-        self._last_received_candle_time = observation.candle_time
+        self._last_received_open_time = observation.candle_open_time
         self._received_indices.add(observation.candle_index)
         self._set_counter = staged_set_counter
+        self._last_choch_bar_index = staged_last_choch
 
         return self.get_snapshot()
 
