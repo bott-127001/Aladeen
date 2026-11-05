@@ -89,5 +89,6 @@ Tester/
 # Local automation helper scripts and scratch logs
 submit_handoff_*.py
 perplexity_handoff_*.txt
+artifacts_perplexity_review_*.txt
 check_comet.py
 

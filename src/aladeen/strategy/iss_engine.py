@@ -20,6 +20,7 @@ import pandas as pd
 
 from .coordinator import MSMChochCoordinator
 from .engine import MSMEngine
+from .iss_tracking import extract_internal_points, extract_tracking_points
 from .iss_types import (
     CandidateIdentity,
     ConfirmedISSEvent,
@@ -71,6 +72,8 @@ class ISSEngine:
         self._received_indices: Set[int] = set()
         self._last_processed_open_time: Optional[datetime] = None
         self._last_processed_index: int = -1
+        self._last_received_open_time: Optional[datetime] = None
+        self._last_received_index: int = -1
         self._candidate_seq: int = 0
         self._is_unresolved: bool = False
         self._unresolved_dependency: Optional[str] = None
@@ -97,6 +100,10 @@ class ISSEngine:
     @property
     def last_processed_index(self) -> int:
         return self._last_processed_index
+
+    @property
+    def last_received_index(self) -> int:
+        return self._last_received_index if self._last_received_index >= 0 else self._last_processed_index
 
     def reset(self) -> None:
         """Resets engine to clean initial state."""
@@ -130,6 +137,8 @@ class ISSEngine:
         self._received_indices = temp_engine._received_indices
         self._last_processed_open_time = temp_engine._last_processed_open_time
         self._last_processed_index = temp_engine._last_processed_index
+        self._last_received_open_time = temp_engine._last_received_open_time
+        self._last_received_index = temp_engine._last_received_index
         self._candidate_seq = temp_engine._candidate_seq
         self._is_unresolved = temp_engine._is_unresolved
         self._unresolved_dependency = temp_engine._unresolved_dependency
@@ -180,6 +189,7 @@ class ISSEngine:
             return ISSSnapshot(
                 lifecycle_status=ISSLifecycleStatus.PENDING_PREREQUISITES,
                 last_processed_index=self._last_processed_index,
+                last_received_index=self.last_received_index,
                 confirmed_events=tuple(self._confirmed_events),
                 diagnostic_type=ISSDiagnosticType.WAITING_FOR_MAIN_PREREQUISITES,
                 is_unresolved=self.is_unresolved,
@@ -217,6 +227,7 @@ class ISSEngine:
             confirmed_events=tuple(self._confirmed_events),
             is_tracking_only=cand.is_tracking_only,
             last_processed_index=self._last_processed_index,
+            last_received_index=self.last_received_index,
             diagnostic_type=cand.diagnostic_type,
             diagnostic_message=cand.diagnostic_message,
             is_unresolved=self.is_unresolved,
@@ -254,14 +265,16 @@ class ISSEngine:
         candidate_seq_copy = self._candidate_seq
         is_unresolved_copy = self._is_unresolved
         unresolved_dep_copy = self._unresolved_dependency
+        last_processed_index_copy = self._last_processed_index
+        last_processed_open_time_copy = self._last_processed_open_time
+        last_received_index_copy = candle.index
+        last_received_open_time_copy = candle.open_time
 
         # Ingest into main coordinator
         prev_choch_count = len(main_coord_copy.confirmed_choch_events)
         main_snap = main_coord_copy.process_candle(candle)
 
         received_indices_copy.add(candle.index)
-        completed_candles_copy.append(candle)
-        candle_lookup_copy[candle.index] = candle
 
         # Check main coordinator unresolved status
         if main_coord_copy.is_unresolved:
@@ -272,37 +285,41 @@ class ISSEngine:
                 cand_copy.diagnostic_message = (
                     "Execution paused: main integrated path is unresolved (c1 == p2 dependency)."
                 )
-            # Commit pause state safely
+            # R29.3: Freeze authoritative processed markers; advance received markers only
             self._main_coordinator = main_coord_copy
             self._active_candidate = cand_copy
             self._received_indices = received_indices_copy
-            self._last_processed_open_time = candle.open_time
-            self._last_processed_index = candle.index
+            self._last_received_open_time = last_received_open_time_copy
+            self._last_received_index = last_received_index_copy
             self._is_unresolved = is_unresolved_copy
             self._unresolved_dependency = unresolved_dep_copy
             return
 
+        completed_candles_copy.append(candle)
+        candle_lookup_copy[candle.index] = candle
+        last_processed_index_copy = candle.index
+        last_processed_open_time_copy = candle.open_time
+
         # -------------------------------------------------------------
         # 1. Step Active Candidate Internal Structure First (if active)
         # -------------------------------------------------------------
-        candidate_completed_this_bar = False
+        candidate_confirmed_this_bar = False
 
         if cand_copy is not None and cand_copy.lifecycle_status in (
             ISSLifecycleStatus.ELIGIBLE_SEARCH,
             ISSLifecycleStatus.OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY,
         ):
-            # Capture candidate's main direction once opened
             cand_main_dir = cand_copy.identity.main_direction
             internal_snap = cand_copy.internal_msm_engine.process_candle(candle)
 
             if cand_copy.lifecycle_status == ISSLifecycleStatus.ELIGIBLE_SEARCH:
-                extracted_points = self._extract_internal_points(
+                extracted_points = extract_internal_points(
                     internal_snap=internal_snap,
                     main_direction=cand_main_dir,
                     boundary=cand_copy.boundary,
                 )
 
-                # Progressive out-of-bounds rejection: check if ANY marked point is out of bounds
+                # Progressive out-of-bounds rejection
                 out_of_bounds_point: Optional[InternalPoint] = None
                 for pt in extracted_points:
                     if not pt.is_inside_boundary:
@@ -317,16 +334,20 @@ class ISSEngine:
                         f"body edge {out_of_bounds_point.body_edge_price} outside boundary "
                         f"[{cand_copy.boundary.min_price}, {cand_copy.boundary.max_price}]."
                     )
+                    # Clean up all tracking/active flags
                     cand_copy.internal_points = []
+                    cand_copy.tracking_points = []
                     cand_copy.active_zones = []
+                    cand_copy.is_tracking_only = False
+                    cand_copy.attempted_points = None
                 else:
                     cand_copy.internal_points = extracted_points
 
                     # Point 5 identification check
                     if len(extracted_points) == 5:
-                        candidate_completed_this_bar = True
                         close_inside = cand_copy.boundary.contains_price(candle.close)
                         if close_inside:
+                            candidate_confirmed_this_bar = True
                             cand_copy.lifecycle_status = ISSLifecycleStatus.CONFIRMED
                             cand_copy.diagnostic_type = ISSDiagnosticType.CONFIRMED_COMPLETION_INSIDE
                             cand_copy.diagnostic_message = (
@@ -340,7 +361,6 @@ class ISSEngine:
                             conf_avail = candle.close_time  # Unknown stays None
 
                             if cand_main_dir == Direction.DOWNWARD:
-                                # Bearish Main: Point 3 / CH2 -> RBS, Point 4 / CL2 -> buying A+
                                 zone_l3 = ISSZone.from_candle(
                                     zone_type=ISSZoneType.RBS,
                                     candle=c3,
@@ -358,7 +378,6 @@ class ISSEngine:
                                     confirmation_availability_time=conf_avail,
                                 )
                             else:
-                                # Bullish Main: Point 3 / CL2 -> SBR, Point 4 / CH2 -> selling A+
                                 zone_l3 = ISSZone.from_candle(
                                     zone_type=ISSZoneType.SBR,
                                     candle=c3,
@@ -391,25 +410,39 @@ class ISSEngine:
                             cand_copy.confirmed_event = event
                             confirmed_events_copy.append(event)
                         else:
-                            # Outside-range completion: transitions to tracking only
-                            cand_copy.lifecycle_status = ISSLifecycleStatus.OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY
-                            cand_copy.diagnostic_type = ISSDiagnosticType.COMPLETION_CLOSE_OUTSIDE_RANGE
-                            cand_copy.diagnostic_message = (
-                                f"Completion candle close {candle.close} outside boundary "
-                                f"[{cand_copy.boundary.min_price}, {cand_copy.boundary.max_price}]. Tracking only."
-                            )
-                            cand_copy.is_tracking_only = True
-                            cand_copy.attempted_points = list(extracted_points)
-                            cand_copy.tracking_points = self._extract_tracking_points(
-                                internal_snap=internal_snap,
-                                main_direction=cand_main_dir,
-                                boundary=cand_copy.boundary,
-                            )
-                            cand_copy.active_zones = []
+                            # Outside-range completion: check whether main continuation also occurred on this candle
+                            # If tentative point was confirmed/broken by main continuation, candidate is cancelled!
+                            # Otherwise, if main structure remains intact, candidate enters tracking only
+                            msm_tentative = main_snap.msm_snapshot.tentative_point
+                            if msm_tentative is None:
+                                # Main continuation broke level 3 on this same candle!
+                                cand_copy.lifecycle_status = ISSLifecycleStatus.MAIN_CONTINUATION_CANCELLED
+                                cand_copy.diagnostic_type = ISSDiagnosticType.CANCELLED_BY_MAIN_CONTINUATION
+                                cand_copy.diagnostic_message = "Cancelled by main continuation break on completion candle."
+                                cand_copy.internal_points = []
+                                cand_copy.tracking_points = []
+                                cand_copy.active_zones = []
+                                cand_copy.is_tracking_only = False
+                                cand_copy.attempted_points = None
+                            else:
+                                cand_copy.lifecycle_status = ISSLifecycleStatus.OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY
+                                cand_copy.diagnostic_type = ISSDiagnosticType.COMPLETION_CLOSE_OUTSIDE_RANGE
+                                cand_copy.diagnostic_message = (
+                                    f"Completion candle close {candle.close} outside boundary "
+                                    f"[{cand_copy.boundary.min_price}, {cand_copy.boundary.max_price}]. Tracking only."
+                                )
+                                cand_copy.is_tracking_only = True
+                                cand_copy.attempted_points = list(extracted_points)
+                                cand_copy.tracking_points = extract_tracking_points(
+                                    internal_snap=internal_snap,
+                                    main_direction=cand_main_dir,
+                                    boundary=cand_copy.boundary,
+                                )
+                                cand_copy.active_zones = []
 
             elif cand_copy.lifecycle_status == ISSLifecycleStatus.OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY:
                 # Tracking only: continue internal MSM solely for tracking
-                cand_copy.tracking_points = self._extract_tracking_points(
+                cand_copy.tracking_points = extract_tracking_points(
                     internal_snap=internal_snap,
                     main_direction=cand_main_dir,
                     boundary=cand_copy.boundary,
@@ -427,8 +460,12 @@ class ISSEngine:
                 cand_copy.lifecycle_status = ISSLifecycleStatus.MAIN_CHOCH_CANCELLED
                 cand_copy.diagnostic_type = ISSDiagnosticType.CANCELLED_BY_MAIN_CHOCH
                 cand_copy.diagnostic_message = "Cancelled by main CHOCH confirmation."
+                # R29.2: Clean cancellation cleanup
                 cand_copy.internal_points = []
+                cand_copy.tracking_points = []
                 cand_copy.active_zones = []
+                cand_copy.is_tracking_only = False
+                cand_copy.attempted_points = None
 
             self._commit_staged_transition(
                 main_coord=main_coord_copy,
@@ -437,7 +474,10 @@ class ISSEngine:
                 completed_candles=completed_candles_copy,
                 candle_lookup=candle_lookup_copy,
                 received_indices=received_indices_copy,
-                candle=candle,
+                last_processed_index=last_processed_index_copy,
+                last_processed_open_time=last_processed_open_time_copy,
+                last_received_index=last_received_index_copy,
+                last_received_open_time=last_received_open_time_copy,
                 candidate_seq=candidate_seq_copy,
                 is_unresolved=is_unresolved_copy,
                 unresolved_dependency=unresolved_dep_copy,
@@ -455,14 +495,22 @@ class ISSEngine:
         )
         main_level_3: Optional[SwingPoint] = msm_snap.tentative_point
 
-        # If tentative point disappeared while we were in UNFINISHED eligible search, main continuation cancelled it!
-        if main_level_3 is None and not candidate_completed_this_bar:
-            if cand_copy and cand_copy.lifecycle_status == ISSLifecycleStatus.ELIGIBLE_SEARCH:
+        # R29.1: If tentative point disappeared while we were in unconfirmed search or tracking-only,
+        # main continuation break has confirmed/removed level 3! Cancel candidate cleanly!
+        if main_level_3 is None and not candidate_confirmed_this_bar:
+            if cand_copy and cand_copy.lifecycle_status in (
+                ISSLifecycleStatus.ELIGIBLE_SEARCH,
+                ISSLifecycleStatus.OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY,
+            ):
                 cand_copy.lifecycle_status = ISSLifecycleStatus.MAIN_CONTINUATION_CANCELLED
                 cand_copy.diagnostic_type = ISSDiagnosticType.CANCELLED_BY_MAIN_CONTINUATION
                 cand_copy.diagnostic_message = "Cancelled by main continuation break."
+                # R29.2: Clean cancellation cleanup
                 cand_copy.internal_points = []
+                cand_copy.tracking_points = []
                 cand_copy.active_zones = []
+                cand_copy.is_tracking_only = False
+                cand_copy.attempted_points = None
 
             self._commit_staged_transition(
                 main_coord=main_coord_copy,
@@ -471,7 +519,10 @@ class ISSEngine:
                 completed_candles=completed_candles_copy,
                 candle_lookup=candle_lookup_copy,
                 received_indices=received_indices_copy,
-                candle=candle,
+                last_processed_index=last_processed_index_copy,
+                last_processed_open_time=last_processed_open_time_copy,
+                last_received_index=last_received_index_copy,
+                last_received_open_time=last_received_open_time_copy,
                 candidate_seq=candidate_seq_copy,
                 is_unresolved=is_unresolved_copy,
                 unresolved_dependency=unresolved_dep_copy,
@@ -480,13 +531,11 @@ class ISSEngine:
 
         # Check if Main Level 2 is confirmed and Main Level 3 exists
         if main_level_2 is not None and main_level_2.is_confirmed and main_level_3 is not None:
-            # Check if we need to start a fresh candidate
             is_new_identification = False
             if cand_copy is None:
                 is_new_identification = True
             else:
                 prev_id = cand_copy.identity
-                # Check identified_bar_index or direction switch
                 if (
                     prev_id.main_level_3_identified_bar_index != main_level_3.identified_bar_index
                     or prev_id.main_direction != current_main_dir
@@ -532,7 +581,6 @@ class ISSEngine:
                         strictly_after_candle_time=candle.open_time,
                     )
                 )
-                # Seed internal MSM engine with historical reference candle through current candle
                 l3_candles = [c for c in completed_candles_copy if c.open_time >= main_level_3.candle_open_time]
                 if l3_candles:
                     internal_msm.process_candles(l3_candles)
@@ -554,7 +602,10 @@ class ISSEngine:
             completed_candles=completed_candles_copy,
             candle_lookup=candle_lookup_copy,
             received_indices=received_indices_copy,
-            candle=candle,
+            last_processed_index=last_processed_index_copy,
+            last_processed_open_time=last_processed_open_time_copy,
+            last_received_index=last_received_index_copy,
+            last_received_open_time=last_received_open_time_copy,
             candidate_seq=candidate_seq_copy,
             is_unresolved=is_unresolved_copy,
             unresolved_dependency=unresolved_dep_copy,
@@ -568,7 +619,10 @@ class ISSEngine:
         completed_candles: List[StrategyCandle],
         candle_lookup: Dict[int, StrategyCandle],
         received_indices: Set[int],
-        candle: StrategyCandle,
+        last_processed_index: int,
+        last_processed_open_time: Optional[datetime],
+        last_received_index: int,
+        last_received_open_time: Optional[datetime],
         candidate_seq: int,
         is_unresolved: bool,
         unresolved_dependency: Optional[str],
@@ -580,274 +634,10 @@ class ISSEngine:
         self._completed_candles = completed_candles
         self._candle_lookup = candle_lookup
         self._received_indices = received_indices
-        self._last_processed_open_time = candle.open_time
-        self._last_processed_index = candle.index
+        self._last_processed_open_time = last_processed_open_time
+        self._last_processed_index = last_processed_index
+        self._last_received_open_time = last_received_open_time
+        self._last_received_index = last_received_index
         self._candidate_seq = candidate_seq
         self._is_unresolved = is_unresolved
         self._unresolved_dependency = unresolved_dependency
-
-    def _extract_internal_points(
-        self,
-        internal_snap: Any,
-        main_direction: Direction,
-        boundary: FrozenBoundary,
-    ) -> List[InternalPoint]:
-        """Extracts the first 5 structural points from internal MSM snapshot."""
-        points: List[InternalPoint] = []
-        pairs = internal_snap.confirmed_pairs
-
-        if main_direction == Direction.DOWNWARD:
-            # Bearish Main -> Internal is UPWARD
-            if len(pairs) >= 1:
-                p1 = pairs[0]
-                points.append(
-                    InternalPoint(
-                        point_number=1,
-                        role="CH1",
-                        source_candle_index=p1.high.candle_index,
-                        candle_open_time=p1.high.candle_open_time,
-                        body_edge_price=p1.high.price,
-                        is_confirmed=True,
-                        identified_bar_index=p1.high.identified_bar_index,
-                        confirmed_bar_index=p1.high.confirmed_bar_index,
-                        is_inside_boundary=boundary.contains_price(p1.high.price),
-                    )
-                )
-                points.append(
-                    InternalPoint(
-                        point_number=2,
-                        role="CL1",
-                        source_candle_index=p1.low.candle_index,
-                        candle_open_time=p1.low.candle_open_time,
-                        body_edge_price=p1.low.price,
-                        is_confirmed=True,
-                        identified_bar_index=p1.low.identified_bar_index,
-                        confirmed_bar_index=p1.low.confirmed_bar_index,
-                        is_inside_boundary=boundary.contains_price(p1.low.price),
-                    )
-                )
-
-            if len(pairs) >= 2:
-                p2 = pairs[1]
-                points.append(
-                    InternalPoint(
-                        point_number=3,
-                        role="CH2",
-                        source_candle_index=p2.high.candle_index,
-                        candle_open_time=p2.high.candle_open_time,
-                        body_edge_price=p2.high.price,
-                        is_confirmed=True,
-                        identified_bar_index=p2.high.identified_bar_index,
-                        confirmed_bar_index=p2.high.confirmed_bar_index,
-                        is_inside_boundary=boundary.contains_price(p2.high.price),
-                    )
-                )
-                points.append(
-                    InternalPoint(
-                        point_number=4,
-                        role="CL2",
-                        source_candle_index=p2.low.candle_index,
-                        candle_open_time=p2.low.candle_open_time,
-                        body_edge_price=p2.low.price,
-                        is_confirmed=True,
-                        identified_bar_index=p2.low.identified_bar_index,
-                        confirmed_bar_index=p2.low.confirmed_bar_index,
-                        is_inside_boundary=boundary.contains_price(p2.low.price),
-                    )
-                )
-
-            tp = internal_snap.tentative_point
-            if tp is not None:
-                pt_num = 1 if len(pairs) == 0 else (3 if len(pairs) == 1 else 5)
-                points.append(
-                    InternalPoint(
-                        point_number=pt_num,
-                        role="TENTATIVE_HIGH",
-                        source_candle_index=tp.candle_index,
-                        candle_open_time=tp.candle_open_time,
-                        body_edge_price=tp.price,
-                        is_confirmed=False,
-                        identified_bar_index=tp.identified_bar_index,
-                        is_inside_boundary=boundary.contains_price(tp.price),
-                    )
-                )
-
-        else:
-            # Bullish Main -> Internal is DOWNWARD
-            if len(pairs) >= 1:
-                p1 = pairs[0]
-                points.append(
-                    InternalPoint(
-                        point_number=1,
-                        role="CL1",
-                        source_candle_index=p1.low.candle_index,
-                        candle_open_time=p1.low.candle_open_time,
-                        body_edge_price=p1.low.price,
-                        is_confirmed=True,
-                        identified_bar_index=p1.low.identified_bar_index,
-                        confirmed_bar_index=p1.low.confirmed_bar_index,
-                        is_inside_boundary=boundary.contains_price(p1.low.price),
-                    )
-                )
-                points.append(
-                    InternalPoint(
-                        point_number=2,
-                        role="CH1",
-                        source_candle_index=p1.high.candle_index,
-                        candle_open_time=p1.high.candle_open_time,
-                        body_edge_price=p1.high.price,
-                        is_confirmed=True,
-                        identified_bar_index=p1.high.identified_bar_index,
-                        confirmed_bar_index=p1.high.confirmed_bar_index,
-                        is_inside_boundary=boundary.contains_price(p1.high.price),
-                    )
-                )
-
-            if len(pairs) >= 2:
-                p2 = pairs[1]
-                points.append(
-                    InternalPoint(
-                        point_number=3,
-                        role="CL2",
-                        source_candle_index=p2.low.candle_index,
-                        candle_open_time=p2.low.candle_open_time,
-                        body_edge_price=p2.low.price,
-                        is_confirmed=True,
-                        identified_bar_index=p2.low.identified_bar_index,
-                        confirmed_bar_index=p2.low.confirmed_bar_index,
-                        is_inside_boundary=boundary.contains_price(p2.low.price),
-                    )
-                )
-                points.append(
-                    InternalPoint(
-                        point_number=4,
-                        role="CH2",
-                        source_candle_index=p2.high.candle_index,
-                        candle_open_time=p2.high.candle_open_time,
-                        body_edge_price=p2.high.price,
-                        is_confirmed=True,
-                        identified_bar_index=p2.high.identified_bar_index,
-                        confirmed_bar_index=p2.high.confirmed_bar_index,
-                        is_inside_boundary=boundary.contains_price(p2.high.price),
-                    )
-                )
-
-            tp = internal_snap.tentative_point
-            if tp is not None:
-                pt_num = 1 if len(pairs) == 0 else (3 if len(pairs) == 1 else 5)
-                points.append(
-                    InternalPoint(
-                        point_number=pt_num,
-                        role="TENTATIVE_LOW",
-                        source_candle_index=tp.candle_index,
-                        candle_open_time=tp.candle_open_time,
-                        body_edge_price=tp.price,
-                        is_confirmed=False,
-                        identified_bar_index=tp.identified_bar_index,
-                        is_inside_boundary=boundary.contains_price(tp.price),
-                    )
-                )
-
-        return points
-
-    def _extract_tracking_points(
-        self,
-        internal_snap: Any,
-        main_direction: Direction,
-        boundary: FrozenBoundary,
-    ) -> List[InternalPoint]:
-        """Extracts all sequential confirmed pairs and current tentative point for tracking."""
-        points: List[InternalPoint] = []
-        pairs = internal_snap.confirmed_pairs
-
-        if main_direction == Direction.DOWNWARD:
-            # Bearish Main -> Internal is UPWARD
-            for i, p in enumerate(pairs):
-                points.append(
-                    InternalPoint(
-                        point_number=2 * i + 1,
-                        role=f"CH{i + 1}",
-                        source_candle_index=p.high.candle_index,
-                        candle_open_time=p.high.candle_open_time,
-                        body_edge_price=p.high.price,
-                        is_confirmed=True,
-                        identified_bar_index=p.high.identified_bar_index,
-                        confirmed_bar_index=p.high.confirmed_bar_index,
-                        is_inside_boundary=boundary.contains_price(p.high.price),
-                    )
-                )
-                points.append(
-                    InternalPoint(
-                        point_number=2 * i + 2,
-                        role=f"CL{i + 1}",
-                        source_candle_index=p.low.candle_index,
-                        candle_open_time=p.low.candle_open_time,
-                        body_edge_price=p.low.price,
-                        is_confirmed=True,
-                        identified_bar_index=p.low.identified_bar_index,
-                        confirmed_bar_index=p.low.confirmed_bar_index,
-                        is_inside_boundary=boundary.contains_price(p.low.price),
-                    )
-                )
-
-            tp = internal_snap.tentative_point
-            if tp is not None:
-                points.append(
-                    InternalPoint(
-                        point_number=2 * len(pairs) + 1,
-                        role="TENTATIVE_HIGH",
-                        source_candle_index=tp.candle_index,
-                        candle_open_time=tp.candle_open_time,
-                        body_edge_price=tp.price,
-                        is_confirmed=False,
-                        identified_bar_index=tp.identified_bar_index,
-                        is_inside_boundary=boundary.contains_price(tp.price),
-                    )
-                )
-
-        else:
-            # Bullish Main -> Internal is DOWNWARD
-            for i, p in enumerate(pairs):
-                points.append(
-                    InternalPoint(
-                        point_number=2 * i + 1,
-                        role=f"CL{i + 1}",
-                        source_candle_index=p.low.candle_index,
-                        candle_open_time=p.low.candle_open_time,
-                        body_edge_price=p.low.price,
-                        is_confirmed=True,
-                        identified_bar_index=p.low.identified_bar_index,
-                        confirmed_bar_index=p.low.confirmed_bar_index,
-                        is_inside_boundary=boundary.contains_price(p.low.price),
-                    )
-                )
-                points.append(
-                    InternalPoint(
-                        point_number=2 * i + 2,
-                        role=f"CH{i + 1}",
-                        source_candle_index=p.high.candle_index,
-                        candle_open_time=p.high.candle_open_time,
-                        body_edge_price=p.high.price,
-                        is_confirmed=True,
-                        identified_bar_index=p.high.identified_bar_index,
-                        confirmed_bar_index=p.high.confirmed_bar_index,
-                        is_inside_boundary=boundary.contains_price(p.high.price),
-                    )
-                )
-
-            tp = internal_snap.tentative_point
-            if tp is not None:
-                points.append(
-                    InternalPoint(
-                        point_number=2 * len(pairs) + 1,
-                        role="TENTATIVE_LOW",
-                        source_candle_index=tp.candle_index,
-                        candle_open_time=tp.candle_open_time,
-                        body_edge_price=tp.price,
-                        is_confirmed=False,
-                        identified_bar_index=tp.identified_bar_index,
-                        is_inside_boundary=boundary.contains_price(tp.price),
-                    )
-                )
-
-        return points

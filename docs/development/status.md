@@ -74,14 +74,20 @@ Last Updated: 2026-11-05 (MSM Dashboard Milestone Accepted — Transition to CHO
      - Immutable value objects (`FrozenBoundary`, `CandidateIdentity`, `InternalPoint`, `InternalFivePointStructure`, `ISSZone`, `ConfirmedISSEvent`, `ISSSnapshot`, `ISSConfig`).
      - Distinct lifecycle states (`PENDING_PREREQUISITES`, `ELIGIBLE_SEARCH`, `CONFIRMED`, `OUT_OF_BOUNDS_REJECTED`, `OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY`, `MAIN_CONTINUATION_CANCELLED`, `MAIN_CHOCH_CANCELLED`).
      - Exact zone geometry: high-side $[UB, \text{high}]$ and low-side $[\text{low}, LB]$; zero-width price lines (`is_line = True`).
-  2. `src/aladeen/strategy/iss_engine.py`:
+     - Exact floating-point boundaries without artificial rounding.
+     - Separate `last_processed_index` (authoritative) and `last_received_index` (input tracking).
+  2. `src/aladeen/strategy/iss_tracking.py`:
+     - Modular functional point extraction (`extract_internal_points`, `extract_tracking_points`).
+     - Pure functional extraction of structural swing points and ongoing tracking points.
+  3. `src/aladeen/strategy/iss_engine.py`:
      - Deterministic sequential coordinator linking `MSMChochCoordinator` (main path) and internal `MSMEngine` (opposite direction with delayed forward-scan boundary).
-     - Progressive out-of-bounds rejection: immediately rejects as soon as any marked level breaches boundary.
-     - Exact 5-point confirmation timing: confirms upon identification of Point 5 if completion candle closes inside boundary.
-     - Tracking-only isolation: outside-range completion close transitions to permanent tracking without revival.
-     - Main event coordination: main continuation/CHOCH cleanly cancels unfinished searches while preserving previously confirmed ISS history.
-     - Unresolved main dependency containment: pauses active progression safely without publishing speculative states.
-     - Full batch (`process_candles`), incremental sequential (`process_candle`), and replay (`replay_snapshots`) APIs with 100% parity and transactional rollback safety.
-  3. `tests/test_iss_engine.py`: 19 comprehensive tests executing all 15 acceptance fixtures and verifying API safety, parity, forming candle rejection, and unresolved containment.
-  4. `docs/development/iss-engine-api.md`: Complete public API and architecture documentation.
-- **Current Status**: Complete and verified across 299 offline tests (0 failures). Ready for HANDOFF-028 review.
+     - R29.1 Precedence: If internal Point 5 identification occurs on a candle that breaks Main Level 3, main continuation break takes precedence $\implies$ `MAIN_CONTINUATION_CANCELLED` with zero ISS events.
+     - R29.2 Clean Cancellation Cleanup: On cancellation (`MAIN_CONTINUATION_CANCELLED`, `MAIN_CHOCH_CANCELLED`, `OUT_OF_BOUNDS_REJECTED`), resets `is_tracking_only = False`, `tracking_points = ()`, `attempted_points = None`, `internal_points = ()`, and `active_zones = ()`.
+     - R29.3 Unresolved Progress Reporting: Unresolved main conditions freeze `last_processed_index` at the pre-ambiguity evaluation candle while `last_received_index` advances monotonically.
+     - Dynamic direction tracking across completed main CHOCH reversals.
+     - Transactional transitions on staged working copies with complete rollback safety.
+  4. `tests/test_iss_engine.py`:
+     - 31 comprehensive tests including all 7 review regressions requested in R29.
+  5. `docs/development/iss-engine-api.md`:
+     - Complete API architecture, terminal-state semantics, and progress reporting guarantees.
+- **Current Status**: Complete and verified across 311 offline tests (0 failures). Ready for HANDOFF-030 review.

@@ -161,29 +161,29 @@ class TestISSEngineLifecycleExecution:
         assert len(snaps[16].active_zones) == 0
         assert len(snaps[16].confirmed_events) == 0
 
-    def test_iss_06_outside_range_completion_tracking_only(self, iss_fixtures) -> None:
-        """iss_06: Valid points but completion candle closes at 1.1350 outside boundary."""
+    def test_iss_06_point_5_identification_on_main_continuation_cancels(self, iss_fixtures) -> None:
+        """iss_06: Point 5 identified on a main continuation candle (close 1.1350 < 1.1400) cancels candidate."""
         fix = iss_fixtures["iss_06_outside_range_completion_tracking_only"]
         start_time = datetime.fromisoformat(fix["candles"][0]["time"])
         engine = ISSEngine(ISSConfig(main_direction=Direction.DOWNWARD, start_candle_time=start_time))
         snap = engine.process_candles(fix["candles"])
 
-        assert snap.lifecycle_status == ISSLifecycleStatus.OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY
-        assert snap.is_tracking_only is True
-        assert snap.diagnostic_type == ISSDiagnosticType.COMPLETION_CLOSE_OUTSIDE_RANGE
-        assert len(snap.internal_points) == 5
-        assert len(snap.active_zones) == 0
+        # Per R29.1: Candidate depends on Level 3, which broke on this candle. Source-consistent cancellation.
+        assert snap.lifecycle_status == ISSLifecycleStatus.MAIN_CONTINUATION_CANCELLED
+        assert snap.diagnostic_type == ISSDiagnosticType.CANCELLED_BY_MAIN_CONTINUATION
+        assert snap.is_tracking_only is False
         assert len(snap.confirmed_events) == 0
+        assert len(snap.active_zones) == 0
 
     def test_iss_07_no_revival_under_same_main_level_3(self, iss_fixtures) -> None:
-        """iss_07: Candidate retains tracking-only state across later bars without reviving."""
+        """iss_07: Cancelled candidate cannot be revived by subsequent bars under the same main level 3."""
         fix = iss_fixtures["iss_07_no_revival_under_same_main_level_3"]
         start_time = datetime.fromisoformat(fix["candles"][0]["time"])
         engine = ISSEngine(ISSConfig(main_direction=Direction.DOWNWARD, start_candle_time=start_time))
         snap = engine.process_candles(fix["candles"])
 
-        assert snap.lifecycle_status == ISSLifecycleStatus.OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY
-        assert snap.is_tracking_only is True
+        assert snap.lifecycle_status == ISSLifecycleStatus.MAIN_CONTINUATION_CANCELLED
+        assert snap.is_tracking_only is False
         assert len(snap.confirmed_events) == 0
 
     def test_iss_08_fresh_search_on_new_main_level_3(self, iss_fixtures) -> None:
@@ -501,8 +501,8 @@ class TestISSEngineAPIAndSafety:
         assert snap.last_processed_index == 20
         assert len(snap.confirmed_events) == 1
 
-    def test_main_choch_followed_by_new_direction_iss_candidate(self) -> None:
-        """Main CHOCH switches authoritative direction, opening a fresh candidate in the new direction."""
+    def test_main_choch_reversal_followed_by_complete_new_direction_iss_confirmation(self, iss_fixtures) -> None:
+        """Main reversal via CHOCH followed by a complete new-direction ISS confirmation with correct roles and zones."""
         path = Path(__file__).parent / "fixtures" / "choch_acceptance.json"
         with open(path, "r", encoding="utf-8") as f:
             choch_fix = json.load(f)["fixtures"]["choch_bearish_basic_end_to_end"]
@@ -528,13 +528,34 @@ class TestISSEngineAPIAndSafety:
         # Bar 10 & 11: 2 green candles -> Pullback 1 in Downward Main
         c10 = StrategyCandle(10, last_t + timedelta(hours=1), 1.005, 1.015, 1.004, 1.012, False, "CONFIRMED_COMPLETED")
         c11 = StrategyCandle(11, last_t + timedelta(hours=2), 1.012, 1.026, 1.010, 1.025, False, "CONFIRMED_COMPLETED")
-        # Bar 12: red break candle, closing below Bar 9 low -> confirms Level 2 high at Bar 11
+        # Bar 12: red break candle, closing below Bar 9 low -> confirms Level 2 high at Bar 11 (price 1.026)
         c12 = StrategyCandle(12, last_t + timedelta(hours=3), 1.020, 1.022, 0.989, 0.990, False, "CONFIRMED_COMPLETED")
-        # Bar 13 & 14: Pullback 2 in Downward Main -> identifies Level 3 tentative low at Bar 12
+        # Bar 13 & 14: Pullback 2 in Downward Main -> identifies Level 3 tentative low at Bar 12 (price 0.988)
         c13 = StrategyCandle(13, last_t + timedelta(hours=4), 0.990, 0.998, 0.988, 0.995, False, "CONFIRMED_COMPLETED")
         c14 = StrategyCandle(14, last_t + timedelta(hours=5), 0.995, 1.008, 0.994, 1.005, False, "CONFIRMED_COMPLETED")
 
-        all_candles = candles + [c10, c11, c12, c13, c14]
+        # Now append shifted internal candles from iss_01 (bars 10 to 20, shift price by -0.150)
+        fix_01 = iss_fixtures["iss_01_bearish_basic_end_to_end"]
+        shift = -0.150
+        internal_candles = []
+        for i, c in enumerate(fix_01["candles"][10:21]):
+            idx = 15 + i
+            t = last_t + timedelta(hours=6 + i)
+            internal_candles.append(
+                StrategyCandle(
+                    index=idx,
+                    open_time=t,
+                    open=round(c["open"] + shift, 5),
+                    high=round(c["high"] + shift, 5),
+                    low=round(c["low"] + shift, 5),
+                    close=round(c["close"] + shift, 5),
+                    is_forming=False,
+                    bar_status="CONFIRMED_COMPLETED",
+                    close_time=t + timedelta(hours=1),
+                )
+            )
+
+        all_candles = candles + [c10, c11, c12, c13, c14] + internal_candles
 
         start_time = candles[0].open_time
         # Initialized with UPWARD
@@ -545,38 +566,55 @@ class TestISSEngineAPIAndSafety:
         assert engine.direction == Direction.DOWNWARD
         assert len(engine._main_coordinator.confirmed_choch_events) == 1
 
-        # Candidate identity must use the new authoritative direction
-        cand = snap.candidate_identity
-        assert cand is not None
-        assert cand.main_direction == Direction.DOWNWARD
-        assert "iss_cand_downward" in cand.candidate_id
-        assert snap.lifecycle_status == ISSLifecycleStatus.ELIGIBLE_SEARCH
+        # Complete ISS confirmation in new DOWNWARD direction
+        assert snap.lifecycle_status == ISSLifecycleStatus.CONFIRMED
+        assert len(snap.confirmed_events) == 1
+        ev = snap.confirmed_events[0]
+        assert ev.main_direction == Direction.DOWNWARD
+        assert "iss_cand_downward" in ev.candidate_id
+        assert ev.confirmation_candle_index == 25
 
-    def test_tracking_only_progression_additional_pairs_zero_new_events(self, iss_fixtures) -> None:
+        # Verify internal points: 5 points with correct roles
+        assert len(snap.internal_points) == 5
+        roles = [p.role for p in snap.internal_points]
+        assert roles == ["CH1", "CL1", "CH2", "CL2", "TENTATIVE_HIGH"]
+        assert all(p.is_inside_boundary for p in snap.internal_points)
+
+        # Verify active zones: RBS from CH2 (point 3) and Buying A+ from CL2 (point 4)
+        assert len(snap.active_zones) == 2
+        z_rbs = next(z for z in snap.active_zones if z.zone_type == ISSZoneType.RBS)
+        assert z_rbs.source_point_number == 3
+        assert z_rbs.source_point_role == "CH2"
+        assert z_rbs.lower_price < z_rbs.upper_price
+
+        z_a_plus = next(z for z in snap.active_zones if z.zone_type == ISSZoneType.BUYING_A_PLUS)
+        assert z_a_plus.source_point_number == 4
+        assert z_a_plus.source_point_role == "CL2"
+        assert z_a_plus.lower_price < z_a_plus.upper_price
+
+    def test_tracking_points_continue_independently_of_attempted_points(self, iss_fixtures) -> None:
         """Candidate in tracking-only continues internal MSM tracking through later swings with zero new ISS events."""
-        fix = iss_fixtures["iss_06_outside_range_completion_tracking_only"]
+        fix = iss_fixtures["iss_01_bearish_basic_end_to_end"]
         start_time = datetime.fromisoformat(fix["candles"][0]["time"])
         engine = ISSEngine(ISSConfig(main_direction=Direction.DOWNWARD, start_candle_time=start_time))
-        candles = [dict(c, index=i) for i, c in enumerate(fix["candles"])]
+        candles = [dict(c, index=i) for i, c in enumerate(fix["candles"][:20])]
 
-        # Process bars 0..20 (outside range completion)
-        snap = engine.process_candles(candles)
-        assert snap.lifecycle_status == ISSLifecycleStatus.OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY
-        assert snap.is_tracking_only is True
-        assert len(snap.attempted_points) == 5
-        assert len(snap.confirmed_events) == 0
+        # Process through bar 19 (candidate has 4 internal points)
+        engine.process_candles(candles)
+        cand = engine._active_candidate
+        assert cand is not None
 
-        # Append additional candles continuing internal tracking
-        last_t = datetime.fromisoformat(candles[-1]["time"])
+        # Simulate candidate entering tracking-only with 5 attempted points
+        cand.lifecycle_status = ISSLifecycleStatus.OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY
+        cand.is_tracking_only = True
+        cand.attempted_points = list(cand.internal_points) + [cand.internal_points[0]]
+        cand.tracking_points = list(cand.internal_points)
+
+        last_t = datetime.fromisoformat(candles[19]["time"])
         tracking_candles = [
-            # Candle 21: Green continuation
-            dict(time=(last_t + timedelta(hours=1)).isoformat(), open=1.135, high=1.181, low=1.134, close=1.180, is_forming=False, bar_status="CONFIRMED_COMPLETED", index=21),
-            # Candle 22: Green break above previous tentative high (1.192)
-            dict(time=(last_t + timedelta(hours=2)).isoformat(), open=1.180, high=1.196, low=1.179, close=1.195, is_forming=False, bar_status="CONFIRMED_COMPLETED", index=22),
-            # Candle 23: Red candle 1 of pullback 3
-            dict(time=(last_t + timedelta(hours=3)).isoformat(), open=1.195, high=1.1955, low=1.189, close=1.190, is_forming=False, bar_status="CONFIRMED_COMPLETED", index=23),
-            # Candle 24: Red candle 2 of pullback 3
-            dict(time=(last_t + timedelta(hours=4)).isoformat(), open=1.190, high=1.1905, low=1.184, close=1.185, is_forming=False, bar_status="CONFIRMED_COMPLETED", index=24),
+            dict(time=(last_t + timedelta(hours=1)).isoformat(), open=1.180, high=1.196, low=1.179, close=1.195, is_forming=False, bar_status="CONFIRMED_COMPLETED", index=20),
+            dict(time=(last_t + timedelta(hours=2)).isoformat(), open=1.195, high=1.1955, low=1.189, close=1.190, is_forming=False, bar_status="CONFIRMED_COMPLETED", index=21),
+            dict(time=(last_t + timedelta(hours=3)).isoformat(), open=1.190, high=1.1905, low=1.184, close=1.185, is_forming=False, bar_status="CONFIRMED_COMPLETED", index=22),
         ]
 
         for tc in tracking_candles:
@@ -588,3 +626,136 @@ class TestISSEngineAPIAndSafety:
         assert len(snap.attempted_points) == 5
         assert len(snap.tracking_points) >= 5
         assert len(snap.confirmed_events) == 0
+
+    def test_tracking_only_candidate_followed_by_main_continuation_cancels(self, iss_fixtures) -> None:
+        """Existing tracking-only candidate cancels cleanly when subsequent main continuation breaks Level 3."""
+        fix = iss_fixtures["iss_01_bearish_basic_end_to_end"]
+        start_time = datetime.fromisoformat(fix["candles"][0]["time"])
+        engine = ISSEngine(ISSConfig(main_direction=Direction.DOWNWARD, start_candle_time=start_time))
+        candles = [dict(c, index=i) for i, c in enumerate(fix["candles"][:20])]
+
+        engine.process_candles(candles)
+        cand = engine._active_candidate
+        assert cand is not None
+
+        # Candidate is in tracking-only
+        cand.lifecycle_status = ISSLifecycleStatus.OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY
+        cand.is_tracking_only = True
+        cand.attempted_points = list(cand.internal_points)
+        cand.tracking_points = list(cand.internal_points)
+
+        # Bar 20: breaks Main Level 3 (close 1.1350 < 1.1400)
+        last_t = datetime.fromisoformat(candles[19]["time"])
+        cont_candle = dict(
+            time=(last_t + timedelta(hours=1)).isoformat(),
+            open=1.145, high=1.146, low=1.134, close=1.135,
+            is_forming=False, bar_status="CONFIRMED_COMPLETED", index=20,
+        )
+
+        snap = engine.process_candle(cont_candle)
+
+        # Main continuation cancels tracking-only candidate cleanly (R29.1, R29.2)
+        assert snap.lifecycle_status == ISSLifecycleStatus.MAIN_CONTINUATION_CANCELLED
+        assert snap.diagnostic_type == ISSDiagnosticType.CANCELLED_BY_MAIN_CONTINUATION
+        assert snap.is_tracking_only is False
+        assert snap.attempted_points is None
+        assert snap.tracking_points == ()
+        assert snap.active_zones == ()
+        assert len(snap.confirmed_events) == 0
+
+    def test_tracking_only_candidate_followed_by_main_choch_cancels(self, iss_fixtures) -> None:
+        """Existing tracking-only candidate cancels cleanly when subsequent main CHOCH confirms."""
+        fix = iss_fixtures["iss_01_bearish_basic_end_to_end"]
+        start_time = datetime.fromisoformat(fix["candles"][0]["time"])
+        engine = ISSEngine(ISSConfig(main_direction=Direction.DOWNWARD, start_candle_time=start_time))
+        candles = [dict(c, index=i) for i, c in enumerate(fix["candles"][:20])]
+
+        engine.process_candles(candles)
+        cand = engine._active_candidate
+        assert cand is not None
+
+        # Candidate is in tracking-only
+        cand.lifecycle_status = ISSLifecycleStatus.OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY
+        cand.is_tracking_only = True
+        cand.attempted_points = list(cand.internal_points)
+        cand.tracking_points = list(cand.internal_points)
+
+        # Deliver 2 candles closing above last resistance (1.2000) to confirm Main CHOCH
+        last_t = datetime.fromisoformat(candles[19]["time"])
+        c20 = dict(time=(last_t + timedelta(hours=1)).isoformat(), open=1.195, high=1.205, low=1.194, close=1.202, is_forming=False, bar_status="CONFIRMED_COMPLETED", index=20)
+        c21 = dict(time=(last_t + timedelta(hours=2)).isoformat(), open=1.202, high=1.208, low=1.201, close=1.205, is_forming=False, bar_status="CONFIRMED_COMPLETED", index=21)
+
+        engine.process_candle(c20)
+        snap = engine.process_candle(c21)
+
+        # Main CHOCH cancels tracking-only candidate cleanly (R29.2)
+        assert snap.lifecycle_status == ISSLifecycleStatus.MAIN_CHOCH_CANCELLED
+        assert snap.diagnostic_type == ISSDiagnosticType.CANCELLED_BY_MAIN_CHOCH
+        assert snap.is_tracking_only is False
+        assert snap.attempted_points is None
+        assert snap.tracking_points == ()
+        assert snap.active_zones == ()
+        assert len(snap.confirmed_events) == 0
+
+    def test_confirmed_iss_history_survives_later_main_events(self, iss_fixtures) -> None:
+        """Confirmed ISS history survives subsequent main continuation and main CHOCH events without loss."""
+        fix = iss_fixtures["iss_01_bearish_basic_end_to_end"]
+        start_time = datetime.fromisoformat(fix["candles"][0]["time"])
+        engine = ISSEngine(ISSConfig(main_direction=Direction.DOWNWARD, start_candle_time=start_time))
+        candles = [dict(c, index=i) for i, c in enumerate(fix["candles"])]
+
+        # Process through bar 20: ISS is confirmed
+        snap = engine.process_candles(candles)
+        assert snap.lifecycle_status == ISSLifecycleStatus.CONFIRMED
+        assert len(snap.confirmed_events) == 1
+        original_event = snap.confirmed_events[0]
+
+        # Candle 21: breaks Main Level 3 (1.1400), confirming main continuation
+        last_t = datetime.fromisoformat(candles[-1]["time"])
+        c21 = dict(time=(last_t + timedelta(hours=1)).isoformat(), open=1.185, high=1.185, low=1.134, close=1.135, is_forming=False, bar_status="CONFIRMED_COMPLETED", index=21)
+        snap = engine.process_candle(c21)
+
+        # Confirmed ISS event remains intact
+        assert len(snap.confirmed_events) == 1
+        assert snap.confirmed_events[0] == original_event
+
+        # Deliver 2 candles closing above last resistance (1.2000) confirming Main CHOCH
+        c22 = dict(time=(last_t + timedelta(hours=2)).isoformat(), open=1.195, high=1.205, low=1.194, close=1.202, is_forming=False, bar_status="CONFIRMED_COMPLETED", index=22)
+        c23 = dict(time=(last_t + timedelta(hours=3)).isoformat(), open=1.202, high=1.208, low=1.201, close=1.205, is_forming=False, bar_status="CONFIRMED_COMPLETED", index=23)
+        engine.process_candle(c22)
+        snap = engine.process_candle(c23)
+
+        # Confirmed ISS event survives main CHOCH
+        assert len(snap.confirmed_events) == 1
+        assert snap.confirmed_events[0] == original_event
+
+    def test_unresolved_main_frozen_processed_and_advancing_received(self, iss_fixtures) -> None:
+        """Unresolved main dependency freezes authoritative last_processed_index while last_received_index advances."""
+        fix = iss_fixtures["iss_01_bearish_basic_end_to_end"]
+        start_time = datetime.fromisoformat(fix["candles"][0]["time"])
+        engine = ISSEngine(ISSConfig(main_direction=Direction.DOWNWARD, start_candle_time=start_time))
+        engine.process_candles(fix["candles"][:10])
+
+        assert engine.last_processed_index == 9
+        assert engine.last_received_index == 9
+
+        # Force coordinator into unresolved state
+        engine._main_coordinator._is_unresolved = True
+        engine._is_unresolved = True
+        engine._unresolved_dependency = "MAIN_CHOCH_IDENTIFICATION_CLOSE_AMBIGUITY"
+
+        # Ingest bar 10 while unresolved
+        snap = engine.process_candle(dict(fix["candles"][10], index=10))
+        assert snap.is_unresolved is True
+        assert snap.last_processed_index == 9
+        assert snap.last_received_index == 10
+        assert engine.last_processed_index == 9
+        assert engine.last_received_index == 10
+
+        # Ingest bar 11 while unresolved
+        snap = engine.process_candle(dict(fix["candles"][11], index=11))
+        assert snap.is_unresolved is True
+        assert snap.last_processed_index == 9
+        assert snap.last_received_index == 11
+        assert engine.last_processed_index == 9
+        assert engine.last_received_index == 11

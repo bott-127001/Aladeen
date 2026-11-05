@@ -130,6 +130,13 @@ engine = ISSEngine(ISSConfig(main_direction=Direction.DOWNWARD, start_candle_tim
 2. **Exact Boundary Evaluation**: Captured boundaries preserve exact floating-point values without rounding. Boundary evaluations enforce strict mathematical inequalities without artificial tolerances.
 3. **Unknown Availability Preserved**: When candle close timestamps are unavailable, availability metadata (`frozen_at_time`, `confirmation_time`, `confirmation_availability_time`) remains `None`. Forward-scan restriction is enforced via `strictly_after_candle_time` on monotonic open timestamps without inventing availability timestamps.
 4. **Complete Transactional Transitions**: Every sequential candle ingestion is executed on staged working copies (`main_coord`, `candidate`, `confirmed_events`, `candles`, `indices`). Any exception during main coordination, internal engine advance, boundary evaluation, or zone/event construction leaves engine state 100% unmutated.
-5. **Tracking-Only Separation**: Upon outside-range completion, the candidate's original attempted 5-point structure is preserved immutably in `snapshot.attempted_points`, while ongoing tracking swings are exposed via `snapshot.tracking_points`. The candidate permanently remains in tracking-only and never regains ISS eligibility under that Main Level 3.
-6. **Batch / Sequential / Replay Parity**: 100% snapshot, internal point, and zone equivalence across all three execution modes.
-7. **Forming Candle Isolation**: Candles with `is_forming=True` or `bar_status != "CONFIRMED_COMPLETED"` are safely ignored without mutating settled history.
+5. **Tracking-Only Separation & Precedence**:
+   - If an internal Point 5 is identified on a candle that closes beyond Main Level 3, the candle confirms main continuation and removes Main Level 3. The main continuation break takes precedence, producing `MAIN_CONTINUATION_CANCELLED` with zero ISS events.
+   - If a candidate enters `OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY`, its original 5 attempted points are preserved in `snapshot.attempted_points`, while ongoing tracking swings are exposed in `snapshot.tracking_points`.
+   - If a subsequent candle confirms main continuation or Main CHOCH, the tracking-only candidate transitions to `MAIN_CONTINUATION_CANCELLED` or `MAIN_CHOCH_CANCELLED`, clearing active tracking flags and processes (`is_tracking_only = False`, `tracking_points = ()`, `attempted_points = None`).
+   - Confirmed ISS history (`confirmed_events`) is immutable and strictly preserved across subsequent main continuation or CHOCH events.
+6. **Progress Reporting (Processed vs Received)**:
+   - When the main integrated path encounters an unresolved ambiguity (e.g. `c1 == p2`), the authoritative `last_processed_index` marker remains strictly frozen at the pre-ambiguity candle.
+   - `last_received_index` advances monotonically as incoming candles are received and validated, preventing unverified input from being presented as authoritative ISS evaluations.
+7. **Batch / Sequential / Replay Parity**: 100% snapshot, internal point, and zone equivalence across all three execution modes.
+8. **Forming Candle Isolation**: Candles with `is_forming=True` or `bar_status != "CONFIRMED_COMPLETED"` are safely ignored without mutating settled history.

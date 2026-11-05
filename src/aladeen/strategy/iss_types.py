@@ -272,6 +272,7 @@ class ISSSnapshot:
     confirmed_events: Tuple[ConfirmedISSEvent, ...] = field(default_factory=tuple)
     is_tracking_only: bool = False
     last_processed_index: int = -1
+    last_received_index: int = -1
     diagnostic_type: Optional[ISSDiagnosticType] = None
     diagnostic_message: Optional[str] = None
     is_unresolved: bool = False
