@@ -117,8 +117,8 @@ class MarketCandleRecord:
             if parsed_close.tzinfo is None or parsed_close.tzinfo.utcoffset(parsed_close) is None:
                 raise ValueError(f"Candle close_time must be timezone-aware (UTC). Naive timestamp rejected: '{self.close_time}'")
 
-            if parsed_close < parsed_time:
-                raise ValueError(f"Candle close_time ({self.close_time}) cannot be earlier than open time ({self.time})")
+            if parsed_close <= parsed_time:
+                raise ValueError(f"Candle close_time ({self.close_time}) must be strictly later than open time ({self.time})")
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize candle record to plain primitive dictionary."""
@@ -218,14 +218,13 @@ class MarketDataSnapshot:
             if self.error_message is not None:
                 raise ValueError("Successful snapshot must not have an error_message")
 
-            # Source ID (index) ordering and uniqueness validation
+            # Source ID (index) uniqueness validation (R14.6: chronology defined by timestamps, source IDs are unique identifiers)
             indices = [c.index for c in self.candles_data if c.index is not None]
             if indices:
                 if len(indices) != len(self.candles_data):
                     raise ValueError("Inconsistent source IDs: some candles have an index while others do not")
-                for i in range(len(indices) - 1):
-                    if indices[i] >= indices[i + 1]:
-                        raise ValueError(f"Candle source IDs must be strictly monotonically increasing: {indices[i]} >= {indices[i+1]}")
+                if len(set(indices)) != len(indices):
+                    raise ValueError("Candle source IDs must be unique; duplicate source IDs detected")
         else:
             if len(self.candles_data) > 0 or self.candle_count > 0:
                 raise ValueError(f"Failed snapshot ({self.fetch_status}) must have candle_count=0 and empty candles_data")

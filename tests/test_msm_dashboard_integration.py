@@ -1194,9 +1194,10 @@ class TestHandoff014ControlledRequestFlowAndBoundaryRegressions:
         mock_adapter.fetch_candles.side_effect = mock_fetch_candles
         store_data = {"state": "CONNECTED_TO_BROKER"}
 
-        # 1. Start request A (EURUSD H4, token req-1) and block its fetch
+        # 1. Start request A (EURUSD H4) and block its fetch
         req_a = issue_market_data_request("mt5", "EURUSD", "H4", 15, store_data, current_active_req=None)
-        assert req_a["token"] == "req-1"
+        assert req_a["token"].startswith("req-")
+        assert req_a["counter"] == 1
         assert req_a["context"]["timeframe"] == "H4"
 
         thread_a_result = {}
@@ -1212,9 +1213,11 @@ class TestHandoff014ControlledRequestFlowAndBoundaryRegressions:
         # Wait until Fetch A has actually entered the blocked adapter call
         assert fetch_a_started.wait(timeout=2.0)
 
-        # 2. Issue newer request B (EURUSD D1, token req-2) before A completes
+        # 2. Issue newer request B (EURUSD D1) before A completes
         req_b = issue_market_data_request("mt5", "EURUSD", "D1", 15, store_data, current_active_req=req_a)
-        assert req_b["token"] == "req-2"
+        assert req_b["token"].startswith("req-")
+        assert req_b["counter"] == 2
+        assert req_b["token"] != req_a["token"]
         assert req_b["context"]["timeframe"] == "D1"
 
         # Verify: while B is pending, consumer endpoints observe pending state and fail-closed
@@ -1240,7 +1243,7 @@ class TestHandoff014ControlledRequestFlowAndBoundaryRegressions:
 
         # 3. Complete B and verify it becomes current
         snap_b_dict, trig_b = fetch_market_data_for_request(req_b, store_data, adapter=mock_adapter)
-        assert snap_b_dict["request_token"] == "req-2"
+        assert snap_b_dict["request_token"] == req_b["token"]
         assert snap_b_dict["timeframe"] == "D1"
 
         fig_b, status_b = generate_chart_and_status_from_snapshot(
@@ -1277,7 +1280,7 @@ class TestHandoff014ControlledRequestFlowAndBoundaryRegressions:
         thread_a.join(timeout=2.0)
         assert not thread_a.is_alive()
         snap_a_dict = thread_a_result["snap"]
-        assert snap_a_dict["request_token"] == "req-1"
+        assert snap_a_dict["request_token"] == req_a["token"]
 
         # 5. Assert: Arriving delayed A does NOT revert active request, chart, dropdown, or applied config
         fig_a, status_a = generate_chart_and_status_from_snapshot(
@@ -1349,9 +1352,9 @@ class TestHandoff014ControlledRequestFlowAndBoundaryRegressions:
         mock_adapter.fetch_candles.side_effect = mock_fetch
         store_data = {"state": "CONNECTED_TO_BROKER"}
 
-        # 1. Issue Refresh A (req-1)
+        # 1. Issue Refresh A
         req_a = issue_market_data_request("mt5", "EURUSD", "H4", 15, store_data, current_active_req=None)
-        assert req_a["token"] == "req-1"
+        assert req_a["token"].startswith("req-")
 
         thread_a_res = {}
 
@@ -1363,13 +1366,14 @@ class TestHandoff014ControlledRequestFlowAndBoundaryRegressions:
         t.start()
         assert fetch_a_started.wait(timeout=2.0)
 
-        # 2. Issue Refresh B (req-2) while A is blocked
+        # 2. Issue Refresh B while A is blocked
         req_b = issue_market_data_request("mt5", "EURUSD", "H4", 15, store_data, current_active_req=req_a)
-        assert req_b["token"] == "req-2"
+        assert req_b["token"].startswith("req-")
+        assert req_b["token"] != req_a["token"]
 
         # 3. Complete B
         snap_b_dict, _ = fetch_market_data_for_request(req_b, store_data, adapter=mock_adapter)
-        assert snap_b_dict["request_token"] == "req-2"
+        assert snap_b_dict["request_token"] == req_b["token"]
 
         fig_b, status_b = generate_chart_and_status_from_snapshot(
             market_snapshot_data=snap_b_dict,
@@ -1383,7 +1387,7 @@ class TestHandoff014ControlledRequestFlowAndBoundaryRegressions:
         fetch_a_block.set()
         t.join(timeout=2.0)
         snap_a_dict = thread_a_res["snap"]
-        assert snap_a_dict["request_token"] == "req-1"
+        assert snap_a_dict["request_token"] == req_a["token"]
 
         # 5. Arriving delayed A is suppressed
         fig_a, status_a = generate_chart_and_status_from_snapshot(
@@ -1439,10 +1443,10 @@ class TestHandoff014ControlledRequestFlowAndBoundaryRegressions:
         with pytest.raises((ValueError, TypeError)):
             MarketDataSnapshot.from_dict(naive_dict)
 
-        # 2. Reject close_time earlier than open time
+        # 2. Reject close_time earlier than or equal to open time (R14.6)
         bad_close_dict = snap_valid.to_dict()
         bad_close_dict["candles_data"][0]["close_time"] = "2020-01-01T00:00:00+00:00"
-        with pytest.raises(ValueError, match="cannot be earlier than open time"):
+        with pytest.raises(ValueError, match="must be strictly later than open time"):
             MarketDataSnapshot.from_dict(bad_close_dict)
 
         # 3. Reject unsupported fetch_status vocabulary
@@ -1470,12 +1474,12 @@ class TestHandoff014ControlledRequestFlowAndBoundaryRegressions:
         with pytest.raises(ValueError, match="Successful snapshot must not have an error_message"):
             MarketDataSnapshot.from_dict(err_in_success_dict)
 
-        # 7. Reject non-monotonic source IDs (index)
-        non_mono_dict = snap_valid.to_dict()
-        for i, c in enumerate(non_mono_dict["candles_data"]):
-            c["index"] = 100 - i  # decreasing order!
-        with pytest.raises(ValueError, match="Candle source IDs must be strictly monotonically increasing"):
-            MarketDataSnapshot.from_dict(non_mono_dict)
+        # 7. Reject duplicate source IDs (R14.6: source IDs must be unique identifiers)
+        dup_id_dict = snap_valid.to_dict()
+        for c in dup_id_dict["candles_data"]:
+            c["index"] = 42  # duplicate!
+        with pytest.raises(ValueError, match="duplicate source IDs detected"):
+            MarketDataSnapshot.from_dict(dup_id_dict)
 
         # 8. Reject failed snapshot with leftover candles
         failed_with_candles = {
@@ -1530,5 +1534,215 @@ class TestHandoff014ControlledRequestFlowAndBoundaryRegressions:
         )
         assert fig is dash.no_update
         assert status is dash.no_update
+
+
+class TestHandoff015AcceptanceGateAndPublicationRegressions:
+    """Rigorous verification of R14.1–R14.6: Candidate acceptance gate, store preservation, and boundary contracts."""
+
+    def test_rapid_issuance_produces_distinct_tokens(self) -> None:
+        """Requirement R14.1: Rapid issuance produces distinct tokens even under rapid successive events."""
+        from aladeen.ui.market_coordinator import issue_market_data_request
+
+        tokens = []
+        cur_req = None
+        for i in range(10):
+            req = issue_market_data_request("demo", DEMO_SYMBOL, "H4", 100, current_active_req=cur_req)
+            tokens.append(req["token"])
+            cur_req = req
+
+        # All tokens must be strictly distinct
+        assert len(set(tokens)) == 10
+        # Monotonic counter must increase sequentially
+        assert cur_req["counter"] == 10
+
+    def test_acceptance_gate_candidate_a_blocked_b_completes_a_arrives_last(self) -> None:
+        """Requirements R14.2–R14.4: Candidate A arrives last; accepted store remains B; downstream MSM reads B.
+
+        1. A starts (H4).
+        2. B starts (D1) and completes; B is accepted.
+        3. A completes last and arrives at acceptance gate -> rejected.
+        4. User changes MSM controls -> callback reads B from accepted store, NOT A.
+        """
+        from aladeen.ui.market_coordinator import (
+            accept_market_data_candidate,
+            issue_market_data_request,
+            fetch_market_data_for_request,
+        )
+
+        mock_adapter = MagicMock()
+        mock_adapter.is_broker_connected.return_value = True
+        mock_adapter.get_connection_state.return_value = MT5ConnectionState.CONNECTED_TO_BROKER
+
+        h4_df = _make_contract_candles(15)
+        d1_df = _make_contract_candles(15)
+
+        def mock_fetch(sym, tf, count):
+            return h4_df if tf == "H4" else d1_df
+
+        mock_adapter.fetch_candles.side_effect = mock_fetch
+        store_data = {"state": "CONNECTED_TO_BROKER"}
+
+        # Step 1: Issue Request A (H4)
+        req_a = issue_market_data_request("mt5", "EURUSD", "H4", 15, store_data)
+
+        # Step 2: Issue Request B (D1)
+        req_b = issue_market_data_request("mt5", "EURUSD", "D1", 15, store_data, current_active_req=req_a)
+
+        # Candidate B fetch completes
+        cand_b_dict, cand_b_loss = fetch_market_data_for_request(req_b, store_data, adapter=mock_adapter)
+        # Acceptance gate for B
+        acc_b_dict, acc_b_loss = accept_market_data_candidate(cand_b_dict, cand_b_loss, active_req_data=req_b)
+        assert acc_b_dict is not dash.no_update
+        assert acc_b_dict["timeframe"] == "D1"
+        accepted_store = acc_b_dict  # Simulates market-data-store holding B
+
+        # Step 3: Candidate A completes LAST and arrives at acceptance gate
+        cand_a_dict, cand_a_loss = fetch_market_data_for_request(req_a, store_data, adapter=mock_adapter)
+        gate_a_result, gate_a_loss = accept_market_data_candidate(cand_a_dict, cand_a_loss, active_req_data=req_b)
+
+        # Acceptance gate REJECTS stale candidate A
+        assert gate_a_result is dash.no_update
+        assert gate_a_loss is dash.no_update
+
+        # Accepted store remains B!
+        assert accepted_store["timeframe"] == "D1"
+        assert accepted_store["request_token"] == req_b["token"]
+
+        # Step 4: User changes MSM controls and applies MSM -> reads accepted store B!
+        opts_b, _ = process_msm_dropdown_update(accepted_store, active_req_data=req_b, triggered_id="market-data-store")
+        assert len(opts_b) > 0
+
+        applied_out, status, _, panel = process_msm_controls_update(
+            triggered_id="msm-apply-btn",
+            enable_toggle_val=["enabled"],
+            direction_val="UPWARD",
+            start_candle_val=opts_b[0]["value"],
+            market_snapshot_data=accepted_store,  # reads accepted store
+            applied_data=None,
+            active_req_data=req_b,
+        )
+        assert applied_out is not None
+        assert applied_out["timeframe"] == "D1"
+        assert "TF: D1" in str(panel) or "Applied: UPWARD" in status
+
+    def test_acceptance_gate_stale_failure_cannot_disconnect_or_relabel_successful_b(self) -> None:
+        """Requirement R14.3: Stale failure cannot disconnect or relabel newer successful B."""
+        from aladeen.ui.market_coordinator import accept_market_data_candidate, issue_market_data_request
+
+        # Active request is B (EURUSD D1, token req-2)
+        req_b = {
+            "token": "req-2",
+            "counter": 2,
+            "context": {"data_source": "mt5", "symbol": "EURUSD", "timeframe": "D1"},
+        }
+
+        # Stale candidate A arrives with a terminal disconnection failure
+        stale_failed_candidate = {
+            "revision_id": "rev-stale",
+            "data_source": "mt5",
+            "symbol": "EURUSD",
+            "timeframe": "H4",
+            "candle_count": 0,
+            "timestamp_utc": "2026-10-01 00:00:00 UTC",
+            "fetch_status": "CONNECTION_ERROR",
+            "error_message": "MT5 Terminal Disconnected",
+            "broker_connected": False,
+            "request_token": "req-1",  # Stale token
+            "candles_data": [],
+        }
+        stale_loss_trigger = {"state_change": "DISCONNECTED", "error": "Connection lost"}
+
+        gate_res, gate_loss = accept_market_data_candidate(
+            candidate_data=stale_failed_candidate,
+            candidate_loss=stale_loss_trigger,
+            active_req_data=req_b,
+        )
+
+        # Both the snapshot and the loss trigger MUST BE REJECTED with dash.no_update!
+        assert gate_res is dash.no_update
+        assert gate_loss is dash.no_update
+
+    def test_snapshot_close_time_strictly_later_than_open_time(self) -> None:
+        """Requirement R14.6: close_time must be strictly later than open time (equal is rejected)."""
+        # Case 1: close_time == open_time (equal)
+        with pytest.raises(ValueError, match="must be strictly later than open time"):
+            MarketCandleRecord(
+                time="2026-10-01T00:00:00+00:00",
+                open=1.100,
+                high=1.105,
+                low=1.095,
+                close=1.102,
+                is_forming=False,
+                bar_status="CONFIRMED_COMPLETED",
+                close_time="2026-10-01T00:00:00+00:00",  # EQUAL to time!
+            )
+
+        # Case 2: close_time > open_time (strictly later) -> ACCEPTED
+        rec = MarketCandleRecord(
+            time="2026-10-01T00:00:00+00:00",
+            open=1.100,
+            high=1.105,
+            low=1.095,
+            close=1.102,
+            is_forming=False,
+            bar_status="CONFIRMED_COMPLETED",
+            close_time="2026-10-01T04:00:00+00:00",  # strictly later
+        )
+        assert rec.close_time == "2026-10-01T04:00:00+00:00"
+
+    def test_source_id_uniqueness_without_monotonicity_requirement(self) -> None:
+        """Requirement R14.6: Source IDs must be unique without requiring monotonic increase."""
+        # Non-monotonic but unique indices [10, 5, 20, 1]
+        candles = [
+            MarketCandleRecord(
+                time=f"2026-10-01T0{i}:00:00+00:00",
+                open=1.100,
+                high=1.105,
+                low=1.095,
+                close=1.102,
+                is_forming=False,
+                bar_status="CONFIRMED_COMPLETED",
+                index=idx,
+            )
+            for i, idx in enumerate([10, 5, 20, 1])
+        ]
+        # Should NOT raise: indices are unique!
+        snap = MarketDataSnapshot(
+            revision_id="rev-unique",
+            data_source="demo",
+            symbol="EURUSD",
+            timeframe="H4",
+            candle_count=4,
+            timestamp_utc="2026-10-01 04:00:00 UTC",
+            fetch_status="SUCCESS",
+            candles_data=tuple(candles),
+        )
+        assert snap.candle_count == 4
+
+        # Duplicate indices [10, 5, 10, 1] -> MUST RAISE
+        dup_candles = [
+            MarketCandleRecord(
+                time=f"2026-10-01T0{i}:00:00+00:00",
+                open=1.100,
+                high=1.105,
+                low=1.095,
+                close=1.102,
+                is_forming=False,
+                bar_status="CONFIRMED_COMPLETED",
+                index=idx,
+            )
+            for i, idx in enumerate([10, 5, 10, 1])
+        ]
+        with pytest.raises(ValueError, match="duplicate source IDs detected"):
+            MarketDataSnapshot(
+                revision_id="rev-dup",
+                data_source="demo",
+                symbol="EURUSD",
+                timeframe="H4",
+                candle_count=4,
+                timestamp_utc="2026-10-01 04:00:00 UTC",
+                fetch_status="SUCCESS",
+                candles_data=tuple(dup_candles),
+            )
 
 

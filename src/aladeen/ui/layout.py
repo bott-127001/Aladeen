@@ -427,6 +427,14 @@ def build_layout() -> html.Div:
                 data={"state": "DISCONNECTED", "symbols": []},
             ),
             dcc.Store(
+                id="candidate-market-data-store",
+                data=None,
+            ),
+            dcc.Store(
+                id="candidate-loss-trigger",
+                data=None,
+            ),
+            dcc.Store(
                 id="connection-loss-trigger",
                 data=None,
             ),
@@ -804,8 +812,8 @@ def register_callbacks(app: Dash, adapter: Any = None) -> tuple[Any, Any]:
             res["alert_style"],
         )
 
-    # Register market data coordinator callbacks (request issuance, fetch coordinator, chart renderer) (R13.1)
-    on_request_issued, on_active_request_fetch, render_chart_from_snapshot = register_market_coordinator_callbacks(app, adapter=adapter)
+    # Register market data coordinator callbacks (request issuance, fetch coordinator, acceptance gate, chart renderer) (R14.1-R14.4)
+    on_request_issued, on_active_request_fetch, accept_candidate, render_chart_from_snapshot = register_market_coordinator_callbacks(app, adapter=adapter)
 
     def update_chart(
         data_source: str = "demo",
@@ -816,25 +824,29 @@ def register_callbacks(app: Dash, adapter: Any = None) -> tuple[Any, Any]:
         store_data: dict | None = None,
         msm_applied: dict | None = None,
     ) -> tuple[go.Figure, str, Any]:
-        """Compatibility wrapper invoking request issuance, fetch, and rendering."""
+        """Compatibility wrapper invoking request issuance, fetch, candidate acceptance, and rendering."""
         req = on_request_issued(
             data_source=data_source,
             symbol=symbol,
             timeframe=timeframe,
             candle_count=candle_count,
-            _n_clicks=_n_clicks,
             store_data=store_data,
         )
-        snap_dict, trigger = on_active_request_fetch(
+        cand_snap, cand_loss = on_active_request_fetch(
             active_req_data=req,
             store_data=store_data,
         )
+        acc_snap, acc_loss = accept_candidate(
+            candidate_data=cand_snap,
+            candidate_loss=cand_loss,
+            active_req_data=req,
+        )
         fig, status = render_chart_from_snapshot(
-            market_snapshot_data=snap_dict,
+            market_snapshot_data=acc_snap,
             active_req_data=req,
             msm_applied=msm_applied,
         )
-        return fig, status, trigger
+        return fig, status, acc_loss
 
     # Register MSM callbacks from focused module
     register_msm_callbacks(app, adapter=adapter)

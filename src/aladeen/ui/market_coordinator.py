@@ -1,15 +1,17 @@
 """Market Data Fetch and Layout Coordination Module.
 
 Houses the single fetch coordinator, active request-generation tracking,
-and chart rendering callbacks separated cleanly from layout definition.
-Implements separated request issuance, fetch coordination, and publication guards (R13.1).
+candidate acceptance gate, and chart rendering callbacks separated cleanly from layout definition.
+Implements separated browser-side request issuance, candidate gating, and publication guards (R13.1, R14.1-R14.4).
 """
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
 import logging
+import time
 from typing import Any, Dict, Optional, Tuple
+import uuid
 import dash
 from dash import Dash, Input, Output, State, callback_context
 import plotly.graph_objects as go
@@ -23,6 +25,58 @@ from aladeen.strategy.service import MSMContext, calculate_msm, is_context_compa
 from aladeen.ui.chart import create_candlestick_chart, create_empty_chart
 
 
+CLIENTSIDE_REQUEST_ISSUANCE_JS = """
+function(dataSource, symbol, timeframe, candleCount, nClicks, storeData, activeReq) {
+    var prevCounter = (activeReq && activeReq.counter) ? activeReq.counter : 0;
+    var newCounter = prevCounter + 1;
+    var rand = Math.random().toString(36).substring(2, 9);
+    var token = "req-" + Date.now() + "-" + rand + "-" + newCounter;
+    var activeSym = symbol;
+    if (!activeSym && dataSource === "demo") {
+        activeSym = "DEMO_XAUUSD";
+    }
+    return {
+        "token": token,
+        "counter": newCounter,
+        "context": {
+            "data_source": dataSource || "demo",
+            "symbol": activeSym || "",
+            "timeframe": timeframe || "H4",
+            "candle_count": candleCount || 100
+        },
+        "status": "pending",
+        "issued_at": new Date().toISOString()
+    };
+}
+"""
+
+CLIENTSIDE_ACCEPTANCE_GATE_JS = """
+function(candidateData, candidateLoss, activeReq) {
+    if (!candidateData || !activeReq) {
+        return [window.dash_clientside.no_update, window.dash_clientside.no_update];
+    }
+    var activeToken = activeReq.token;
+    var activeCtx = activeReq.context || {};
+    var candToken = candidateData.request_token;
+
+    // Strict token check
+    if (!candToken || candToken !== activeToken) {
+        return [window.dash_clientside.no_update, window.dash_clientside.no_update];
+    }
+
+    // Strict context check
+    if ((activeCtx.data_source && candidateData.data_source !== activeCtx.data_source) ||
+        (activeCtx.symbol && candidateData.symbol !== activeCtx.symbol) ||
+        (activeCtx.timeframe && candidateData.timeframe !== activeCtx.timeframe)) {
+        return [window.dash_clientside.no_update, window.dash_clientside.no_update];
+    }
+
+    var lossOut = (candidateLoss !== null && candidateLoss !== undefined) ? candidateLoss : window.dash_clientside.no_update;
+    return [candidateData, lossOut];
+}
+"""
+
+
 def issue_market_data_request(
     data_source: str,
     symbol: str | None,
@@ -31,14 +85,15 @@ def issue_market_data_request(
     store_data: dict | None = None,
     current_active_req: dict | None = None,
 ) -> dict:
-    """Issue a unique market data request identity and context prior to fetching (R13.1).
+    """Issue a unique market data request identity and context prior to fetching (R13.1, R14.1).
 
-    Publishes a monotonic request token ('req-1', 'req-2', ...) and exact requested context.
+    Generates a guaranteed unique token combining high-resolution timestamp and random hex.
     Does NOT perform fetching.
     """
     prev_counter = current_active_req.get("counter", 0) if current_active_req else 0
     new_counter = prev_counter + 1
-    new_token = f"req-{new_counter}"
+    rand_id = uuid.uuid4().hex[:8]
+    new_token = f"req-{time.time_ns()}-{rand_id}-{new_counter}"
     active_sym = symbol or (DEMO_SYMBOL if data_source == "demo" else "")
     return {
         "token": new_token,
@@ -59,9 +114,9 @@ def fetch_market_data_for_request(
     store_data: dict | None = None,
     adapter: Any = None,
 ) -> tuple[dict, Any]:
-    """Execute market data fetch for an issued request (R13.1).
+    """Execute market data fetch for an issued request (R13.1, R14.2).
 
-    A fetch response NEVER writes to active-request-store.
+    A fetch response writes to candidate stores and NEVER writes to active-request-store or market-data-store.
     """
     if not active_req_data:
         return dash.no_update, dash.no_update
@@ -90,6 +145,55 @@ def fetch_market_data_for_request(
     )
     trigger_output = loss_trigger if loss_trigger is not None else dash.no_update
     return snapshot.to_dict(), trigger_output
+
+
+def accept_market_data_candidate(
+    candidate_data: dict | None,
+    candidate_loss: Any = None,
+    active_req_data: dict | None = None,
+) -> tuple[Any, Any]:
+    """Acceptance gate: validates candidate token and context against active request (R14.3).
+
+    - If candidate token matches active request token: ACCEPT and publish to market-data-store.
+    - If candidate token is stale or does not match: REJECT and return dash.no_update!
+      The accepted market-data-store and connection-loss-trigger are untouched.
+    """
+    if candidate_data is None:
+        return dash.no_update, dash.no_update
+
+    if not active_req_data:
+        logger.warning("Acceptance gate: No active request store, rejecting candidate")
+        return dash.no_update, dash.no_update
+
+    active_token = active_req_data.get("token")
+    active_ctx = active_req_data.get("context", {})
+
+    cand_token = candidate_data.get("request_token")
+    cand_src = candidate_data.get("data_source")
+    cand_sym = candidate_data.get("symbol")
+    cand_tf = candidate_data.get("timeframe")
+
+    # Strict token matching
+    if not cand_token or cand_token != active_token:
+        logger.warning(
+            f"Acceptance gate REJECTED stale candidate: token '{cand_token}' != active '{active_token}'"
+        )
+        return dash.no_update, dash.no_update
+
+    # Context matching
+    if (
+        (active_ctx.get("data_source") and cand_src != active_ctx.get("data_source"))
+        or (active_ctx.get("symbol") and cand_sym != active_ctx.get("symbol"))
+        or (active_ctx.get("timeframe") and cand_tf != active_ctx.get("timeframe"))
+    ):
+        logger.warning(
+            f"Acceptance gate REJECTED mismatched context candidate: ({cand_sym} {cand_tf}) != active ({active_ctx.get('symbol')} {active_ctx.get('timeframe')})"
+        )
+        return dash.no_update, dash.no_update
+
+    logger.info(f"Acceptance gate ACCEPTED candidate for token '{cand_token}' ({cand_sym} {cand_tf})")
+    loss_out = candidate_loss if candidate_loss is not None else dash.no_update
+    return candidate_data, loss_out
 
 
 def _get_triggered_id() -> str:
@@ -268,44 +372,29 @@ def generate_chart_and_status_from_snapshot(
     return fig, status
 
 
-def register_market_coordinator_callbacks(app: Dash, adapter: Any = None) -> tuple[Any, Any, Any]:
-    """Register market data request issuance, fetch coordinator, and chart rendering callbacks (R13.1)."""
+def register_market_coordinator_callbacks(app: Dash, adapter: Any = None) -> tuple[Any, Any, Any, Any]:
+    """Register market data request issuance, fetch coordinator, acceptance gate, and chart rendering callbacks (R14.1-R14.4)."""
     if adapter is None:
         adapter = get_mt5_adapter()
 
-    # Callback 2a: Request Issuance (Monotonic token generation before fetching) (R13.1)
-    @app.callback(
-        Output("active-request-store", "data"),
-        Input("data-source-selector", "value"),
-        Input("symbol-selector", "value"),
-        Input("timeframe-selector", "value"),
-        Input("candle-count-selector", "value"),
-        Input("refresh-btn", "n_clicks"),
-        Input("mt5-connection-store", "data"),
-        State("active-request-store", "data"),
-    )
-    def on_request_issued(
-        data_source: str,
-        symbol: str | None,
-        timeframe: str,
-        candle_count: int,
-        _n_clicks: int,
-        store_data: dict | None,
-        current_active_req: dict | None = None,
-    ) -> dict:
-        return issue_market_data_request(
-            data_source=data_source,
-            symbol=symbol,
-            timeframe=timeframe,
-            candle_count=candle_count,
-            store_data=store_data,
-            current_active_req=current_active_req,
+    # Callback 2a: Request Issuance (Synchronous browser-side token generation, R14.1)
+    if hasattr(app, "clientside_callback"):
+        app.clientside_callback(
+            CLIENTSIDE_REQUEST_ISSUANCE_JS,
+            Output("active-request-store", "data"),
+            Input("data-source-selector", "value"),
+            Input("symbol-selector", "value"),
+            Input("timeframe-selector", "value"),
+            Input("candle-count-selector", "value"),
+            Input("refresh-btn", "n_clicks"),
+            Input("mt5-connection-store", "data"),
+            State("active-request-store", "data"),
         )
 
-    # Callback 2b: Market Data Fetch (Executes from issued active request, NEVER writes active-request-store) (R13.1)
+    # Callback 2b: Market Data Fetch -> Candidate Stores (R14.2)
     @app.callback(
-        Output("market-data-store", "data"),
-        Output("connection-loss-trigger", "data"),
+        Output("candidate-market-data-store", "data"),
+        Output("candidate-loss-trigger", "data"),
         Input("active-request-store", "data"),
         State("mt5-connection-store", "data"),
     )
@@ -319,7 +408,18 @@ def register_market_coordinator_callbacks(app: Dash, adapter: Any = None) -> tup
             adapter=adapter,
         )
 
-    # Callback 2c: Main Chart & Status Area Renderer (Observes active-request-store as Input) (R13.1)
+    # Callback 2c: Acceptance Gate (Synchronous browser-side gating, R14.3)
+    if hasattr(app, "clientside_callback"):
+        app.clientside_callback(
+            CLIENTSIDE_ACCEPTANCE_GATE_JS,
+            Output("market-data-store", "data"),
+            Output("connection-loss-trigger", "data"),
+            Input("candidate-market-data-store", "data"),
+            Input("candidate-loss-trigger", "data"),
+            State("active-request-store", "data"),
+        )
+
+    # Callback 2d: Main Chart & Status Area Renderer (Observes accepted market-data-store as Input)
     @app.callback(
         Output("main-chart", "figure"),
         Output("status-area", "children"),
@@ -340,4 +440,4 @@ def register_market_coordinator_callbacks(app: Dash, adapter: Any = None) -> tup
             triggered_id=triggered_id,
         )
 
-    return on_request_issued, on_active_request_fetch, render_chart_from_snapshot
+    return issue_market_data_request, on_active_request_fetch, accept_market_data_candidate, render_chart_from_snapshot
