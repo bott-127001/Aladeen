@@ -2,7 +2,7 @@
 
 Scope Boundary:
 ---------------
-Read-only deterministic market structure calculation engine.
+Read-only deterministic market structure calculation engine and application service.
 No MT5 connectivity, no Plotly/Dash UI, no CHOCH, no signals, no order execution.
 """
 
@@ -22,9 +22,12 @@ from .engine import MSMEngine
 from .service import (
     MSMContext,
     MSMServiceResult,
+    SUPPORTED_RULE_VERSIONS,
     adapt_chart_dataframe,
     calculate_msm,
+    is_candle_completed,
     is_context_compatible,
+    validate_candle_completion,
 )
 
 __all__ = [
@@ -42,7 +45,10 @@ __all__ = [
     "MSMEngine",
     "MSMContext",
     "MSMServiceResult",
+    "SUPPORTED_RULE_VERSIONS",
     "adapt_chart_dataframe",
     "calculate_msm",
+    "is_candle_completed",
     "is_context_compatible",
+    "validate_candle_completion",
 ]

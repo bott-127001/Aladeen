@@ -2,8 +2,9 @@
 
 Builds a Plotly candlestick figure from an OHLC DataFrame and optionally
 renders Market Structure Marking (MSM) overlays:
-- Confirmed Swing Highs (triangle-up, pair label, provenance tooltip)
-- Confirmed Swing Lows (triangle-down, pair label, provenance tooltip)
+- Confirmed Swing Highs (triangle-up, exact pair label H1..Hn, provenance tooltip)
+- Confirmed Swing Lows (triangle-down, exact pair label L1..Ln, provenance tooltip)
+- Last Structural Support / Resistance (explicit indicators & horizontal guidelines)
 - Tentative Swing Level (diamond-open, horizontal threshold guideline)
 - Market Structure Path (interconnecting confirmed swing points)
 - Starting candle annotation
@@ -34,7 +35,7 @@ def create_candlestick_chart(
     ----------
     df : pd.DataFrame
         DataFrame with a DatetimeIndex and columns ``open``, ``high``,
-        ``low``, ``close``, and optional ``is_forming``.
+        ``low``, ``close``, ``is_forming``, ``bar_status``.
     symbol : str
         Instrument name shown in the chart title.
     timeframe : str
@@ -117,7 +118,7 @@ def create_candlestick_chart(
         )
 
     # -----------------------------------------------------------------------
-    # MSM Overlays (Confirmed Highs/Lows, Tentative Level, Structure Lines)
+    # MSM Overlays (Confirmed Highs/Lows, Last Support/Resistance, Tentative)
     # -----------------------------------------------------------------------
     if msm_result is not None:
         if getattr(msm_result, "error", None):
@@ -151,18 +152,18 @@ def create_candlestick_chart(
                     )
                 )
 
-            # 2. Confirmed Highs
+            # 2. Confirmed Highs (R10.3: direct pair_index)
             if pairs:
                 x_highs = [p.high.candle_open_time for p in pairs]
                 y_highs = [p.high.price for p in pairs]
-                text_highs = [f"H{p.pair_index + 1}" for p in pairs]
+                text_highs = [f"H{p.pair_index}" for p in pairs]
                 hover_highs = []
                 for p in pairs:
                     h = p.high
                     id_time_str = h.identified_time.strftime("%Y-%m-%d %H:%M UTC") if h.identified_time else "Unknown"
                     conf_time_str = h.confirmed_time.strftime("%Y-%m-%d %H:%M UTC") if h.confirmed_time else "Unknown"
                     hover_highs.append(
-                        f"<b>Confirmed Swing High (Pair #{p.pair_index + 1})</b><br>"
+                        f"<b>Confirmed Swing High (Pair #{p.pair_index})</b><br>"
                         f"Price: {h.price:.4f}<br>"
                         f"Source Candle: {h.candle_open_time.strftime('%Y-%m-%d %H:%M UTC')} (Index: {h.candle_index})<br>"
                         f"Identified: {id_time_str} (Bar: {h.identified_bar_index})<br>"
@@ -185,17 +186,17 @@ def create_candlestick_chart(
                     )
                 )
 
-                # 3. Confirmed Lows
+                # 3. Confirmed Lows (R10.3: direct pair_index)
                 x_lows = [p.low.candle_open_time for p in pairs]
                 y_lows = [p.low.price for p in pairs]
-                text_lows = [f"L{p.pair_index + 1}" for p in pairs]
+                text_lows = [f"L{p.pair_index}" for p in pairs]
                 hover_lows = []
                 for p in pairs:
                     low = p.low
                     id_time_str = low.identified_time.strftime("%Y-%m-%d %H:%M UTC") if low.identified_time else "Unknown"
                     conf_time_str = low.confirmed_time.strftime("%Y-%m-%d %H:%M UTC") if low.confirmed_time else "Unknown"
                     hover_lows.append(
-                        f"<b>Confirmed Swing Low (Pair #{p.pair_index + 1})</b><br>"
+                        f"<b>Confirmed Swing Low (Pair #{p.pair_index})</b><br>"
                         f"Price: {low.price:.4f}<br>"
                         f"Source Candle: {low.candle_open_time.strftime('%Y-%m-%d %H:%M UTC')} (Index: {low.candle_index})<br>"
                         f"Identified: {id_time_str} (Bar: {low.identified_bar_index})<br>"
@@ -232,7 +233,83 @@ def create_candlestick_chart(
                     )
                 )
 
-            # 5. Tentative Level
+            last_chart_time = df.index[-1]
+
+            # 5. Last Support indicator (R10.4)
+            if snapshot.last_support is not None:
+                supp = snapshot.last_support
+                id_supp_str = supp.identified_time.strftime("%Y-%m-%d %H:%M UTC") if supp.identified_time else "Unknown"
+                conf_supp_str = supp.confirmed_time.strftime("%Y-%m-%d %H:%M UTC") if supp.confirmed_time else "Unknown"
+                supp_hover = (
+                    f"<b>Last Structural Support</b><br>"
+                    f"Price: {supp.price:.4f}<br>"
+                    f"Source Candle: {supp.candle_open_time.strftime('%Y-%m-%d %H:%M UTC')} (Index: {supp.candle_index})<br>"
+                    f"Identified: {id_supp_str} (Bar #{supp.identified_bar_index})<br>"
+                    f"Confirmed: {conf_supp_str} (Bar #{supp.confirmed_bar_index})"
+                )
+                fig.add_trace(
+                    go.Scatter(
+                        x=[supp.candle_open_time],
+                        y=[supp.price],
+                        mode="markers+text",
+                        name="Last Support",
+                        marker=dict(symbol="line-ew", size=14, color="#76ff03", line=dict(width=2, color="#76ff03")),
+                        text=[f"Last Support ({supp.price:.2f})"],
+                        textposition="bottom right",
+                        textfont=dict(color="#76ff03", size=10),
+                        hovertext=[supp_hover],
+                        hoverinfo="text",
+                    )
+                )
+                shapes.append(
+                    dict(
+                        type="line",
+                        x0=supp.candle_open_time,
+                        y0=supp.price,
+                        x1=last_chart_time,
+                        y1=supp.price,
+                        line=dict(color="#76ff03", width=1.5, dash="dash"),
+                    )
+                )
+
+            # 6. Last Resistance indicator (R10.4)
+            if snapshot.last_resistance is not None:
+                res = snapshot.last_resistance
+                id_res_str = res.identified_time.strftime("%Y-%m-%d %H:%M UTC") if res.identified_time else "Unknown"
+                conf_res_str = res.confirmed_time.strftime("%Y-%m-%d %H:%M UTC") if res.confirmed_time else "Unknown"
+                res_hover = (
+                    f"<b>Last Structural Resistance</b><br>"
+                    f"Price: {res.price:.4f}<br>"
+                    f"Source Candle: {res.candle_open_time.strftime('%Y-%m-%d %H:%M UTC')} (Index: {res.candle_index})<br>"
+                    f"Identified: {id_res_str} (Bar #{res.identified_bar_index})<br>"
+                    f"Confirmed: {conf_res_str} (Bar #{res.confirmed_bar_index})"
+                )
+                fig.add_trace(
+                    go.Scatter(
+                        x=[res.candle_open_time],
+                        y=[res.price],
+                        mode="markers+text",
+                        name="Last Resistance",
+                        marker=dict(symbol="line-ew", size=14, color="#ff1744", line=dict(width=2, color="#ff1744")),
+                        text=[f"Last Resistance ({res.price:.2f})"],
+                        textposition="top right",
+                        textfont=dict(color="#ff1744", size=10),
+                        hovertext=[res_hover],
+                        hoverinfo="text",
+                    )
+                )
+                shapes.append(
+                    dict(
+                        type="line",
+                        x0=res.candle_open_time,
+                        y0=res.price,
+                        x1=last_chart_time,
+                        y1=res.price,
+                        line=dict(color="#ff1744", width=1.5, dash="dash"),
+                    )
+                )
+
+            # 7. Tentative Level
             if snapshot.tentative_point is not None:
                 tent = snapshot.tentative_point
                 id_time_str = tent.identified_time.strftime("%Y-%m-%d %H:%M UTC") if tent.identified_time else "Unknown"
@@ -258,8 +335,6 @@ def create_candlestick_chart(
                     )
                 )
 
-                # Horizontal line for break threshold
-                last_chart_time = df.index[-1]
                 shapes.append(
                     dict(
                         type="line",
