@@ -315,8 +315,9 @@ class TestISSEngineAPIAndSafety:
         # Sequential
         eng_seq = ISSEngine(ISSConfig(main_direction=Direction.DOWNWARD, start_candle_time=start_time))
         snap_seq = None
-        for c in candles:
-            snap_seq = eng_seq.process_candle(c)
+        for idx, c in enumerate(candles):
+            c_with_idx = dict(c, index=idx)
+            snap_seq = eng_seq.process_candle(c_with_idx)
 
         # Replay
         eng_replay = ISSEngine(ISSConfig(main_direction=Direction.DOWNWARD, start_candle_time=start_time))
@@ -342,7 +343,7 @@ class TestISSEngineAPIAndSafety:
         engine = ISSEngine(ISSConfig(main_direction=Direction.DOWNWARD, start_candle_time=start_time))
         snap_settled = engine.process_candles(fix["candles"][:15])
 
-        forming_candle = dict(fix["candles"][15])
+        forming_candle = dict(fix["candles"][15], index=15)
         forming_candle["is_forming"] = True
         forming_candle["bar_status"] = "FORMING"
 
@@ -359,12 +360,22 @@ class TestISSEngineAPIAndSafety:
         snap_initial = engine.process_candles(fix["candles"][:15])
 
         # Backward timestamp candle
-        bad_candle = dict(fix["candles"][14])
+        bad_candle = dict(fix["candles"][14], index=16)
         with pytest.raises(ValueError):
             engine.process_candle(bad_candle)
 
         # State remains unchanged
         assert engine.get_snapshot().last_processed_index == snap_initial.last_processed_index
+
+    def test_missing_incremental_dict_index_rejected(self, iss_fixtures) -> None:
+        """Incremental dictionary input without an explicit integer 'index' raises ValueError."""
+        fix = iss_fixtures["iss_01_bearish_basic_end_to_end"]
+        start_time = datetime.fromisoformat(fix["candles"][0]["time"])
+        engine = ISSEngine(ISSConfig(main_direction=Direction.DOWNWARD, start_candle_time=start_time))
+
+        c = dict(fix["candles"][0])  # no 'index' key
+        with pytest.raises(ValueError, match="Incremental candle dictionary must explicitly provide an integer 'index'"):
+            engine.process_candle(c)
 
     def test_unresolved_main_path_halts_progression(self, iss_fixtures) -> None:
         """Simulates an unresolved main state (c1 == p2) and verifies ISS pauses safely."""
@@ -378,6 +389,202 @@ class TestISSEngineAPIAndSafety:
         engine._is_unresolved = True
         engine._unresolved_dependency = "MAIN_CHOCH_IDENTIFICATION_CLOSE_AMBIGUITY"
 
-        snap = engine.process_candle(fix["candles"][10])
+        snap = engine.process_candle(dict(fix["candles"][10], index=10))
         assert snap.is_unresolved is True
         assert snap.unresolved_dependency == "MAIN_CHOCH_IDENTIFICATION_CLOSE_AMBIGUITY"
+
+    def test_near_boundary_unequal_prices_below_six_decimals(self, iss_fixtures) -> None:
+        """Near-boundary unequal prices below 6 decimals are strictly evaluated without rounding."""
+        b = FrozenBoundary(
+            min_price=1.1400000000,
+            max_price=1.2000000000,
+            main_level_2_price=1.20,
+            main_level_3_price=1.14,
+            frozen_at_candle_index=9,
+        )
+        assert b.contains_price(1.2000000001) is False
+        assert b.contains_price(1.2000000000) is True
+        assert b.contains_price(1.1999999999) is True
+        assert b.contains_price(1.1400000000) is True
+        assert b.contains_price(1.1399999999) is False
+
+        # In ISSEngine: point exceeding boundary by 1e-9 must reject
+        fix = iss_fixtures["iss_01_bearish_basic_end_to_end"]
+        start_time = datetime.fromisoformat(fix["candles"][0]["time"])
+        engine = ISSEngine(ISSConfig(main_direction=Direction.DOWNWARD, start_candle_time=start_time))
+        candles = [dict(c, index=i) for i, c in enumerate(fix["candles"])]
+        # Candle 18 tentative high price set to 1.2000000001 (strictly outside 1.2000000000)
+        candles[18]["open"] = 1.2000000001
+        candles[18]["close"] = 1.1950000000
+        candles[18]["high"] = 1.2010000000
+
+        snap = engine.process_candles(candles)
+        assert snap.lifecycle_status == ISSLifecycleStatus.OUT_OF_BOUNDS_REJECTED
+
+    def test_unknown_capture_availability_remains_none(self, iss_fixtures) -> None:
+        """When candle close times are unknown (None), availability timestamps remain None."""
+        fix = iss_fixtures["iss_01_bearish_basic_end_to_end"]
+        start_time = datetime.fromisoformat(fix["candles"][0]["time"])
+        engine = ISSEngine(ISSConfig(main_direction=Direction.DOWNWARD, start_candle_time=start_time))
+        candles = [dict(c, index=i, close_time=None) for i, c in enumerate(fix["candles"])]
+
+        snap = engine.process_candles(candles)
+        assert snap.lifecycle_status == ISSLifecycleStatus.CONFIRMED
+        assert snap.captured_boundary.frozen_at_time is None
+        assert snap.candidate_identity.frozen_at_time is None
+        assert snap.confirmed_events[0].confirmation_time is None
+        assert snap.active_zones[0].confirmation_availability_time is None
+        assert snap.active_zones[1].confirmation_availability_time is None
+
+    def test_delayed_pullback_enforcement_with_unknown_close_times_and_decreasing_ids(self, iss_fixtures) -> None:
+        """Delayed pullback enforcement via strictly_after_candle_time works with None close_time and decreasing IDs."""
+        fix = iss_fixtures["iss_01_bearish_basic_end_to_end"]
+        start_time = datetime.fromisoformat(fix["candles"][0]["time"])
+        engine = ISSEngine(ISSConfig(main_direction=Direction.DOWNWARD, start_candle_time=start_time))
+        candles = [dict(c, index=2000 - i, close_time=None) for i, c in enumerate(fix["candles"])]
+
+        snap = engine.process_candles(candles)
+        assert snap.lifecycle_status == ISSLifecycleStatus.CONFIRMED
+        p1 = snap.internal_points[0]
+        # Decreasing ID: bar 10 has index 2000 - 10 = 1990
+        assert p1.source_candle_index == 1990
+        # Bar 12 has index 2000 - 12 = 1988
+        assert p1.identified_bar_index == 1988
+
+    def test_internal_or_zone_construction_failure_preserves_entire_prior_state(self, iss_fixtures, monkeypatch) -> None:
+        """Simulated zone construction exception leaves entire engine state completely unmutated."""
+        fix = iss_fixtures["iss_01_bearish_basic_end_to_end"]
+        start_time = datetime.fromisoformat(fix["candles"][0]["time"])
+        engine = ISSEngine(ISSConfig(main_direction=Direction.DOWNWARD, start_candle_time=start_time))
+        candles = [dict(c, index=i) for i, c in enumerate(fix["candles"])]
+
+        # Process up to bar 19
+        engine.process_candles(candles[:20])
+        snap_prior = engine.get_snapshot()
+        assert snap_prior.last_processed_index == 19
+        assert snap_prior.lifecycle_status == ISSLifecycleStatus.ELIGIBLE_SEARCH
+        assert len(snap_prior.confirmed_events) == 0
+
+        # Monkeypatch ISSZone.from_candle to simulate failure during confirmation
+        def fail_zone(*args, **kwargs):
+            raise RuntimeError("Simulated unexpected zone construction failure")
+
+        monkeypatch.setattr(ISSZone, "from_candle", fail_zone)
+
+        # Ingest bar 20: must raise RuntimeError and leave state unmutated
+        with pytest.raises(RuntimeError, match="Simulated unexpected zone construction failure"):
+            engine.process_candle(candles[20])
+
+        # Prior state completely intact
+        snap_after = engine.get_snapshot()
+        assert snap_after.last_processed_index == 19
+        assert snap_after.lifecycle_status == ISSLifecycleStatus.ELIGIBLE_SEARCH
+        assert len(snap_after.confirmed_events) == 0
+        assert len(engine._completed_candles) == 20
+
+    def test_valid_retry_after_rejected_transition(self, iss_fixtures) -> None:
+        """Following a rejected candle, a valid retry is processed successfully."""
+        fix = iss_fixtures["iss_01_bearish_basic_end_to_end"]
+        start_time = datetime.fromisoformat(fix["candles"][0]["time"])
+        engine = ISSEngine(ISSConfig(main_direction=Direction.DOWNWARD, start_candle_time=start_time))
+        candles = [dict(c, index=i) for i, c in enumerate(fix["candles"])]
+
+        engine.process_candles(candles[:20])
+
+        # Bad candle (duplicate index)
+        with pytest.raises(ValueError):
+            engine.process_candle(candles[19])
+
+        # Valid retry with candle 20 succeeds
+        snap = engine.process_candle(candles[20])
+        assert snap.lifecycle_status == ISSLifecycleStatus.CONFIRMED
+        assert snap.last_processed_index == 20
+        assert len(snap.confirmed_events) == 1
+
+    def test_main_choch_followed_by_new_direction_iss_candidate(self) -> None:
+        """Main CHOCH switches authoritative direction, opening a fresh candidate in the new direction."""
+        path = Path(__file__).parent / "fixtures" / "choch_acceptance.json"
+        with open(path, "r", encoding="utf-8") as f:
+            choch_fix = json.load(f)["fixtures"]["choch_bearish_basic_end_to_end"]
+
+        candles = [
+            StrategyCandle(
+                index=i,
+                open_time=datetime.fromisoformat(c["time"]),
+                open=c["open"],
+                high=c["high"],
+                low=c["low"],
+                close=c["close"],
+                is_forming=c["is_forming"],
+                bar_status=c["bar_status"],
+                close_time=datetime.fromisoformat(c["close_time"]) if c.get("close_time") else None,
+            )
+            for i, c in enumerate(choch_fix["candles"])
+        ]
+
+        last_t = candles[-1].open_time
+
+        # Post-CHOCH Downward Main continuation and pullback bars:
+        # Bar 10 & 11: 2 green candles -> Pullback 1 in Downward Main
+        c10 = StrategyCandle(10, last_t + timedelta(hours=1), 1.005, 1.015, 1.004, 1.012, False, "CONFIRMED_COMPLETED")
+        c11 = StrategyCandle(11, last_t + timedelta(hours=2), 1.012, 1.026, 1.010, 1.025, False, "CONFIRMED_COMPLETED")
+        # Bar 12: red break candle, closing below Bar 9 low -> confirms Level 2 high at Bar 11
+        c12 = StrategyCandle(12, last_t + timedelta(hours=3), 1.020, 1.022, 0.989, 0.990, False, "CONFIRMED_COMPLETED")
+        # Bar 13 & 14: Pullback 2 in Downward Main -> identifies Level 3 tentative low at Bar 12
+        c13 = StrategyCandle(13, last_t + timedelta(hours=4), 0.990, 0.998, 0.988, 0.995, False, "CONFIRMED_COMPLETED")
+        c14 = StrategyCandle(14, last_t + timedelta(hours=5), 0.995, 1.008, 0.994, 1.005, False, "CONFIRMED_COMPLETED")
+
+        all_candles = candles + [c10, c11, c12, c13, c14]
+
+        start_time = candles[0].open_time
+        # Initialized with UPWARD
+        engine = ISSEngine(ISSConfig(main_direction=Direction.UPWARD, start_candle_time=start_time))
+        snap = engine.process_candles(all_candles)
+
+        # Authoritative direction must now be DOWNWARD
+        assert engine.direction == Direction.DOWNWARD
+        assert len(engine._main_coordinator.confirmed_choch_events) == 1
+
+        # Candidate identity must use the new authoritative direction
+        cand = snap.candidate_identity
+        assert cand is not None
+        assert cand.main_direction == Direction.DOWNWARD
+        assert "iss_cand_downward" in cand.candidate_id
+        assert snap.lifecycle_status == ISSLifecycleStatus.ELIGIBLE_SEARCH
+
+    def test_tracking_only_progression_additional_pairs_zero_new_events(self, iss_fixtures) -> None:
+        """Candidate in tracking-only continues internal MSM tracking through later swings with zero new ISS events."""
+        fix = iss_fixtures["iss_06_outside_range_completion_tracking_only"]
+        start_time = datetime.fromisoformat(fix["candles"][0]["time"])
+        engine = ISSEngine(ISSConfig(main_direction=Direction.DOWNWARD, start_candle_time=start_time))
+        candles = [dict(c, index=i) for i, c in enumerate(fix["candles"])]
+
+        # Process bars 0..20 (outside range completion)
+        snap = engine.process_candles(candles)
+        assert snap.lifecycle_status == ISSLifecycleStatus.OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY
+        assert snap.is_tracking_only is True
+        assert len(snap.attempted_points) == 5
+        assert len(snap.confirmed_events) == 0
+
+        # Append additional candles continuing internal tracking
+        last_t = datetime.fromisoformat(candles[-1]["time"])
+        tracking_candles = [
+            # Candle 21: Green continuation
+            dict(time=(last_t + timedelta(hours=1)).isoformat(), open=1.135, high=1.181, low=1.134, close=1.180, is_forming=False, bar_status="CONFIRMED_COMPLETED", index=21),
+            # Candle 22: Green break above previous tentative high (1.192)
+            dict(time=(last_t + timedelta(hours=2)).isoformat(), open=1.180, high=1.196, low=1.179, close=1.195, is_forming=False, bar_status="CONFIRMED_COMPLETED", index=22),
+            # Candle 23: Red candle 1 of pullback 3
+            dict(time=(last_t + timedelta(hours=3)).isoformat(), open=1.195, high=1.1955, low=1.189, close=1.190, is_forming=False, bar_status="CONFIRMED_COMPLETED", index=23),
+            # Candle 24: Red candle 2 of pullback 3
+            dict(time=(last_t + timedelta(hours=4)).isoformat(), open=1.190, high=1.1905, low=1.184, close=1.185, is_forming=False, bar_status="CONFIRMED_COMPLETED", index=24),
+        ]
+
+        for tc in tracking_candles:
+            snap = engine.process_candle(tc)
+
+        # Candidate remains in tracking only, attempted points intact, tracking points updated, zero new events
+        assert snap.lifecycle_status == ISSLifecycleStatus.OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY
+        assert snap.is_tracking_only is True
+        assert len(snap.attempted_points) == 5
+        assert len(snap.tracking_points) >= 5
+        assert len(snap.confirmed_events) == 0

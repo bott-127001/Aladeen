@@ -61,20 +61,22 @@ class FrozenBoundary:
     main_level_2_price: float
     main_level_3_price: float
     frozen_at_candle_index: int
-    frozen_at_time: datetime
+    frozen_at_time: Optional[datetime] = None
 
     def __post_init__(self) -> None:
         if not (math.isfinite(self.min_price) and math.isfinite(self.max_price)):
             raise ValueError(f"Boundary prices must be finite: [{self.min_price}, {self.max_price}]")
         if self.min_price > self.max_price:
             raise ValueError(f"min_price ({self.min_price}) cannot exceed max_price ({self.max_price})")
-        norm_time = validate_and_normalize_timestamp(self.frozen_at_time, "FrozenBoundary frozen_at_time")
-        object.__setattr__(self, "frozen_at_time", norm_time)
+        if self.frozen_at_time is not None:
+            norm_time = validate_and_normalize_timestamp(self.frozen_at_time, "FrozenBoundary frozen_at_time")
+            object.__setattr__(self, "frozen_at_time", norm_time)
 
     def contains_price(self, price: float) -> bool:
         """Evaluates inclusive range boundary: min_price <= price <= max_price.
 
         Exact equality is valid and satisfies the boundary condition.
+        No rounding or tolerance is permitted.
         """
         if not math.isfinite(price):
             return False
@@ -97,11 +99,12 @@ class CandidateIdentity:
     main_level_3_price: float
     main_level_3_identified_bar_index: int
     frozen_at_candle_index: int
-    frozen_at_time: datetime
+    frozen_at_time: Optional[datetime] = None
 
     def __post_init__(self) -> None:
-        norm_time = validate_and_normalize_timestamp(self.frozen_at_time, "CandidateIdentity frozen_at_time")
-        object.__setattr__(self, "frozen_at_time", norm_time)
+        if self.frozen_at_time is not None:
+            norm_time = validate_and_normalize_timestamp(self.frozen_at_time, "CandidateIdentity frozen_at_time")
+            object.__setattr__(self, "frozen_at_time", norm_time)
 
 
 @dataclass(frozen=True)
@@ -213,11 +216,11 @@ class ISSZone:
             if low == lower_body_edge -> is_line = True (zero width)
         """
         if is_high_side:
-            low_p = round(candle.upper_body_edge, 6)
-            high_p = round(candle.high, 6)
+            low_p = float(candle.upper_body_edge)
+            high_p = float(candle.high)
         else:
-            low_p = round(candle.low, 6)
-            high_p = round(candle.lower_body_edge, 6)
+            low_p = float(candle.low)
+            high_p = float(candle.lower_body_edge)
 
         is_line = (low_p == high_p)
         return cls(
@@ -263,6 +266,8 @@ class ISSSnapshot:
     candidate_identity: Optional[CandidateIdentity] = None
     captured_boundary: Optional[FrozenBoundary] = None
     internal_points: Tuple[InternalPoint, ...] = field(default_factory=tuple)
+    attempted_points: Optional[Tuple[InternalPoint, ...]] = None
+    tracking_points: Tuple[InternalPoint, ...] = field(default_factory=tuple)
     active_zones: Tuple[ISSZone, ...] = field(default_factory=tuple)
     confirmed_events: Tuple[ConfirmedISSEvent, ...] = field(default_factory=tuple)
     is_tracking_only: bool = False

@@ -219,6 +219,7 @@ class MSMConfig:
     start_candle_time: datetime
     direction: Direction
     earliest_pullback_time: Optional[datetime] = None
+    strictly_after_candle_time: Optional[datetime] = None
 
     def __post_init__(self) -> None:
         norm_start = validate_and_normalize_timestamp(self.start_candle_time, "start_candle_time")
@@ -235,6 +236,10 @@ class MSMConfig:
         if self.earliest_pullback_time is not None:
             norm_earliest = validate_and_normalize_timestamp(self.earliest_pullback_time, "earliest_pullback_time")
             object.__setattr__(self, "earliest_pullback_time", norm_earliest)
+
+        if self.strictly_after_candle_time is not None:
+            norm_after = validate_and_normalize_timestamp(self.strictly_after_candle_time, "strictly_after_candle_time")
+            object.__setattr__(self, "strictly_after_candle_time", norm_after)
 
 
 @dataclass(frozen=True)

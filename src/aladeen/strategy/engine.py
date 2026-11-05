@@ -209,6 +209,12 @@ class MSMEngine:
                     self._next_eligible_pullback_pos = max(self._next_eligible_pullback_pos, p1_pos)
                     self._pullback_scan_pos = max(self._pullback_scan_pos, p1_pos)
 
+                if self.config.strictly_after_candle_time is not None:
+                    while p1_pos < total_candles and self._completed_candles[p1_pos].open_time <= self.config.strictly_after_candle_time:
+                        p1_pos += 1
+                    self._next_eligible_pullback_pos = max(self._next_eligible_pullback_pos, p1_pos)
+                    self._pullback_scan_pos = max(self._pullback_scan_pos, p1_pos)
+
                 p2_pos = p1_pos + 1
 
                 if p2_pos >= total_candles:

@@ -73,10 +73,12 @@ engine = ISSEngine(ISSConfig(main_direction=Direction.DOWNWARD, start_candle_tim
 ```
 
 ### 3.2 Methods & Properties
+- `direction -> Direction`: Current authoritative main structural marking direction (tracks dynamic direction reversals post-CHOCH).
 - `process_candles(candles: Union[pd.DataFrame, List[StrategyCandle], List[dict]]) -> ISSSnapshot`:
   Clean batch execution. Runs on an isolated temporary engine; atomically commits upon success.
 - `process_candle(candle: Union[StrategyCandle, dict]) -> ISSSnapshot`:
   Incremental single-candle ingest. Handles dict or `StrategyCandle` inputs.
+  **Source ID Policy**: Incremental dictionary inputs must explicitly provide an integer `'index'`. Inferred ID arithmetic from previous candles is strictly prohibited.
 - `replay_snapshots(candles: Union[pd.DataFrame, List[StrategyCandle], List[dict]]) -> List[ISSSnapshot]`:
   Replays candles bar-by-bar and returns the sequence of snapshots after each candle.
 - `current_snapshot -> ISSSnapshot`: Current immutable engine state snapshot.
@@ -96,17 +98,19 @@ engine = ISSEngine(ISSConfig(main_direction=Direction.DOWNWARD, start_candle_tim
           │
           ├─► Unresolved Ambiguity (c1 == p2) ──► Pause ISS active progression, report diagnostic
           │
-          ├─► Main CHOCH Confirms ──────────────► Cancel unfinished candidate (MAIN_CHOCH_CANCELLED)
+          ├─► Main CHOCH Confirms ──────────────► Cancel unfinished candidate (MAIN_CHOCH_CANCELLED),
+          │                                      Authoritative direction switches!
           │
           ├─► Main Continuation Break ──────────► Cancel unfinished candidate (MAIN_CONTINUATION_CANCELLED)
           │
-          └─► Main Level 2 Confirmed & Main Level 3 Active
+          └─► Main Level 2 Confirmed & Main Level 3 Active (under current authoritative direction!)
                     │
                     ▼
           [Candidate Identification]
                     │
-                    ├─► Fresh Identification ──► Freeze [min, max] boundary, initialize Internal MSMEngine
-                    │                            (opposite direction, reference = Main L3, delayed scan)
+                    ├─► Fresh Identification ──► Freeze exact [min, max] boundary (no rounding),
+                    │                            Initialize Internal MSMEngine (opposite direction,
+                    │                            reference = Main L3, strictly_after_candle_time = main p2 open)
                     │
                     ▼
           [Candidate Internal Processing]
@@ -116,13 +120,16 @@ engine = ISSEngine(ISSConfig(main_direction=Direction.DOWNWARD, start_candle_tim
                     ├─► 5th point identified & close inside ──► CONFIRMED (create RBS/SBR & A+ zones)
                     │
                     └─► 5th point identified & close outside ─► OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY
-                                                               (retain markings for tracking, zero zones)
+                                                               (attempted 5 points locked; tracking points continue)
 ```
 
 ---
 
 ## 5. Parity & Failure Safety Guarantees
-1. **Batch / Sequential / Replay Parity**: 100% snapshot, internal point, and zone equivalence across all three execution modes.
-2. **Forming Candle Isolation**: Candles with `is_forming=True` or `bar_status != "CONFIRMED_COMPLETED"` are safely ignored without mutating settled history.
-3. **Transactional Commit**: Mid-batch validation failures or exceptions leave previous engine state 100% unmutated.
-4. **Historical Event Immutability**: Subsequent main continuation breaks or CHOCH reversals retain previously confirmed ISS events in immutable history.
+1. **Authoritative Direction Tracking**: Fresh candidates are instantiated using the main coordinator's authoritative current direction (`self.direction`), supporting completed main CHOCH reversals followed by valid new-direction ISS candidates.
+2. **Exact Boundary Evaluation**: Captured boundaries preserve exact floating-point values without rounding. Boundary evaluations enforce strict mathematical inequalities without artificial tolerances.
+3. **Unknown Availability Preserved**: When candle close timestamps are unavailable, availability metadata (`frozen_at_time`, `confirmation_time`, `confirmation_availability_time`) remains `None`. Forward-scan restriction is enforced via `strictly_after_candle_time` on monotonic open timestamps without inventing availability timestamps.
+4. **Complete Transactional Transitions**: Every sequential candle ingestion is executed on staged working copies (`main_coord`, `candidate`, `confirmed_events`, `candles`, `indices`). Any exception during main coordination, internal engine advance, boundary evaluation, or zone/event construction leaves engine state 100% unmutated.
+5. **Tracking-Only Separation**: Upon outside-range completion, the candidate's original attempted 5-point structure is preserved immutably in `snapshot.attempted_points`, while ongoing tracking swings are exposed via `snapshot.tracking_points`. The candidate permanently remains in tracking-only and never regains ISS eligibility under that Main Level 3.
+6. **Batch / Sequential / Replay Parity**: 100% snapshot, internal point, and zone equivalence across all three execution modes.
+7. **Forming Candle Isolation**: Candles with `is_forming=True` or `bar_status != "CONFIRMED_COMPLETED"` are safely ignored without mutating settled history.
