@@ -205,42 +205,56 @@ class TestCHOCHFixtureIntegrity:
         assert zones["DOUBLE_BOTTOM"]["upper_price"] == lb(db_candle)            # 1.185
 
     def test_end_to_end_msm_prerequisites_match_msm_engine(self, choch_fixtures):
-        """Cross-checks that MSM Engine execution on prefix candles independently produces the exact prerequisite state."""
-        # 1. Bearish basic prefix verification
+        """Cross-checks that MSM Engine execution on prefix candles independently produces the exact prerequisite state at Point 3 identification."""
+        # 1. Bearish basic prefix verification at Point 3 identification (prefix 0..7)
         bearish_fix = choch_fixtures["fixtures"]["choch_bearish_basic_end_to_end"]
         config_b = MSMConfig(
             start_candle_time=datetime.fromisoformat(bearish_fix["start_candle_time"]),
             direction=Direction.UPWARD,
         )
-        engine_b = MSMEngine(config_b)
-        snap_b = engine_b.process_candles(bearish_fix["candles"])
+        engine_b_prefix = MSMEngine(config_b)
+        snap_b_prefix = engine_b_prefix.process_candles(bearish_fix["candles"][:8])  # Candles 0 through 7
 
         prereq_b = bearish_fix["prerequisite_state"]
-        assert snap_b.last_support is not None
-        assert snap_b.last_support.candle_index == prereq_b["last_support"]["candle_idx"]  # 4
-        assert snap_b.last_support.price == prereq_b["last_support"]["price"]              # 1.105
-        assert snap_b.confirmed_pairs[0].high.candle_index == prereq_b["confirmed_high"]["candle_idx"]  # 1
-        assert snap_b.tentative_point is not None
-        assert snap_b.tentative_point.candle_index == prereq_b["active_point_3"]["candle_idx"]  # 5
-        assert snap_b.tentative_point.identified_bar_index == prereq_b["active_point_3"]["identified_at_idx"]  # 7
+        assert snap_b_prefix.last_support is not None
+        assert snap_b_prefix.last_support.candle_index == prereq_b["last_support"]["candle_idx"]  # 4
+        assert snap_b_prefix.last_support.price == prereq_b["last_support"]["price"]              # 1.105
+        assert snap_b_prefix.confirmed_pairs[0].high.candle_index == prereq_b["confirmed_high"]["candle_idx"]  # 1
+        assert snap_b_prefix.tentative_point is not None
+        assert snap_b_prefix.tentative_point.candle_index == prereq_b["active_point_3"]["candle_idx"]  # 5
+        assert snap_b_prefix.tentative_point.identified_bar_index == prereq_b["active_point_3"]["identified_at_idx"]  # 7
 
-        # 2. Bullish basic prefix verification
+        # Also verify that full candle sequence maintains the same prerequisite levels
+        engine_b_full = MSMEngine(config_b)
+        snap_b_full = engine_b_full.process_candles(bearish_fix["candles"])
+        assert snap_b_full.last_support.candle_index == 4
+        assert snap_b_full.last_support.price == 1.105
+        assert snap_b_full.tentative_point.candle_index == 5
+
+        # 2. Bullish basic prefix verification at Point 3 identification (prefix 0..7)
         bullish_fix = choch_fixtures["fixtures"]["choch_bullish_basic_end_to_end"]
         config_bull = MSMConfig(
             start_candle_time=datetime.fromisoformat(bullish_fix["start_candle_time"]),
             direction=Direction.DOWNWARD,
         )
-        engine_bull = MSMEngine(config_bull)
-        snap_bull = engine_bull.process_candles(bullish_fix["candles"])
+        engine_bull_prefix = MSMEngine(config_bull)
+        snap_bull_prefix = engine_bull_prefix.process_candles(bullish_fix["candles"][:8])  # Candles 0 through 7
 
         prereq_bull = bullish_fix["prerequisite_state"]
-        assert snap_bull.last_resistance is not None
-        assert snap_bull.last_resistance.candle_index == prereq_bull["last_resistance"]["candle_idx"]  # 1
-        assert snap_bull.last_resistance.price == prereq_bull["last_resistance"]["price"]              # 1.245
-        assert snap_bull.confirmed_pairs[0].low.candle_index == prereq_bull["confirmed_low"]["candle_idx"]  # 1
-        assert snap_bull.tentative_point is not None
-        assert snap_bull.tentative_point.candle_index == prereq_bull["active_point_3"]["candle_idx"]  # 5
-        assert snap_bull.tentative_point.identified_bar_index == prereq_bull["active_point_3"]["identified_at_idx"]  # 7
+        assert snap_bull_prefix.last_resistance is not None
+        assert snap_bull_prefix.last_resistance.candle_index == prereq_bull["last_resistance"]["candle_idx"]  # 1
+        assert snap_bull_prefix.last_resistance.price == prereq_bull["last_resistance"]["price"]              # 1.245
+        assert snap_bull_prefix.confirmed_pairs[0].low.candle_index == prereq_bull["confirmed_low"]["candle_idx"]  # 1
+        assert snap_bull_prefix.tentative_point is not None
+        assert snap_bull_prefix.tentative_point.candle_index == prereq_bull["active_point_3"]["candle_idx"]  # 5
+        assert snap_bull_prefix.tentative_point.identified_bar_index == prereq_bull["active_point_3"]["identified_at_idx"]  # 7
+
+        # Also verify that full candle sequence maintains the same prerequisite levels
+        engine_bull_full = MSMEngine(config_bull)
+        snap_bull_full = engine_bull_full.process_candles(bullish_fix["candles"])
+        assert snap_bull_full.last_resistance.candle_index == 1
+        assert snap_bull_full.last_resistance.price == 1.245
+        assert snap_bull_full.tentative_point.candle_index == 5
 
     def test_rejection_fixtures_integrity(self, choch_fixtures):
         """Validates all negative/rejection fixture assertions without engine execution."""

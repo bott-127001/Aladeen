@@ -34,15 +34,25 @@ Last Updated: 2026-11-05 (MSM Dashboard Milestone Accepted — Transition to CHO
 
 ---
 
-## 3. Current Task: CHOCH Requirements & Acceptance Specification
-- **Active Branch**: `requirements/choch-acceptance` (branched from `133a76f1663bf0a940cc6ac2972a7bb86151832d`)
-- **Objective**: Author `docs/requirements/choch-acceptance.md`, modular fixture documents under `docs/requirements/fixtures/choch/`, machine-readable acceptance test fixtures (`tests/fixtures/choch_acceptance.json`), and fixture-integrity checks (`tests/test_choch_fixture_integrity.py`).
-- **Scope Boundary**: Pure requirements specification and static fixture validation. **Strictly zero strategy engine implementation, zero zone activations, zero entry/order execution, and zero merging to `main`**.
-- **Corrections Applied (Reviewer Feedback HANDOFF-017 & HANDOFF-018)**:
-  1. **Point-3 Timing Correction**: Removed unsupported blanket $c_1 > p_2$ exclusion. Strictly-before closes ($< p_2$) remain ineligible. The same-close case ($c_1 == p_2$) is explicitly isolated as `UNRESOLVED_PENDING_RECONCILIATION` with no forced boolean outcome. Settled later-candle cases ($c_1 \ge p_2 + 1$) remain available for implementation.
-  2. **Same-Bar Conflict Justification**: Derived non-overlap mathematically from inclusive search window geometry: $\text{tentative\_high} \ge \text{last\_support}$ in upward marking, and $\text{tentative\_low} \le \text{last\_resistance}$ in downward marking. Demonstrated non-overlap holds unconditionally under strict inequalities even at equal-level boundary.
-  3. **MSM Reference Candle & SBR Geometry (Bearish Basic)**: Verified that in `choch_bearish_basic_end_to_end`, inclusive search window `[1, 4]` ties minimum lower body edge `1.105` at candles 1, 3, and 4; latest-candle tie-breaker selects Candle 4. Updated Last Support to Candle 4 (`low = 1.104, LB = 1.105`) and SBR zone to `[1.104, 1.105]`.
-  4. **MSM Reference Candle, Equality Rejection & Confirmation Bar (Bullish Basic)**: Verified that in `choch_bullish_basic_end_to_end`, inclusive search window `[1, 4]` has maximum upper body edge `1.245` at Candle 1. Updated Last Resistance to Candle 1 (`UB = 1.245, high = 1.248`) and RBS zone to `[1.245, 1.248]`. Candle 8 (`close = 1.245`) demonstrates strict equality rejection. Added completed Candle 10 (`close = 1.260 > 1.245`) as $c_2$, with confirmation occurring at Candle 10.
-  5. **Prerequisite Integration Test**: Added `test_end_to_end_msm_prerequisites_match_msm_engine` to independently run the accepted `MSMEngine` over the prefix candles and verify exact match with declared prerequisite states.
-  6. **Fixture Categorization & Window Conditions**: Explicitly categorized all 17 fixtures into `source_settled`, `end_to_end_msm_derived`, `synthetic_prerequisite_unit`, and `unresolved_boundary`. Stated all window conditions for equal-level geometry.
-- **Current Status**: Complete, verified, and passing 217/217 offline tests (10 fixture integrity and MSM prerequisite tests, 0 failures). Ready for HANDOFF-019 review.
+## 3. Milestone Acceptance: CHOCH Requirements & Acceptance Specification
+- **Accepted Milestone**: Change of Character (CHOCH) Acceptance Specification & Fixture Validation.
+- **Accepted Commit Hash**: `7d5e3aedeff3548b2cf35fa41833f6948ad8d82f` (HANDOFF-019)
+- **Reviewer Status**: **ACCEPTED** by Perplexity as the source-settled CHOCH requirements baseline, with the Point-3 identification-close question ($c_1 == p_2$) explicitly isolated as unresolved pending source reconciliation.
+- **Key Baseline Requirements**:
+  1. Two consecutive completed closes strictly beyond confirmed level (`close < last_support` for Bearish, `close > last_resistance` for Bullish).
+  2. Strict closing price comparison: exact equality touch fails closed; wick pierces without closing break fail closed.
+  3. Candle color independence: closing price rule is independent of red/green candle colors.
+  4. Active tentative Point 3 required: Point 3 anchored to identified swing candle; continuation break resets tentative status.
+  5. Isolated same-close interpretation ($c_1 == p_2$): strictly before identification ($< p_2$) is ineligible; strictly after ($c_1 \ge p_2 + 1$) is source-settled; simultaneous close ($c_1 == p_2$) emits an unresolved diagnostic without forced boolean outcome.
+  6. Three original-candle zones: SBR (`[low, LB]`), RBS (`[UB, high]`), QML / A+ (`[UB, high]` for upward, `[low, LB]` for downward), Double Top/Bottom.
+  7. Zero-wick zones preserved as thickness-0 horizontal price lines (`is_line = true`).
+  8. Cycle termination and restart: prior cycle ends; direction reverses; restart reference is Point 3 original candle; first pullback in new direction must occur strictly after confirmation bar ($p_1 \ge c_2 + 1$).
+  9. Pre-CHOCH MSM prerequisites independently verified via `test_end_to_end_msm_prerequisites_match_msm_engine`.
+
+---
+
+## 4. Current Task: Pure Offline CHOCH Strategy Engine Implementation
+- **Active Branch**: `feature/choch-engine` (branched from `7d5e3aedeff3548b2cf35fa41833f6948ad8d82f`)
+- **Objective**: Implement pure domain types, settled CHOCH detector, same-close unresolved diagnostic handling, and MSM + CHOCH coordinator with cycle restart in `src/aladeen/strategy/`.
+- **Scope Boundary**: Pure offline strategy logic. **Strictly zero UI, zero MT5 dependencies, zero ISS, zero TJL, zero zone activations, zero trade entry signals, zero automated trading, and zero merging to `main`**.
+- **Current Status**: Initializing branch and domain types.
