@@ -50,7 +50,12 @@ from __future__ import annotations
 import functools
 import json
 import logging
+import sys
 from pathlib import Path
+
+# Ensure project root is in sys.path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 import threading
 import time
 from typing import Any, Dict, List, Optional
@@ -65,6 +70,10 @@ from aladeen.app import create_app
 from aladeen.data.contract import BarStatus
 from aladeen.data.mt5_adapter import MT5ConnectionState
 from aladeen.strategy.types import Direction
+from tests.fixtures.iss_fixtures import (
+    get_candle_19_20_cancellation_fixture,
+    make_dataframe_from_candles,
+)
 
 print = functools.partial(print, flush=True)
 
@@ -122,20 +131,9 @@ class ControllableISSMockAdapter:
 
     def fetch_candles(self, symbol: str, timeframe: str, count: int) -> pd.DataFrame:
         if symbol == "GBPUSD":
-            # Tracking-only candidate scenario (base candles from iss_01 modulated so completion candle closes outside Level 2)
-            fix = self.iss_fixtures["iss_01_bearish_basic_end_to_end"]
-            raw_candles = [dict(c) for c in fix["candles"]]
-            # Modulate candles 19 and 20 to produce completion close outside boundary on Level 2 side (> 1.2000)
-            raw_candles[19]["open"] = 1.206
-            raw_candles[19]["high"] = 1.207
-            raw_candles[19]["low"] = 1.204
-            raw_candles[19]["close"] = 1.205
-
-            raw_candles[20]["open"] = 1.205
-            raw_candles[20]["high"] = 1.206
-            raw_candles[20]["low"] = 1.2005
-            raw_candles[20]["close"] = 1.201
-            return _make_df_from_candles(raw_candles)
+            # Centralized Candle 19/20 fixture where completion close outside Level 2 confirms Main CHOCH and cancels
+            fix = get_candle_19_20_cancellation_fixture()
+            return make_dataframe_from_candles(fix["candles"])
         elif timeframe == "H1":
             # Scenario 1: Bearish ISS Success
             fix = self.iss_fixtures["iss_01_bearish_basic_end_to_end"]
@@ -337,9 +335,9 @@ def test_iss_browser_controlled() -> None:
         print("   [PASS] Bullish ISS confirmed with SBR and Selling A+ zones.")
 
         # -------------------------------------------------------------------
-        # Scenario 3: Genuine Tracking-Only Progression (GBPUSD / H1)
+        # Scenario 3: Outside-Range Completion Cancelled by Main CHOCH (GBPUSD / H1)
         # -------------------------------------------------------------------
-        print("\n--- SCENARIO 3: Genuine Tracking-Only Progression (GBPUSD / H1) ---")
+        print("\n--- SCENARIO 3: Outside-Range Completion Cancelled by Main CHOCH (GBPUSD / H1) ---")
         page.locator("#symbol-selector").click()
         time.sleep(0.3)
         page.locator(".dash-dropdown-option:has-text('GBPUSD')").click()
@@ -358,23 +356,22 @@ def test_iss_browser_controlled() -> None:
         page.locator(".dash-dropdown-option").first.click()
         time.sleep(0.3)
 
-        print("   Applying Tracking-Only scenario...")
+        print("   Applying Candle 19/20 Outside-Range scenario...")
         page.locator("#msm-apply-btn").click()
         time.sleep(2.0)
 
         insp_text_track = page.locator("#msm-inspection-panel").inner_text()
-        assert "OUTSIDE RANGE COMPLETION (TRACKING ONLY — NOT ELIGIBLE)" in insp_text_track
-        assert "Attempted Internal Points (Tracking Only — Not Eligible)" in insp_text_track
-        assert "Ongoing Tracking Points (Tracking Only — Not Eligible)" in insp_text_track
-        assert "TRACKING ONLY — NOT ELIGIBLE" in insp_text_track
+        assert "MAIN_CHOCH_CANCELLED" in insp_text_track
+        assert "Cancelled by main CHOCH confirmation." in insp_text_track
+        assert "BULLISH_CHOCH" in insp_text_track
 
-        # Assert zero active zones on chart
+        # Assert zero active ISS zones on chart
         plot_info_track = get_plotly_element()
         layout_track = plot_info_track.get("layout") or (plot_info_track.get("fullLayout") or {})
         shapes_track = layout_track.get("shapes", [])
         iss_zones_track = [s for s in shapes_track if str(s.get("name", "")).startswith("iss_zone_")]
-        assert len(iss_zones_track) == 0, f"Expected 0 active ISS zones for tracking-only, found {len(iss_zones_track)}"
-        print("   [PASS] Genuine tracking-only displays OUTSIDE_RANGE_COMPLETION badge, tracking tables, and 0 active zones.")
+        assert len(iss_zones_track) == 0, f"Expected 0 active ISS zones for cancelled candidate, found {len(iss_zones_track)}"
+        print("   [PASS] Main CHOCH cancellation displays MAIN_CHOCH_CANCELLED badge, BULLISH_CHOCH event, and 0 active ISS zones.")
 
         # Switch back to EURUSD for subsequent scenarios
         page.locator("#symbol-selector").click()

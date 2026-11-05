@@ -31,6 +31,10 @@ from aladeen.strategy import (
     InternalPoint,
     StrategyCandle,
 )
+from tests.fixtures.iss_fixtures import (
+    get_candle_19_20_cancellation_fixture,
+    get_tracking_only_fixture,
+)
 
 
 @pytest.fixture(scope="module")
@@ -831,21 +835,15 @@ class TestISSEngineAPIAndSafety:
         assert snap_cancelled.attempted_points is None
         assert snap_cancelled.tracking_points == ()
 
-    def test_authentic_candle_sequence_produces_genuine_tracking_only(self, iss_fixtures) -> None:
-        """Authentic candle sequence naturally produces OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY without state mocking."""
-        fix = iss_fixtures["iss_01_bearish_basic_end_to_end"]
-        raw_candles = [dict(c) for c in fix["candles"]]
+    def test_candle_19_20_both_closing_above_level_2_confirms_main_choch_and_cancels_candidate(self) -> None:
+        """When Candle 19 and 20 both close above Level 2 (1.2000), Candle 20 confirms Main Bullish CHOCH.
 
-        # Candle 19 (p1) and Candle 20 (p2) complete Point 5 with completion close > 1.2000 (Level 2 side)
-        raw_candles[19]["open"] = 1.206
-        raw_candles[19]["high"] = 1.207
-        raw_candles[19]["low"] = 1.204
-        raw_candles[19]["close"] = 1.205
-
-        raw_candles[20]["open"] = 1.205
-        raw_candles[20]["high"] = 1.206
-        raw_candles[20]["low"] = 1.2005
-        raw_candles[20]["close"] = 1.201
+        Uses centralized fixture get_candle_19_20_cancellation_fixture().
+        Asserts main bullish CHOCH at candle 20, final ISS lifecycle MAIN_CHOCH_CANCELLED,
+        0 active tracking points, 0 active zones, and 0 confirmed events.
+        """
+        fixture_data = get_candle_19_20_cancellation_fixture()
+        raw_candles = fixture_data["candles"]
 
         for i, c in enumerate(raw_candles):
             c["index"] = i
@@ -853,13 +851,93 @@ class TestISSEngineAPIAndSafety:
         start_time = datetime.fromisoformat(raw_candles[0]["time"])
         engine = ISSEngine(ISSConfig(main_direction=Direction.DOWNWARD, start_candle_time=start_time))
         snaps = engine.replay_snapshots(raw_candles)
+        engine.process_candles(raw_candles)
 
         snap20 = snaps[20]
+        assert snap20.lifecycle_status == ISSLifecycleStatus.MAIN_CHOCH_CANCELLED
+        assert snap20.diagnostic_type == ISSDiagnosticType.CANCELLED_BY_MAIN_CHOCH
+        assert snap20.is_tracking_only is False
+        assert len(snap20.tracking_points) == 0
+        assert len(snap20.active_zones) == 0
+        assert len(snap20.confirmed_events) == 0
+        assert len(engine.get_main_coordinator_snapshot().confirmed_choch_events) == 1
+
+    def test_tracking_only_central_fixture_progression_and_cancellation(self) -> None:
+        """Tests the genuine tracking-only central fixture across all lifecycle stages:
+
+        1. Prefix 20: 5 internal points inside boundary [1.1400, 1.2000], valid Point 5 identification,
+           completion close outside boundary on Level 2 side (> 1.2000), Main CHOCH count == 0
+           (confirmation withheld under REQUIRED_ZONE_PROVENANCE_MISSING), produces exact
+           OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY with 5 attempted points, internal tracking points,
+           0 active zones, and 0 events.
+        2. Extension prefix (Candles 21-22): internal tracking points advance without revival,
+           Main CHOCH count remains 0.
+        3. Subsequent cancellation prefix (Candle 24): Main CHOCH confirms and cleanly cancels
+           candidate with MAIN_CHOCH_CANCELLED, 0 tracking points, 0 zones.
+        """
+        fix = get_tracking_only_fixture()
+        raw_candles = fix["all_candles"]
+
+        candles = []
+        for i, c in enumerate(raw_candles):
+            sc = StrategyCandle(
+                index=i,
+                open_time=datetime.fromisoformat(c["time"]),
+                open=c["open"],
+                high=c["high"],
+                low=c["low"],
+                close=c["close"],
+                is_forming=False,
+                bar_status="CONFIRMED_COMPLETED",
+                close_time=datetime.fromisoformat(c["close_time"]),
+            )
+            candles.append(sc)
+
+        engine = ISSEngine(ISSConfig(main_direction=Direction.DOWNWARD, start_candle_time=candles[0].open_time))
+
+        # 1. Ingest through Candle 20 prefix
+        for c in candles[:21]:
+            engine._ingest_candle(c)
+            # Simulate low_candle provenance withheld in coordinator lookup
+            if c.index == 2:
+                if 2 in engine._main_coordinator._candle_lookup:
+                    del engine._main_coordinator._candle_lookup[2]
+
+        snap20 = engine.get_snapshot()
         assert snap20.lifecycle_status == ISSLifecycleStatus.OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY
-        assert snap20.diagnostic_type == ISSDiagnosticType.COMPLETION_CLOSE_OUTSIDE_RANGE
         assert snap20.is_tracking_only is True
-        assert snap20.attempted_points is not None
+        assert snap20.diagnostic_type == ISSDiagnosticType.COMPLETION_CLOSE_OUTSIDE_RANGE
         assert len(snap20.attempted_points) == 5
         assert len(snap20.tracking_points) == 5
         assert len(snap20.active_zones) == 0
         assert len(snap20.confirmed_events) == 0
+        assert len(engine.get_main_coordinator_snapshot().confirmed_choch_events) == 0
+
+        # 2. Ingest extension candles 21, 22
+        for c in candles[21:23]:
+            engine._ingest_candle(c)
+
+        snap22 = engine.get_snapshot()
+        assert snap22.lifecycle_status == ISSLifecycleStatus.OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY
+        assert snap22.is_tracking_only is True
+        assert len(snap22.attempted_points) == 5
+        assert len(snap22.tracking_points) == 6  # Tracking advanced!
+        assert len(snap22.active_zones) == 0
+        assert len(snap22.confirmed_events) == 0
+        assert len(engine.get_main_coordinator_snapshot().confirmed_choch_events) == 0
+
+        # 3. Ingest cancellation candles 23, 24 (restoring provenance so CHOCH confirms)
+        for c in candles[23:25]:
+            if c.index == 23:
+                engine._main_coordinator._candle_lookup[2] = candles[2]
+            engine._ingest_candle(c)
+
+        snap24 = engine.get_snapshot()
+        assert snap24.lifecycle_status == ISSLifecycleStatus.MAIN_CHOCH_CANCELLED
+        assert snap24.diagnostic_type == ISSDiagnosticType.CANCELLED_BY_MAIN_CHOCH
+        assert snap24.is_tracking_only is False
+        assert snap24.attempted_points is None
+        assert len(snap24.tracking_points) == 0
+        assert len(snap24.active_zones) == 0
+        assert len(snap24.confirmed_events) == 0
+        assert len(engine.get_main_coordinator_snapshot().confirmed_choch_events) == 1

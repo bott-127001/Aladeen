@@ -322,7 +322,6 @@ class ISSEngine:
         # 1. Step Active Candidate Internal Structure First (if active)
         # -------------------------------------------------------------
         candidate_confirmed_this_bar = False
-        candidate_completed_outside_this_bar = False
 
         if cand_copy is not None and cand_copy.lifecycle_status in (
             ISSLifecycleStatus.ELIGIBLE_SEARCH,
@@ -444,7 +443,6 @@ class ISSEngine:
                                 cand_copy.is_tracking_only = False
                                 cand_copy.attempted_points = None
                             else:
-                                candidate_completed_outside_this_bar = True
                                 cand_copy.lifecycle_status = ISSLifecycleStatus.OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY
                                 cand_copy.diagnostic_type = ISSDiagnosticType.COMPLETION_CLOSE_OUTSIDE_RANGE
                                 cand_copy.diagnostic_message = (
@@ -472,7 +470,7 @@ class ISSEngine:
         # 2. Main CHOCH and Continuation Coordination
         # -------------------------------------------------------------
         # Check if Main CHOCH confirmed on this candle
-        if len(main_coord_copy.confirmed_choch_events) > prev_choch_count and not candidate_completed_outside_this_bar:
+        if len(main_coord_copy.confirmed_choch_events) > prev_choch_count:
             if cand_copy and cand_copy.lifecycle_status in (
                 ISSLifecycleStatus.ELIGIBLE_SEARCH,
                 ISSLifecycleStatus.OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY,
@@ -517,7 +515,7 @@ class ISSEngine:
 
         # R29.1: If tentative point disappeared while we were in unconfirmed search or tracking-only,
         # main continuation break has confirmed/removed level 3! Cancel candidate cleanly!
-        if main_level_3 is None and not candidate_confirmed_this_bar and not candidate_completed_outside_this_bar:
+        if main_level_3 is None and not candidate_confirmed_this_bar:
             if cand_copy and cand_copy.lifecycle_status in (
                 ISSLifecycleStatus.ELIGIBLE_SEARCH,
                 ISSLifecycleStatus.OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY,
