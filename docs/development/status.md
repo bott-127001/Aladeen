@@ -32,6 +32,7 @@ Last Updated: 2026-11-05 (Supervised Review Handoff Intake Phase)
   - `3d6392d41ffae99ae162e367398a78c918d5ddf2` (Checkpoints definition)
   - `ee5001c19dbea350de3d6b7f6791ea3705bf75ad` (Launcher helper script & branch tip)
   - `3e2ccc6bc1f9b37ee7674249a5628b030b777a8d` (Recording HANDOFF-001 findings)
+  - `c334df3ddae65d6af16262d05d9702cc5523e2d9` (R1-R6 implementation for HANDOFF-002)
 
 ---
 
@@ -40,29 +41,31 @@ Last Updated: 2026-11-05 (Supervised Review Handoff Intake Phase)
 - **Startup Smoke Test**: `tests/smoke_test.py` passed (HTTP 200 on `/` and `/_dash-layout`).
 - **Real MT5 Terminal Check**: `tests/check_real_terminal.py` passed with real MT5 terminal (`CONNECTED_TO_BROKER`, 14 MarketWatch symbols, contract validation passed, bar completion semantics verified).
 - **Browser Automation Check**: `tests/browser_check.py` passed (Full end-to-end UI interaction: demo mode -> MT5 selection -> connect -> refresh -> timeframe switch -> disconnect -> reconnect).
-- **Comet Automation & Supervised Handoff**: Dedicated profile on port 9223 verified loopback-only; supervised intake `HANDOFF-001-SETUP` successfully submitted and recorded.
+- **Comet Automation & Supervised Handoff**: Dedicated profile on port 9223 verified loopback-only; `HANDOFF-001-SETUP` and `HANDOFF-002-CORRECTIONS` submitted, monitored, and review recorded.
 
 ---
 
-## 5. Review Findings & Resolutions (HANDOFF-002-CORRECTIONS)
+## 5. Review Findings Received for HANDOFF-002-CORRECTIONS
 
-### A. Hardening Implementation
-- **R1 — Broker state synchronization**: Implemented in `process_connection_and_banner()` and `generate_chart_and_status_with_trigger()`. Synchronizes `CONNECTED_TO_BROKER`, `TERMINAL_ONLY`, and `DISCONNECTED`. On refresh, broker state transition emits `state_change` trigger without disconnecting or clearing cached symbols. Unit test `test_broker_state_transition_synchronization` passes.
-- **R2 — Callback dependency settling**: Implemented `dash.no_update` for `connection-loss-trigger` when no state transition or connection error occurs. Initial load, steady-state refreshes, and symbol switches settle in a single pass without re-triggering Callback 1. Unit test `test_steady_state_refresh_settles_without_trigger` passes.
-- **R3 — Symbol selection preservation**: Added `current_symbol` parameter and state tracking across connection rebuilds and refreshes. If the previously selected symbol is in `cached_symbols`, it is preserved rather than falling back to `cached_symbols[0]`. Unit test `test_symbol_preservation_across_reconnects` passes.
-- **R4 — Completion metadata contract coherence**: Extended `validate_candle_data()`:
-  - Rejects complex-valued numbers in OHLC data.
-  - Rejects null/NaN values in `is_forming`, `bar_status`, and `is_latest_bar`.
-  - Validates `bar_status` against `BarStatus` enum values; historical bars must be `CONFIRMED_COMPLETED`.
-  - Rejects contradictory combinations (`is_forming=True` with `CONFIRMED_COMPLETED`, or `is_forming=False` with `UNCONFIRMED_LATEST`).
-  - Implements `is_latest_bar` (False for historical rows, True for final row) across contract, MT5 adapter, and fixtures. Unit tests in `test_contract.py` pass.
+Perplexity completed static review of commit `c334df3ddae65d6af16262d05d9702cc5523e2d9` on `workflow/autonomous-comet-setup`:
 
-### B. Workflow Setup
-- **R5 — Launcher script robustness**: Updated `scripts/launch-comet-automation.cmd` to use `%USERPROFILE%`, verify executable existence across program files and local appdata, detect occupied port 9223 before starting, and document targeted shutdown.
-- **R6 — Profile & checkpoint durability**: Documented strict boundary of dedicated automation profile vs everyday profile in `autonomous-workflow.md`. Checkpoint 5 marked complete upon Samarth's approval.
+### A. Accepted / Substantially Addressed Findings
+- **R1 — Broker state synchronization**: **Accepted / Substantially Addressed**. State-change triggers distinguish broker transitions without forcing disconnect.
+- **R3 — Symbol selection preservation**: **Accepted / Addressed in reviewed code**. Selected symbol passed through callback state and preserved when valid.
+- **R4 — Completion metadata contract coherence**: **Accepted / Addressed for this stage**. Contract adds status validation, null checks, complex-number rejection, and latest-row flags.
+- **R6 — Profile boundary & isolation**: **Accepted / Addressed**. Dedicated profile restrictions documented.
+
+### B. Open Findings Requiring Further Work
+- **R5 — Launcher robustness (Fail-closed)**:
+  - Fail-closed if port 9223 is occupied: exit with nonzero code, warn that port is occupied and ownership unverified.
+  - Report "launch requested; readiness and binding not yet verified."
+  - Remove the netstat -> taskkill loop (unsafe without verified PID ownership). Document manual window closure as shutdown method.
+- **R2 — Actual callback graph verification**:
+  - Test the actual registered application callbacks (`handle_connection_and_options`, `update_chart`) or browser dependency graph with mocked adapter.
+  - Verify convergence and settling (no repeated callback execution) across: Steady-state Refresh, Broker-connected → terminal-only, Terminal-only → broker-connected, Connection loss, and Reconnect.
 
 ---
 
 ## 6. Current State & Next Allowed Action
-- **Current State**: Corrections R1–R6 implemented, verified (99/99 unit tests, smoke, terminal, browser), and ready for commit and handoff to Perplexity.
-- **Next Allowed Action**: Push commit to remote, submit `HANDOFF-002-CORRECTIONS` via Comet automation endpoint, and await Perplexity review.
+- **Current State**: **PAUSED AT APPROVAL GATE**. Review findings recorded.
+- **Next Allowed Action**: Present review findings to Samarth and request confirmation for the bounded follow-up covering remaining R2 and R5 corrections. No merge, strategy implementation, or new features.
