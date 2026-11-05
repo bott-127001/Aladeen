@@ -13,7 +13,8 @@ from __future__ import annotations
 
 import copy
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple, Union
+from datetime import datetime
+from typing import Dict, List, Optional, Set, Tuple, Union
 import pandas as pd
 
 from .choch_detector import ChochDetector
@@ -74,6 +75,8 @@ class MSMChochCoordinator:
         self._unresolved_candle_index: Optional[int] = None
         self._last_processed_index: int = -1
         self._last_received_index: int = -1
+        self._received_indices: Set[int] = set()
+        self._last_received_open_time: Optional[datetime] = None
 
     @property
     def direction(self) -> Direction:
@@ -104,14 +107,30 @@ class MSMChochCoordinator:
     ) -> CoordinatorSnapshot:
         """Processes a sequence of candles in clean batch execution.
 
-        Validates all candles and start configuration upfront before mutating run state.
+        Calculates a fresh run on an isolated temporary coordinator so that any
+        mid-batch failure or validation error cannot corrupt or replace an existing
+        successful coordinator run. Atomically replaces coordinator state only upon success.
         """
         candles = adapt_candles(data)
         validate_start_candle(self.config, candles)
-        self.reset()
 
+        temp_coord = MSMChochCoordinator(self.config)
         for c in candles:
-            self._ingest_candle(c)
+            temp_coord._ingest_candle(c)
+
+        # Atomically copy successful run state into self
+        self._msm_engine = temp_coord._msm_engine
+        self._choch_detector = temp_coord._choch_detector
+        self._confirmed_choch_events = temp_coord._confirmed_choch_events
+        self._candle_lookup = temp_coord._candle_lookup
+        self._completed_candles = temp_coord._completed_candles
+        self._is_unresolved = temp_coord._is_unresolved
+        self._unresolved_diagnostic = temp_coord._unresolved_diagnostic
+        self._unresolved_candle_index = temp_coord._unresolved_candle_index
+        self._last_processed_index = temp_coord._last_processed_index
+        self._last_received_index = temp_coord._last_received_index
+        self._received_indices = temp_coord._received_indices
+        self._last_received_open_time = temp_coord._last_received_open_time
 
         return self.get_snapshot()
 
@@ -127,15 +146,18 @@ class MSMChochCoordinator:
     def replay_candles(
         self, data: Union[pd.DataFrame, List[StrategyCandle], List[dict]]
     ) -> List[CoordinatorSnapshot]:
-        """Replays candles bar-by-bar from a clean state and returns snapshots after each candle."""
+        """Replays candles bar-by-bar from a clean state and returns snapshots after each candle.
+
+        Executed on an isolated temporary coordinator without mutating live coordinator state.
+        """
         candles = adapt_candles(data)
         validate_start_candle(self.config, candles)
-        self.reset()
 
+        temp_coord = MSMChochCoordinator(self.config)
         snapshots: List[CoordinatorSnapshot] = []
         for c in candles:
-            self._ingest_candle(c)
-            snapshots.append(self.get_snapshot())
+            temp_coord._ingest_candle(c)
+            snapshots.append(temp_coord.get_snapshot())
 
         return snapshots
 
@@ -148,20 +170,20 @@ class MSMChochCoordinator:
             # Forming bars cause zero state mutations
             return
 
-        # Unresolved containment: if already unresolved, do NOT advance authoritative state!
+        # Separate received-input validation: duplicate and out-of-order checks
+        if candle.index in self._received_indices:
+            raise ValueError(f"Duplicate candle source index detected: {candle.index}")
+        if self._last_received_open_time is not None and candle.open_time <= self._last_received_open_time:
+            raise ValueError(
+                f"Non-chronological candle open_time: {candle.open_time} <= {self._last_received_open_time}"
+            )
+
+        # Unresolved containment: if already unresolved, record valid receipt metadata without advancing authoritative engines!
         if self._is_unresolved:
+            self._received_indices.add(candle.index)
+            self._last_received_open_time = candle.open_time
             self._last_received_index = candle.index
             return
-
-        # Validate ordering and uniqueness against authoritative history
-        if self._completed_candles:
-            last_completed = self._completed_candles[-1]
-            if candle.index in self._candle_lookup:
-                raise ValueError(f"Duplicate candle source index detected: {candle.index}")
-            if candle.open_time <= last_completed.open_time:
-                raise ValueError(
-                    f"Non-chronological candle open_time: {candle.open_time} <= {last_completed.open_time}"
-                )
 
         # -------------------------------------------------------------
         # Stage the entire transition in a staged working copy
@@ -213,6 +235,8 @@ class MSMChochCoordinator:
                 (d for d in choch_snap.diagnostics if d.is_unresolved),
                 None,
             )
+            self._received_indices.add(candle.index)
+            self._last_received_open_time = candle.open_time
             self._last_received_index = candle.index
             return
 
@@ -250,6 +274,8 @@ class MSMChochCoordinator:
         self._candle_lookup = candle_lookup_copy
         self._confirmed_choch_events = confirmed_events_copy
         self._last_processed_index = candle.index
+        self._received_indices.add(candle.index)
+        self._last_received_open_time = candle.open_time
         self._last_received_index = candle.index
 
     def get_snapshot(self) -> CoordinatorSnapshot:

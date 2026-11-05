@@ -363,7 +363,15 @@ def generate_chart_and_status_from_snapshot(
                 ctx = MSMContext.from_dict(msm_applied)
                 msm_res = calculate_msm(df, ctx)
                 if msm_res.is_valid and msm_res.snapshot is not None:
-                    msm_status_suffix = f" | 📐 MSM: {msm_res.snapshot.trend_status} ({len(msm_res.snapshot.confirmed_pairs)} pairs)"
+                    if msm_res.is_unresolved:
+                        msm_status_suffix = (
+                            f" | ⚠️ Integrated Unresolved: Bar #{msm_res.unresolved_candle_index} "
+                            f"(Authoritative: {msm_res.snapshot.trend_status})"
+                        )
+                    else:
+                        choch_cnt = len(msm_res.confirmed_choch_events)
+                        choch_str = f", {choch_cnt} CHOCH" if ctx.calculation_mode == "INTEGRATED_MSM_CHOCH" else ""
+                        msm_status_suffix = f" | 📐 MSM: {msm_res.snapshot.trend_status} ({len(msm_res.snapshot.confirmed_pairs)} pairs{choch_str})"
                 else:
                     msm_status_suffix = f" | ⚠️ MSM Error: {msm_res.error}"
             except Exception as e:

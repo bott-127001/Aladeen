@@ -346,6 +346,149 @@ def create_candlestick_chart(
                     )
                 )
 
+            # 8. Unresolved Boundary Representation
+            if getattr(msm_result, "is_unresolved", False):
+                unres_idx = getattr(msm_result, "unresolved_candle_index", None)
+                unres_diag = getattr(msm_result, "unresolved_diagnostic", None)
+                title_parts.append(
+                    f"<span style='color: #ff9800;'>⚠️ INTEGRATED UNRESOLVED (Bar #{unres_idx})</span>"
+                )
+                if unres_diag is not None:
+                    unres_time = unres_diag.candle_open_time
+                    if unres_time in df.index:
+                        shapes.append(
+                            dict(
+                                type="line",
+                                x0=unres_time,
+                                x1=unres_time,
+                                y0=0,
+                                y1=1,
+                                yref="paper",
+                                line=dict(color="#ff9800", width=2, dash="dash"),
+                            )
+                        )
+                        annotations.append(
+                            dict(
+                                x=unres_time,
+                                y=1.0,
+                                yref="paper",
+                                text=f"⚠️ Unresolved (Bar #{unres_idx})",
+                                showarrow=False,
+                                font=dict(color="#ff9800", size=10),
+                                bgcolor="#2e1a00",
+                                bordercolor="#ff9800",
+                            )
+                        )
+
+            # 9. CHOCH Confirmation Markers & Structural Zones
+            ctx = getattr(msm_result, "context", None)
+            show_markers = getattr(ctx, "show_choch_markers", True) if ctx else True
+            show_zones = getattr(ctx, "show_choch_zones", True) if ctx else True
+            choch_events = getattr(msm_result, "confirmed_choch_events", ())
+
+            if choch_events:
+                # Add confirmed CHOCH summary to title
+                if not getattr(msm_result, "is_unresolved", False):
+                    title_parts.append(f"<span style='color: #ff4081;'>CHOCH: {len(choch_events)} confirmed</span>")
+
+                for ev in choch_events:
+                    c2_time = ev.c2_open_time
+                    conf_time_str = (
+                        ev.confirmation_time.strftime("%Y-%m-%d %H:%M UTC")
+                        if ev.confirmation_time
+                        else f"{ev.c2_open_time.strftime('%Y-%m-%d %H:%M UTC')} (c2 close)"
+                    )
+                    is_bear = "BEARISH" in ev.choch_type.value
+                    m_color = "#ff4081" if is_bear else "#00e5ff"
+                    m_sym = "triangle-down" if is_bear else "triangle-up"
+                    m_pos = "bottom center" if is_bear else "top center"
+
+                    if show_markers:
+                        c2_y = float(df.loc[c2_time, "close"]) if c2_time in df.index else ev.broken_level_price
+                        choch_hover = (
+                            f"<b>Confirmed CHOCH ({ev.choch_type.value})</b><br>"
+                            f"Broken Level: {ev.broken_level_type} @ {ev.broken_level_price:.4f} (Bar #{ev.broken_level_source_index})<br>"
+                            f"c1: Bar #{ev.c1_candle_index} ({ev.c1_open_time.strftime('%Y-%m-%d %H:%M UTC')})<br>"
+                            f"c2: Bar #{ev.c2_candle_index} ({ev.c2_open_time.strftime('%Y-%m-%d %H:%M UTC')})<br>"
+                            f"Confirmation: {conf_time_str}<br>"
+                            f"Point 3: Bar #{ev.point_3_source_index} ({ev.point_3_open_time.strftime('%Y-%m-%d %H:%M UTC')})<br>"
+                            f"New Direction: {ev.new_direction.value}"
+                        )
+                        fig.add_trace(
+                            go.Scatter(
+                                x=[c2_time],
+                                y=[c2_y],
+                                mode="markers+text",
+                                name=f"CHOCH ({'BEAR' if is_bear else 'BULL'})",
+                                marker=dict(symbol=m_sym, size=15, color=m_color, line=dict(width=2, color="#ffffff")),
+                                text=[f"CHOCH ({'BEAR' if is_bear else 'BULL'})"],
+                                textposition=m_pos,
+                                textfont=dict(color=m_color, size=11, family="Segoe UI, sans-serif"),
+                                hovertext=[choch_hover],
+                                hoverinfo="text",
+                            )
+                        )
+
+                    if show_zones:
+                        x0_zone = ev.c2_open_time  # Available starting strictly from confirmation time
+                        x1_zone = last_chart_time
+                        for z in ev.zones:
+                            z_type_str = z.zone_type.value if hasattr(z.zone_type, "value") else str(z.zone_type)
+                            if "SBR" in z_type_str:
+                                border_color, fill_color = "#ff5252", "rgba(255, 82, 82, 0.15)"
+                            elif "RBS" in z_type_str:
+                                border_color, fill_color = "#00e676", "rgba(0, 230, 118, 0.15)"
+                            elif "QML" in z_type_str:
+                                border_color, fill_color = "#b388ff", "rgba(179, 136, 255, 0.15)"
+                            elif "TOP" in z_type_str:
+                                border_color, fill_color = "#ff7043", "rgba(255, 112, 67, 0.15)"
+                            else:
+                                border_color, fill_color = "#26a69a", "rgba(38, 166, 154, 0.15)"
+
+                            if z.is_line:
+                                shapes.append(
+                                    dict(
+                                        type="line",
+                                        x0=x0_zone,
+                                        x1=x1_zone,
+                                        y0=z.lower_price,
+                                        y1=z.lower_price,
+                                        line=dict(color=border_color, width=1.5, dash="dash"),
+                                    )
+                                )
+                            else:
+                                shapes.append(
+                                    dict(
+                                        type="rect",
+                                        x0=x0_zone,
+                                        x1=x1_zone,
+                                        y0=z.lower_price,
+                                        y1=z.upper_price,
+                                        fillcolor=fill_color,
+                                        line=dict(color=border_color, width=1),
+                                    )
+                                )
+
+                            mid_y = (z.lower_price + z.upper_price) / 2.0
+                            hover_z = (
+                                f"<b>Zone: {z_type_str}</b><br>"
+                                f"Price: {z.lower_price:.4f} – {z.upper_price:.4f}{' (Line)' if z.is_line else ''}<br>"
+                                f"Source Candle: Bar #{z.source_candle_index} ({z.source_candle_open_time.strftime('%Y-%m-%d %H:%M UTC')})<br>"
+                                f"Available From: {conf_time_str} (c2 Confirmation)"
+                            )
+                            fig.add_trace(
+                                go.Scatter(
+                                    x=[x0_zone, x1_zone],
+                                    y=[mid_y, mid_y],
+                                    mode="lines",
+                                    name=f"Zone: {z_type_str}",
+                                    line=dict(color=border_color, width=1, dash="dot"),
+                                    hovertext=[hover_z, hover_z],
+                                    hoverinfo="text",
+                                    showlegend=False,
+                                )
+                            )
+
     fig.update_layout(
         title=" | ".join(title_parts),
         yaxis_title="Price",

@@ -14,10 +14,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import math
+from enum import Enum
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 import numpy as np
 import pandas as pd
 
+from .coordinator import CoordinatorSnapshot, MSMChochCoordinator
+from .choch_types import ChochDiagnostic, ConfirmedChoch
 from .engine import MSMEngine
 from .types import (
     Direction,
@@ -34,6 +37,12 @@ from .types import (
 from .validator import adapt_candles, validate_start_candle
 
 SUPPORTED_RULE_VERSIONS: Set[str] = {"1.0"}
+
+
+class CalculationMode(str, Enum):
+    """Strategy calculation mode."""
+    STANDALONE_MSM = "STANDALONE_MSM"
+    INTEGRATED_MSM_CHOCH = "INTEGRATED_MSM_CHOCH"
 
 
 def validate_candle_completion(row_pos: int, row: Any) -> Tuple[bool, str]:
@@ -104,7 +113,7 @@ def is_candle_completed(row_pos: int, row: Any) -> bool:
 
 @dataclass(frozen=True)
 class MSMContext:
-    """Configuration context for an applied MSM calculation."""
+    """Configuration context for an applied MSM / Strategy calculation."""
     data_source: str
     symbol: str
     timeframe: str
@@ -112,6 +121,9 @@ class MSMContext:
     direction: Direction
     rule_version: str = "1.0"
     enabled: bool = True
+    calculation_mode: str = CalculationMode.STANDALONE_MSM.value
+    show_choch_zones: bool = True
+    show_choch_markers: bool = True
 
     def __post_init__(self) -> None:
         if not isinstance(self.data_source, str) or not self.data_source.strip():
@@ -144,6 +156,13 @@ class MSMContext:
         else:
             raise TypeError(f"enabled must be bool, got {type(self.enabled).__name__} ({self.enabled})")
 
+        valid_modes = {CalculationMode.STANDALONE_MSM.value, CalculationMode.INTEGRATED_MSM_CHOCH.value}
+        if self.calculation_mode not in valid_modes:
+            raise ValueError(f"Unknown calculation_mode '{self.calculation_mode}'. Must be one of {valid_modes}")
+
+        object.__setattr__(self, "show_choch_zones", bool(self.show_choch_zones))
+        object.__setattr__(self, "show_choch_markers", bool(self.show_choch_markers))
+
     def to_dict(self) -> Dict[str, Any]:
         """Serialize context to a JSON-compatible dictionary."""
         return {
@@ -154,6 +173,9 @@ class MSMContext:
             "direction": self.direction.value,
             "rule_version": self.rule_version,
             "enabled": self.enabled,
+            "calculation_mode": self.calculation_mode,
+            "show_choch_zones": self.show_choch_zones,
+            "show_choch_markers": self.show_choch_markers,
         }
 
     @classmethod
@@ -186,6 +208,9 @@ class MSMContext:
             raise TypeError(f"direction must be str or Direction, got {type(raw_dir).__name__}")
 
         start_time = validate_and_normalize_timestamp(data["start_candle_time"], "start_candle_time")
+        calc_mode = data.get("calculation_mode", CalculationMode.STANDALONE_MSM.value)
+        show_zones = bool(data.get("show_choch_zones", True))
+        show_markers = bool(data.get("show_choch_markers", True))
 
         return cls(
             data_source=data["data_source"],
@@ -195,18 +220,28 @@ class MSMContext:
             direction=Direction(raw_dir) if isinstance(raw_dir, str) else raw_dir,
             rule_version=rule_ver,
             enabled=bool(raw_enabled),
+            calculation_mode=calc_mode,
+            show_choch_zones=show_zones,
+            show_choch_markers=show_markers,
         )
 
 
 @dataclass(frozen=True)
 class MSMServiceResult:
-    """Immutable result structure of an MSM service calculation."""
+    """Immutable result structure of an MSM / CHOCH service calculation."""
     context: MSMContext
     snapshot: Optional[MSMSnapshot]
     candles: Tuple[StrategyCandle, ...]
     status_message: str
     candle_count: int
     start_candle_found: bool
+    coordinator_snapshot: Optional[CoordinatorSnapshot] = None
+    confirmed_choch_events: Tuple[ConfirmedChoch, ...] = ()
+    is_unresolved: bool = False
+    unresolved_diagnostic: Optional[ChochDiagnostic] = None
+    unresolved_candle_index: Optional[int] = None
+    last_processed_index: int = -1
+    last_received_index: int = -1
     error: Optional[str] = None
 
     @property
@@ -369,23 +404,66 @@ def calculate_msm(df: pd.DataFrame, context: MSMContext) -> MSMServiceResult:
             start_candle_time=context.start_candle_time,
             direction=context.direction,
         )
-        engine = MSMEngine(config)
-        snapshot = engine.process_candles(candles)
-        pair_count = len(snapshot.confirmed_pairs)
-        status_msg = (
-            f"MSM Applied: {context.direction.value} from "
-            f"{context.start_candle_time.strftime('%Y-%m-%d %H:%M UTC')} | "
-            f"Pairs: {pair_count} | Trend: {snapshot.trend_status}"
-        )
-        return MSMServiceResult(
-            context=context,
-            snapshot=snapshot,
-            candles=tuple(candles),
-            status_message=status_msg,
-            candle_count=len(candles),
-            start_candle_found=True,
-            error=None,
-        )
+        if context.calculation_mode == CalculationMode.INTEGRATED_MSM_CHOCH.value:
+            coordinator = MSMChochCoordinator(config)
+            coord_snap = coordinator.process_candles(candles)
+            snapshot = coord_snap.msm_snapshot
+            pair_count = len(snapshot.confirmed_pairs) if snapshot else 0
+            choch_count = len(coord_snap.confirmed_choch_events)
+
+            if coord_snap.is_unresolved:
+                status_msg = (
+                    f"Integrated structure unresolved: ambiguous at candle {coord_snap.unresolved_candle_index} | "
+                    f"Last Authoritative: {snapshot.trend_status if snapshot else 'None'} | "
+                    f"Pairs: {pair_count} | CHOCH: {choch_count}"
+                )
+            else:
+                applied_dir_str = (
+                    coord_snap.active_direction.value
+                    if coord_snap.active_direction is not None
+                    else context.direction.value
+                )
+                status_msg = (
+                    f"MSM+CHOCH Applied: {applied_dir_str} | "
+                    f"Pairs: {pair_count} | CHOCH: {choch_count} | "
+                    f"Trend: {snapshot.trend_status if snapshot else 'None'}"
+                )
+            return MSMServiceResult(
+                context=context,
+                snapshot=snapshot,
+                candles=tuple(candles),
+                status_message=status_msg,
+                candle_count=len(candles),
+                start_candle_found=True,
+                coordinator_snapshot=coord_snap,
+                confirmed_choch_events=coord_snap.confirmed_choch_events,
+                is_unresolved=coord_snap.is_unresolved,
+                unresolved_diagnostic=coord_snap.unresolved_diagnostic,
+                unresolved_candle_index=coord_snap.unresolved_candle_index,
+                last_processed_index=coord_snap.last_processed_index,
+                last_received_index=coord_snap.last_received_index,
+                error=None,
+            )
+        else:
+            engine = MSMEngine(config)
+            snapshot = engine.process_candles(candles)
+            pair_count = len(snapshot.confirmed_pairs)
+            status_msg = (
+                f"MSM Applied: {context.direction.value} from "
+                f"{context.start_candle_time.strftime('%Y-%m-%d %H:%M UTC')} | "
+                f"Pairs: {pair_count} | Trend: {snapshot.trend_status}"
+            )
+            return MSMServiceResult(
+                context=context,
+                snapshot=snapshot,
+                candles=tuple(candles),
+                status_message=status_msg,
+                candle_count=len(candles),
+                start_candle_found=True,
+                last_processed_index=snapshot.last_processed_index,
+                last_received_index=snapshot.last_processed_index,
+                error=None,
+            )
     except Exception as e:
         return MSMServiceResult(
             context=context,

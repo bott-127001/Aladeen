@@ -866,3 +866,65 @@ class TestCHOCHExecution:
         assert snap_after.last_processed_index == candles[8].index
         assert snap_after.choch_snapshot.candidate is not None
         assert snap_after.choch_snapshot.candidate.c1_candle_index == candles[8].index
+
+    def test_unresolved_boundary_validates_received_chronology_and_uniqueness(self, choch_fixtures):
+        """Offline Qualification: Duplicate or out-of-order received input after unresolved boundary is rejected with ValueError."""
+        fix = choch_fixtures["choch_bearish_basic_end_to_end"]
+        config = MSMConfig(start_candle_time=datetime.fromisoformat(fix["start_candle_time"]), direction=Direction.UPWARD)
+        coordinator = MSMChochCoordinator(config)
+
+        from aladeen.strategy.validator import adapt_candles
+        candles = adapt_candles(fix["candles"])
+
+        # Feed up to candle 6
+        for c in candles[:7]:
+            coordinator.process_candle(c)
+
+        # Candle 7 triggers ambiguous same-close
+        orig_c7 = candles[7]
+        ambig_c7 = StrategyCandle(orig_c7.index, orig_c7.open_time, 1.130, 1.132, 1.085, 1.090, False, "CONFIRMED_COMPLETED", orig_c7.close_time)
+        coordinator.process_candle(ambig_c7)
+        assert coordinator.is_unresolved is True
+        assert coordinator.last_received_index == ambig_c7.index
+
+        # Attempt to pass duplicate index after unresolved boundary
+        dup_candle = StrategyCandle(ambig_c7.index, datetime(2026, 10, 2, 8, tzinfo=timezone.utc), 1.090, 1.095, 1.085, 1.092, False, "CONFIRMED_COMPLETED")
+        with pytest.raises(ValueError, match="Duplicate candle source index detected"):
+            coordinator.process_candle(dup_candle)
+
+        # Attempt to pass non-chronological timestamp after unresolved boundary
+        earlier_candle = StrategyCandle(99, datetime(2026, 10, 2, 2, tzinfo=timezone.utc), 1.090, 1.095, 1.085, 1.092, False, "CONFIRMED_COMPLETED")
+        with pytest.raises(ValueError, match="Non-chronological candle open_time"):
+            coordinator.process_candle(earlier_candle)
+
+        # Authoritative state and receipt index remain intact
+        assert coordinator.is_unresolved is True
+        assert coordinator.last_received_index == ambig_c7.index
+        assert coordinator.last_processed_index == candles[6].index
+
+    def test_failed_batch_does_not_replace_previously_successful_run(self, choch_fixtures):
+        """Offline Qualification: A failed batch run on an isolated temporary coordinator leaves the previously successful run completely intact."""
+        fix = choch_fixtures["choch_bearish_basic_end_to_end"]
+        config = MSMConfig(start_candle_time=datetime.fromisoformat(fix["start_candle_time"]), direction=Direction.UPWARD)
+        coordinator = MSMChochCoordinator(config)
+
+        # 1. Run successful batch
+        snap_initial = coordinator.process_candles(fix["candles"])
+        assert len(coordinator.confirmed_choch_events) == 1
+        assert coordinator.direction == Direction.DOWNWARD
+
+        # 2. Prepare a batch where candle 8 is non-chronological
+        from aladeen.strategy.validator import adapt_candles
+        bad_batch = adapt_candles(fix["candles"])
+        # Corrupt candle open_time for mid-batch failure
+        bad_candle = StrategyCandle(8, datetime(2026, 10, 1, 0, tzinfo=timezone.utc), 1.0, 1.1, 0.9, 1.05, False, "CONFIRMED_COMPLETED")
+        bad_batch_list = [c if i != 8 else bad_candle for i, c in enumerate(bad_batch)]
+
+        with pytest.raises(ValueError):
+            coordinator.process_candles(bad_batch_list)
+
+        # Prior successful run is 100% preserved!
+        snap_after_failure = coordinator.get_snapshot()
+        assert snap_after_failure == snap_initial
+        assert len(coordinator.confirmed_choch_events) == 1
+        assert coordinator.direction == Direction.DOWNWARD

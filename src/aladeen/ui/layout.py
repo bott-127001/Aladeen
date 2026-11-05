@@ -318,10 +318,25 @@ def _build_msm_controls() -> html.Div:
                     ),
                 ],
             ),
-            # Controls Row (R10.2: initial value=None for direction & start candle)
+            # Controls Row 1: Mode, Direction, Start Candle, Display Toggles, Apply Button
             html.Div(
                 style={"display": "flex", "alignItems": "center", "gap": "16px", "flexWrap": "wrap"},
                 children=[
+                    # Calculation Mode Selector
+                    html.Div([
+                        html.Label("Mode", style={"color": "#aaa", "fontSize": "12px", "display": "block", "marginBottom": "4px"}),
+                        dcc.RadioItems(
+                            id="strategy-calculation-mode",
+                            options=[
+                                {"label": " Standalone MSM", "value": "STANDALONE_MSM"},
+                                {"label": " Integrated MSM + CHOCH", "value": "INTEGRATED_MSM_CHOCH"},
+                            ],
+                            value="STANDALONE_MSM",
+                            inline=True,
+                            style={"color": "#e0e0e0", "fontSize": "13px"},
+                            inputStyle={"marginRight": "4px", "marginLeft": "8px"},
+                        ),
+                    ]),
                     # Initial Direction (R10.2: value=None, manual selection required)
                     html.Div([
                         html.Label("Initial Direction", style={"color": "#aaa", "fontSize": "12px", "display": "block", "marginBottom": "4px"}),
@@ -334,7 +349,7 @@ def _build_msm_controls() -> html.Div:
                             value=None,
                             inline=True,
                             style={"color": "#e0e0e0", "fontSize": "13px"},
-                            inputStyle={"marginRight": "4px", "marginLeft": "10px"},
+                            inputStyle={"marginRight": "4px", "marginLeft": "8px"},
                         ),
                     ]),
                     # Starting Candle Dropdown (R10.2: value=None, manual selection required)
@@ -346,7 +361,22 @@ def _build_msm_controls() -> html.Div:
                             value=None,
                             placeholder="Select completed starting candle...",
                             clearable=False,
-                            style={"width": "360px", "color": "#000"},
+                            style={"width": "340px", "color": "#000"},
+                        ),
+                    ]),
+                    # CHOCH Display Toggles
+                    html.Div([
+                        html.Label("CHOCH Display", style={"color": "#aaa", "fontSize": "12px", "display": "block", "marginBottom": "4px"}),
+                        dcc.Checklist(
+                            id="choch-display-toggles",
+                            options=[
+                                {"label": " Markers", "value": "markers"},
+                                {"label": " Zones", "value": "zones"},
+                            ],
+                            value=["markers", "zones"],
+                            inline=True,
+                            style={"color": "#e0e0e0", "fontSize": "13px"},
+                            inputStyle={"marginRight": "4px", "marginLeft": "8px"},
                         ),
                     ]),
                     # Apply / Calculate Button
@@ -409,7 +439,7 @@ def _build_msm_inspection_panel() -> html.Div:
             ),
             # Strategy Scope Boundaries Disclaimer
             html.Div(
-                "ℹ️ Scope boundary: CHOCH, ISS, TJL, zone activations, and entry signals are not implemented in this milestone (Pure MSM read-only structure phase).",
+                "ℹ️ Scope boundary: ISS, TJL, zone activations, and entry signals are strictly out of scope (MSM + CHOCH read-only structure phase). No automated trading, no order execution.",
                 style={"fontSize": "11px", "color": "#555", "marginTop": "12px", "borderTop": "1px solid #222233", "paddingTop": "6px"},
             ),
         ],

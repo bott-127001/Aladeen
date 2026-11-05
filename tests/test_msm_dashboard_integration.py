@@ -1753,3 +1753,338 @@ class TestHandoff015AcceptanceGateAndPublicationRegressions:
             )
 
 
+class TestIntegratedMSMChochDashboard:
+    """Offline integration tests for MSM + CHOCH dashboard features and visual boundary rules."""
+
+    @pytest.fixture
+    def choch_acceptance_fixtures(self):
+        import json
+        from pathlib import Path
+        path = Path(__file__).parent / "fixtures" / "choch_acceptance.json"
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)["fixtures"]
+
+    def test_layout_contains_mode_and_display_toggles(self) -> None:
+        """Dashboard layout contains calculation mode selector and display toggles."""
+        layout = build_layout()
+        found_mode = False
+        found_toggles = False
+
+        def search_components(component):
+            nonlocal found_mode, found_toggles
+            cid = getattr(component, "id", None)
+            if cid == "strategy-calculation-mode":
+                found_mode = True
+            elif cid == "choch-display-toggles":
+                found_toggles = True
+            children = getattr(component, "children", None)
+            if isinstance(children, list):
+                for child in children:
+                    search_components(child)
+            elif children is not None:
+                search_components(children)
+
+        search_components(layout)
+        assert found_mode is True, "strategy-calculation-mode not found in layout"
+        assert found_toggles is True, "choch-display-toggles not found in layout"
+
+    def test_draft_calculation_mode_change_detected(self) -> None:
+        """Switching calculation mode drafts unapplied changes without recalculating."""
+        snap, _ = fetch_market_snapshot("demo", DEMO_SYMBOL, "H4", 100, False)
+        applied_data = {
+            "data_source": "demo",
+            "symbol": DEMO_SYMBOL,
+            "timeframe": "H4",
+            "start_candle_time": "2026-10-01T00:00:00+00:00",
+            "direction": "UPWARD",
+            "rule_version": "1.0",
+            "enabled": True,
+            "calculation_mode": "STANDALONE_MSM",
+            "show_choch_zones": True,
+            "show_choch_markers": True,
+        }
+
+        # User changes mode to INTEGRATED_MSM_CHOCH
+        res_store, status_text, status_style, panel = process_msm_controls_update(
+            triggered_id="strategy-calculation-mode",
+            enable_toggle_val=["enabled"],
+            direction_val="UPWARD",
+            start_candle_val="2026-10-01T00:00:00+00:00",
+            market_snapshot_data=snap,
+            applied_data=applied_data,
+            calculation_mode_val="INTEGRATED_MSM_CHOCH",
+            display_toggles_val=["markers", "zones"],
+        )
+
+        assert "Unapplied changes" in status_text
+        assert status_style["color"] == "#ffd600"
+        # Applied store remains untouched until Apply is clicked
+        assert res_store == applied_data
+        assert res_store["calculation_mode"] == "STANDALONE_MSM"
+
+    def test_apply_integrated_msm_choch_end_to_end(self, choch_acceptance_fixtures) -> None:
+        """Applying Integrated MSM+CHOCH produces confirmed CHOCH event, inspection tables, and chart traces."""
+        fix = choch_acceptance_fixtures["choch_bearish_basic_end_to_end"]
+        raw_candles = fix["candles"]
+
+        candle_records = [
+            MarketCandleRecord(
+                time=c["time"],
+                open=c["open"],
+                high=c["high"],
+                low=c["low"],
+                close=c["close"],
+                is_forming=c["is_forming"],
+                bar_status=c["bar_status"],
+                index=i,
+                close_time=c.get("close_time"),
+            )
+            for i, c in enumerate(raw_candles)
+        ]
+
+        snap = MarketDataSnapshot(
+            revision_id="rev-choch-test",
+            data_source="demo",
+            symbol="EURUSD",
+            timeframe="H4",
+            candle_count=len(candle_records),
+            timestamp_utc="2026-10-02 12:00:00 UTC",
+            fetch_status="SUCCESS",
+            candles_data=tuple(candle_records),
+        )
+
+        applied_store, status_text, status_style, panel = process_msm_controls_update(
+            triggered_id="msm-apply-btn",
+            enable_toggle_val=["enabled"],
+            direction_val="UPWARD",
+            start_candle_val=fix["start_candle_time"],
+            market_snapshot_data=snap.to_dict(),
+            applied_data=None,
+            calculation_mode_val="INTEGRATED_MSM_CHOCH",
+            display_toggles_val=["markers", "zones"],
+        )
+
+        assert applied_store is not None
+        assert applied_store["calculation_mode"] == "INTEGRATED_MSM_CHOCH"
+        assert "1 CHOCH confirmed" in status_text
+        assert status_style["color"] == "#00e676"
+
+        # Check chart generation
+        df = snap.to_dataframe()
+        ctx = MSMContext.from_dict(applied_store)
+        res = calculate_msm(df, ctx)
+        assert res.is_valid
+        assert len(res.confirmed_choch_events) == 1
+        ev = res.confirmed_choch_events[0]
+        assert ev.c1_candle_index == 8
+        assert ev.c2_candle_index == 9
+        assert len(ev.zones) == 3
+
+        fig = create_candlestick_chart(df, symbol="EURUSD", timeframe="H4", msm_result=res)
+        # Verify chart traces
+        trace_names = [t.name for t in fig.data if hasattr(t, "name")]
+        assert "CHOCH (BEAR)" in trace_names
+
+        # Verify zones on chart start strictly at c2 confirmation time
+        c2_time = ev.c2_open_time
+        zone_shapes = [s for s in fig.layout.shapes if s.x0 == c2_time]
+        assert len(zone_shapes) == 3, f"Expected 3 zone shapes starting at c2_time, got {len(zone_shapes)}"
+
+        # Check zone geometries
+        rect_zones = [s for s in zone_shapes if s.type == "rect"]
+        line_zones = [s for s in zone_shapes if s.type == "line"]
+        assert len(rect_zones) + len(line_zones) == 3
+
+    def test_zones_tradability_boundary_never_starts_at_source_swing_time(self, choch_acceptance_fixtures) -> None:
+        """Tradability Boundary: Zones start at c2 confirmation, NEVER at original swing candle."""
+        fix = choch_acceptance_fixtures["choch_bearish_basic_end_to_end"]
+        candle_records = [
+            MarketCandleRecord(
+                time=c["time"],
+                open=c["open"],
+                high=c["high"],
+                low=c["low"],
+                close=c["close"],
+                is_forming=c["is_forming"],
+                bar_status=c["bar_status"],
+                index=i,
+                close_time=c.get("close_time"),
+            )
+            for i, c in enumerate(fix["candles"])
+        ]
+        snap = MarketDataSnapshot(
+            revision_id="rev-bound",
+            data_source="demo",
+            symbol="EURUSD",
+            timeframe="H4",
+            candle_count=len(candle_records),
+            timestamp_utc="2026-10-02 12:00:00 UTC",
+            fetch_status="SUCCESS",
+            candles_data=tuple(candle_records),
+        )
+        df = snap.to_dataframe()
+        ctx = MSMContext(
+            data_source="demo",
+            symbol="EURUSD",
+            timeframe="H4",
+            start_candle_time=pd.to_datetime(fix["start_candle_time"], utc=True).to_pydatetime(),
+            direction=Direction.UPWARD,
+            calculation_mode="INTEGRATED_MSM_CHOCH",
+            show_choch_zones=True,
+            show_choch_markers=True,
+        )
+        res = calculate_msm(df, ctx)
+        ev = res.confirmed_choch_events[0]
+        fig = create_candlestick_chart(df, symbol="EURUSD", timeframe="H4", msm_result=res)
+
+        # None of the zone shapes should have x0 at source swing candle open times
+        source_swing_times = {z.source_candle_open_time for z in ev.zones}
+        for s in fig.layout.shapes:
+            if hasattr(s, "x0") and s.x0 in source_swing_times and s.x0 != ev.c2_open_time:
+                pytest.fail(f"Zone shape drawn starting at source swing time {s.x0} prior to confirmation!")
+
+    def test_display_toggles_update_presentation_without_recalculating(self, choch_acceptance_fixtures) -> None:
+        """Display toggles update msm-applied-store and chart traces without changing calculation results."""
+        fix = choch_acceptance_fixtures["choch_bearish_basic_end_to_end"]
+        candle_records = [
+            MarketCandleRecord(
+                time=c["time"],
+                open=c["open"],
+                high=c["high"],
+                low=c["low"],
+                close=c["close"],
+                is_forming=c["is_forming"],
+                bar_status=c["bar_status"],
+                index=i,
+                close_time=c.get("close_time"),
+            )
+            for i, c in enumerate(fix["candles"])
+        ]
+        snap = MarketDataSnapshot(
+            revision_id="rev-tog",
+            data_source="demo",
+            symbol="EURUSD",
+            timeframe="H4",
+            candle_count=len(candle_records),
+            timestamp_utc="2026-10-02 12:00:00 UTC",
+            fetch_status="SUCCESS",
+            candles_data=tuple(candle_records),
+        )
+
+        applied_data = {
+            "data_source": "demo",
+            "symbol": "EURUSD",
+            "timeframe": "H4",
+            "start_candle_time": fix["start_candle_time"],
+            "direction": "UPWARD",
+            "rule_version": "1.0",
+            "enabled": True,
+            "calculation_mode": "INTEGRATED_MSM_CHOCH",
+            "show_choch_zones": True,
+            "show_choch_markers": True,
+        }
+
+        # Toggle off markers and zones
+        updated_applied, status_text, status_style, panel = process_msm_controls_update(
+            triggered_id="choch-display-toggles",
+            enable_toggle_val=["enabled"],
+            direction_val="UPWARD",
+            start_candle_val=fix["start_candle_time"],
+            market_snapshot_data=snap.to_dict(),
+            applied_data=applied_data,
+            display_toggles_val=[],  # empty = both disabled
+        )
+
+        assert updated_applied["show_choch_markers"] is False
+        assert updated_applied["show_choch_zones"] is False
+        assert updated_applied["calculation_mode"] == "INTEGRATED_MSM_CHOCH"
+
+        # Chart with markers and zones disabled
+        df = snap.to_dataframe()
+        ctx = MSMContext.from_dict(updated_applied)
+        res = calculate_msm(df, ctx)
+        fig = create_candlestick_chart(df, symbol="EURUSD", timeframe="H4", msm_result=res)
+        trace_names = [t.name for t in fig.data if hasattr(t, "name")]
+        assert "CHOCH (BEAR)" not in trace_names
+        # No zone shapes starting at c2_open_time
+        ev = res.confirmed_choch_events[0]
+        c2_shapes = [s for s in fig.layout.shapes if getattr(s, "x0", None) == ev.c2_open_time]
+        assert len(c2_shapes) == 0
+
+    def test_unresolved_boundary_presentation_and_containment(self, choch_acceptance_fixtures) -> None:
+        """Unresolved state (c1 == p2) presents orange warning banner, frozen pre-ambiguity state, and non-green styling."""
+        fix = choch_acceptance_fixtures["choch_bearish_basic_end_to_end"]
+        raw_candles = [dict(c) for c in fix["candles"]]
+        # Make candle 7 close below 1.105 (e.g. 1.090) so c1 == candle 7, which equals p2!
+        c7 = dict(raw_candles[7])
+        c7["open"] = 1.130
+        c7["high"] = 1.132
+        c7["low"] = 1.085
+        c7["close"] = 1.090
+        raw_candles[7] = c7
+
+        candle_records = [
+            MarketCandleRecord(
+                time=c["time"],
+                open=c["open"],
+                high=c["high"],
+                low=c["low"],
+                close=c["close"],
+                is_forming=c["is_forming"],
+                bar_status=c["bar_status"],
+                index=i,
+                close_time=c.get("close_time"),
+            )
+            for i, c in enumerate(raw_candles)
+        ]
+
+        snap = MarketDataSnapshot(
+            revision_id="rev-unres",
+            data_source="demo",
+            symbol="EURUSD",
+            timeframe="H4",
+            candle_count=len(candle_records),
+            timestamp_utc="2026-10-02 12:00:00 UTC",
+            fetch_status="SUCCESS",
+            candles_data=tuple(candle_records),
+        )
+
+        applied_store, status_text, status_style, panel = process_msm_controls_update(
+            triggered_id="msm-apply-btn",
+            enable_toggle_val=["enabled"],
+            direction_val="UPWARD",
+            start_candle_val=fix["start_candle_time"],
+            market_snapshot_data=snap.to_dict(),
+            applied_data=None,
+            calculation_mode_val="INTEGRATED_MSM_CHOCH",
+            display_toggles_val=["markers", "zones"],
+        )
+
+        assert applied_store is not None
+        assert "Integrated structure unresolved" in status_text
+        assert "ambiguous at candle 7" in status_text
+        # Non-green styling: orange #ff9800
+        assert status_style["color"] == "#ff9800"
+
+        # Check inspection panel
+        df = snap.to_dataframe()
+        ctx = MSMContext.from_dict(applied_store)
+        res = calculate_msm(df, ctx)
+        assert res.is_unresolved is True
+        assert res.unresolved_candle_index == 7
+        assert res.last_processed_index == 6
+        assert res.last_received_index == 9
+
+        # Chart representation
+        fig = create_candlestick_chart(df, symbol="EURUSD", timeframe="H4", msm_result=res)
+        assert "INTEGRATED UNRESOLVED (Bar #7)" in fig.layout.title.text
+        # Check vertical line shape for unresolved candle
+        unres_shapes = [
+            s for s in fig.layout.shapes
+            if getattr(getattr(s, "line", None), "color", None) == "#ff9800"
+            or (isinstance(getattr(s, "line", None), dict) and s.line.get("color") == "#ff9800")
+        ]
+        assert len(unres_shapes) >= 1
+
+
+

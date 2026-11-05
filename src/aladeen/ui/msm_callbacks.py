@@ -112,8 +112,56 @@ def render_msm_inspection_table(
     snapshot: MSMSnapshot,
     context: MSMContext,
     revision_id: str = "",
+    msm_result: Optional[MSMServiceResult] = None,
 ) -> html.Div:
-    """Generate the HTML inspection table for an applied MSM snapshot."""
+    """Generate the HTML inspection table for an applied MSM / CHOCH snapshot."""
+    unresolved_banner: Optional[html.Div] = None
+    if msm_result is not None and msm_result.is_unresolved:
+        unres_candle = msm_result.unresolved_candle_index
+        unres_msg = (
+            msm_result.unresolved_diagnostic.message
+            if msm_result.unresolved_diagnostic
+            else "Point 3 same-close ambiguity ($c_1 == p_2$)"
+        )
+        unresolved_banner = html.Div(
+            id="unresolved-status-banner",
+            style={
+                "background": "#2e1a00",
+                "border": "1px solid #ff9800",
+                "borderRadius": "6px",
+                "padding": "12px 16px",
+                "marginBottom": "14px",
+                "color": "#ffe0b2",
+            },
+            children=[
+                html.Div(
+                    style={"display": "flex", "alignItems": "center", "gap": "8px", "marginBottom": "6px"},
+                    children=[
+                        html.Span("⚠️", style={"fontSize": "18px"}),
+                        html.B(
+                            "INTEGRATED STRUCTURE UNRESOLVED — AMBIGUOUS BOUNDARY",
+                            style={"color": "#ffb74d", "fontSize": "14px"},
+                        ),
+                    ],
+                ),
+                html.P(
+                    f"Structural ambiguity detected at Candle #{unres_candle}: {unres_msg}. "
+                    f"Markings reflect the last authoritative state prior to ambiguity. "
+                    f"Authoritative progress is frozen at Bar #{msm_result.last_processed_index}; "
+                    f"later input received through Bar #{msm_result.last_received_index} without green success styling.",
+                    style={"fontSize": "12px", "lineHeight": "1.4", "margin": "0 0 6px 0", "color": "#ffcc80"},
+                ),
+                html.Div(
+                    style={"fontSize": "11px", "color": "#bcaaa4"},
+                    children=[
+                        html.Span(f"Authoritative Bar: #{msm_result.last_processed_index} | "),
+                        html.Span(f"Latest Received Input: Bar #{msm_result.last_received_index} | "),
+                        html.Span("Status: Frozen pre-ambiguity state pending reconciliation."),
+                    ],
+                ),
+            ],
+        )
+
     table_header = html.Thead(
         html.Tr(
             style={"background": "#1e1e30", "color": "#a0a0b8", "fontSize": "12px", "textAlign": "left"},
@@ -186,12 +234,21 @@ def render_msm_inspection_table(
     ])
 
     summary_items = [
+        html.Span([html.B("Mode: "), html.Code(context.calculation_mode, style={"color": "#b388ff"})], style={"fontSize": "12px", "color": "#ccc"}),
         html.Span([html.B("Engine State: "), html.Code(snapshot.state.value, style={"color": "#00b0ff"})], style={"fontSize": "12px", "color": "#ccc"}),
         html.Span([html.B("Trend Status: "), html.Span(snapshot.trend_status, style={"color": "#00e5ff"})], style={"fontSize": "12px", "color": "#ccc"}),
         html.Span([html.B("Confirmed Pairs: "), html.Span(str(len(snapshot.confirmed_pairs)), style={"color": "#00e676", "fontWeight": "bold"})], style={"fontSize": "12px", "color": "#ccc"}),
         html.Span([html.B("Starting Candle: "), html.Span(context.start_candle_time.strftime("%Y-%m-%d %H:%M UTC"), style={"color": "#ffd54f"})], style={"fontSize": "12px", "color": "#ccc"}),
-        html.Span([html.B("Direction: "), html.Span(context.direction.value, style={"color": "#ff80ab"})], style={"fontSize": "12px", "color": "#ccc"}),
+        html.Span([html.B("Initial Dir: "), html.Span(context.direction.value, style={"color": "#ff80ab"})], style={"fontSize": "12px", "color": "#ccc"}),
     ]
+
+    if msm_result is not None and msm_result.coordinator_snapshot is not None:
+        summary_items.append(
+            html.Span([html.B("Active Dir: "), html.Span(msm_result.coordinator_snapshot.active_direction.value, style={"color": "#00e5ff", "fontWeight": "bold"})], style={"fontSize": "12px", "color": "#ccc"})
+        )
+        summary_items.append(
+            html.Span([html.B("Confirmed CHOCH: "), html.Span(str(len(msm_result.confirmed_choch_events)), style={"color": "#ff4081", "fontWeight": "bold"})], style={"fontSize": "12px", "color": "#ccc"})
+        )
 
     if snapshot.last_support is not None:
         summary_items.append(
@@ -218,13 +275,141 @@ def render_msm_inspection_table(
         children=summary_items,
     )
 
-    return html.Div([
-        summary_bar,
+    # Optional CHOCH Events and Zones Tables
+    choch_events_table: Optional[html.Div] = None
+    choch_zones_table: Optional[html.Div] = None
+
+    if msm_result is not None and msm_result.confirmed_choch_events:
+        choch_events_table = html.Div(
+            style={"marginBottom": "16px"},
+            children=[
+                html.H5("⚡ Confirmed Change of Character (CHOCH) Events", style={"color": "#ff4081", "margin": "12px 0 6px 0"}),
+                html.Table(
+                    [
+                        html.Thead(
+                            html.Tr(
+                                style={"background": "#1e1e30", "color": "#a0a0b8", "fontSize": "12px", "textAlign": "left"},
+                                children=[
+                                    html.Th("Event ID", style={"padding": "8px 12px"}),
+                                    html.Th("Type", style={"padding": "8px 12px"}),
+                                    html.Th("Broken Level", style={"padding": "8px 12px"}),
+                                    html.Th("Qualifying Closes (c1, c2)", style={"padding": "8px 12px"}),
+                                    html.Th("Point 3", style={"padding": "8px 12px"}),
+                                    html.Th("Confirmation Time", style={"padding": "8px 12px"}),
+                                    html.Th("Reversal Direction", style={"padding": "8px 12px"}),
+                                ],
+                            )
+                        ),
+                        html.Tbody([
+                            html.Tr(
+                                style={"borderBottom": "1px solid #232338", "fontSize": "12px", "color": "#e0e0e0"},
+                                children=[
+                                    html.Td(html.Code(ev.event_id, style={"color": "#ff4081"}), style={"padding": "6px 12px"}),
+                                    html.Td(
+                                        html.Span(
+                                            ev.choch_type.value,
+                                            style={
+                                                "padding": "2px 6px",
+                                                "borderRadius": "3px",
+                                                "background": "#880e4f" if "BEARISH" in ev.choch_type.value else "#004d40",
+                                                "color": "#ff80ab" if "BEARISH" in ev.choch_type.value else "#80cbc4",
+                                                "fontSize": "10px",
+                                                "fontWeight": "bold",
+                                            },
+                                        ),
+                                        style={"padding": "6px 12px"},
+                                    ),
+                                    html.Td(f"{ev.broken_level_type}: {ev.broken_level_price:.4f} (Bar #{ev.broken_level_source_index})", style={"padding": "6px 12px"}),
+                                    html.Td(
+                                        f"c1: #{ev.c1_candle_index} ({ev.c1_open_time.strftime('%H:%M')}) | "
+                                        f"c2: #{ev.c2_candle_index} ({ev.c2_open_time.strftime('%H:%M')})",
+                                        style={"padding": "6px 12px"},
+                                    ),
+                                    html.Td(f"Bar #{ev.point_3_source_index} ({ev.point_3_open_time.strftime('%H:%M')})", style={"padding": "6px 12px"}),
+                                    html.Td(
+                                        ev.confirmation_time.strftime("%Y-%m-%d %H:%M UTC") if ev.confirmation_time else f"{ev.c2_open_time.strftime('%Y-%m-%d %H:%M UTC')} (c2 close)",
+                                        style={"padding": "6px 12px"},
+                                    ),
+                                    html.Td(f"Reversed to {ev.new_direction.value}", style={"padding": "6px 12px", "color": "#00e5ff"}),
+                                ],
+                            )
+                            for ev in msm_result.confirmed_choch_events
+                        ]),
+                    ],
+                    style={"width": "100%", "borderCollapse": "collapse", "background": "#12121c"},
+                ),
+            ],
+        )
+
+        zone_rows = []
+        for ev in msm_result.confirmed_choch_events:
+            conf_str = ev.confirmation_time.strftime('%Y-%m-%d %H:%M UTC') if ev.confirmation_time else f"{ev.c2_open_time.strftime('%Y-%m-%d %H:%M UTC')} (c2 close)"
+            for z in ev.zones:
+                price_str = f"{z.lower_price:.4f} – {z.upper_price:.4f}" if not z.is_line else f"{z.lower_price:.4f}"
+                geom_str = "Line (Thickness 0)" if z.is_line else "Box / Area"
+                zone_rows.append(
+                    html.Tr(
+                        style={"borderBottom": "1px solid #232338", "fontSize": "12px", "color": "#e0e0e0"},
+                        children=[
+                            html.Td(html.Code(ev.event_id, style={"color": "#ff4081"}), style={"padding": "6px 12px"}),
+                            html.Td(
+                                html.Span(
+                                    z.zone_type.value,
+                                    style={"padding": "2px 6px", "borderRadius": "3px", "background": "#311b92", "color": "#b388ff", "fontSize": "10px", "fontWeight": "bold"},
+                                ),
+                                style={"padding": "6px 12px"},
+                            ),
+                            html.Td(price_str, style={"padding": "6px 12px", "fontWeight": "bold", "color": "#b388ff"}),
+                            html.Td(geom_str, style={"padding": "6px 12px", "color": "#aaa"}),
+                            html.Td(f"{z.source_candle_open_time.strftime('%Y-%m-%d %H:%M UTC')} (Bar #{z.source_candle_index})", style={"padding": "6px 12px"}),
+                            html.Td(f"Available from {conf_str}", style={"padding": "6px 12px", "color": "#80d8ff"}),
+                        ],
+                    )
+                )
+
+        choch_zones_table = html.Div(
+            style={"marginBottom": "16px"},
+            children=[
+                html.H5("📐 Confirmed Structural Zones (Available from Confirmation Time)", style={"color": "#b388ff", "margin": "12px 0 6px 0"}),
+                html.Table(
+                    [
+                        html.Thead(
+                            html.Tr(
+                                style={"background": "#1e1e30", "color": "#a0a0b8", "fontSize": "12px", "textAlign": "left"},
+                                children=[
+                                    html.Th("Event ID", style={"padding": "8px 12px"}),
+                                    html.Th("Zone Type", style={"padding": "8px 12px"}),
+                                    html.Th("Price Bounds", style={"padding": "8px 12px"}),
+                                    html.Th("Geometry", style={"padding": "8px 12px"}),
+                                    html.Th("Source Candle (UTC)", style={"padding": "8px 12px"}),
+                                    html.Th("Tradability / Available From", style={"padding": "8px 12px"}),
+                                ],
+                            )
+                        ),
+                        html.Tbody(zone_rows),
+                    ],
+                    style={"width": "100%", "borderCollapse": "collapse", "background": "#12121c"},
+                ),
+            ],
+        )
+
+    container_children = []
+    if unresolved_banner is not None:
+        container_children.append(unresolved_banner)
+    container_children.append(summary_bar)
+    if choch_events_table is not None:
+        container_children.append(choch_events_table)
+    if choch_zones_table is not None:
+        container_children.append(choch_zones_table)
+    container_children.append(html.H5("📊 Confirmed Swing Points & Levels", style={"color": "#00e5ff", "margin": "12px 0 6px 0"}))
+    container_children.append(
         html.Table(
             [table_header, table_body],
             style={"width": "100%", "borderCollapse": "collapse", "background": "#12121c"},
-        ),
-    ])
+        )
+    )
+
+    return html.Div(container_children)
 
 
 def evaluate_msm_for_snapshot(
@@ -361,26 +546,40 @@ def evaluate_msm_for_snapshot(
 
     # 6. Success: check unapplied draft edits
     pair_cnt = len(res.snapshot.confirmed_pairs)
+    choch_cnt = len(res.confirmed_choch_events)
     has_unapplied_draft = False
     if draft_direction and draft_direction != ctx.direction.value:
         has_unapplied_draft = True
     if draft_start_candle and draft_start_candle != ctx.start_candle_time.isoformat():
         has_unapplied_draft = True
 
-    if has_unapplied_draft:
+    if res.is_unresolved:
+        status_text = (
+            f"⚠️ Integrated structure unresolved: ambiguous at candle {res.unresolved_candle_index} | "
+            f"Last Authoritative: {res.snapshot.trend_status} | "
+            f"Pairs: {pair_cnt} | CHOCH: {choch_cnt} (rev: {snapshot.revision_id})"
+        )
+        status_style = {"marginTop": "10px", "fontSize": "12px", "color": "#ff9800", "fontWeight": "bold"}
+    elif has_unapplied_draft:
         status_text = (
             f"🟡 Unapplied changes (Click '⚡ Apply / Calculate MSM' to update) | "
             f"Applied: {ctx.direction.value} ({pair_cnt} pairs confirmed, rev: {snapshot.revision_id})"
         )
         status_style = {"marginTop": "10px", "fontSize": "12px", "color": "#ffd600", "fontWeight": "bold"}
     else:
+        applied_dir = (
+            res.coordinator_snapshot.active_direction.value
+            if res.coordinator_snapshot
+            else ctx.direction.value
+        )
+        choch_info = f" | {choch_cnt} CHOCH confirmed" if ctx.calculation_mode == "INTEGRATED_MSM_CHOCH" else ""
         status_text = (
-            f"🟢 Applied: {ctx.direction.value} from {ctx.start_candle_time.strftime('%Y-%m-%d %H:%M UTC')} | "
-            f"{pair_cnt} pairs confirmed | {res.snapshot.trend_status} (rev: {snapshot.revision_id})"
+            f"🟢 Applied: {applied_dir} from {ctx.start_candle_time.strftime('%Y-%m-%d %H:%M UTC')} | "
+            f"{pair_cnt} pairs confirmed{choch_info} | {res.snapshot.trend_status} (rev: {snapshot.revision_id})"
         )
         status_style = {"marginTop": "10px", "fontSize": "12px", "color": "#00e676", "fontWeight": "bold"}
 
-    panel = render_msm_inspection_table(res.snapshot, ctx, snapshot.revision_id)
+    panel = render_msm_inspection_table(res.snapshot, ctx, snapshot.revision_id, msm_result=res)
     return res, status_text, status_style, panel
 
 
@@ -394,6 +593,8 @@ def process_msm_controls_update(
     current_context: dict | None = None,
     active_request_token: str | None = None,
     active_req_data: dict | None = None,
+    calculation_mode_val: str | None = None,
+    display_toggles_val: list[str] | None = None,
 ) -> tuple[dict | None, str, dict, Any]:
     """Pure coordinator function for MSM controls, application, and unapplied edit detection.
 
@@ -507,12 +708,34 @@ def process_msm_controls_update(
         new_applied = applied_data if is_context_compatible(applied_data, snapshot.data_source, snapshot.symbol, snapshot.timeframe) else None
         return new_applied, status_text, status_style, panel
 
-    # 4. Detect unapplied edits without silently recalculating
-    if triggered_id in {"msm-direction-selector", "msm-start-candle-dropdown"}:
+    # 4. Display Toggles update (Visual only, does not alter applied calculation or direction)
+    if triggered_id == "choch-display-toggles":
+        if applied_data and applied_data.get("enabled", False):
+            show_m = "markers" in (display_toggles_val or [])
+            show_z = "zones" in (display_toggles_val or [])
+            updated_applied = dict(applied_data)
+            updated_applied["show_choch_markers"] = show_m
+            updated_applied["show_choch_zones"] = show_z
+            _, status_text, status_style, panel = evaluate_msm_for_snapshot(
+                snapshot=snapshot,
+                applied_data=updated_applied,
+                draft_direction=direction_val,
+                draft_start_candle=start_candle_val,
+                current_context=active_ctx,
+                active_request_token=active_token,
+            )
+            return updated_applied, status_text, status_style, panel
+
+    # 5. Detect unapplied edits without silently recalculating
+    if triggered_id in {"msm-direction-selector", "msm-start-candle-dropdown", "strategy-calculation-mode"}:
         if applied_data and applied_data.get("enabled", False):
             dir_diff = applied_data.get("direction") != direction_val
             start_diff = applied_data.get("start_candle_time") != start_candle_val
-            if dir_diff or start_diff:
+            mode_diff = (
+                calculation_mode_val is not None
+                and applied_data.get("calculation_mode", "STANDALONE_MSM") != calculation_mode_val
+            )
+            if dir_diff or start_diff or mode_diff:
                 status_style = {"marginTop": "10px", "fontSize": "12px", "color": "#ffd600", "fontWeight": "bold"}
                 return (
                     applied_data,  # Preserve existing applied configuration without recalculation
@@ -521,7 +744,7 @@ def process_msm_controls_update(
                     dash.no_update,
                 )
 
-    # 5. Handle Apply button click
+    # 6. Handle Apply button click
     if triggered_id == "msm-apply-btn":
         # R12.3: Context check on Apply: cannot apply to a superseded context
         if active_ctx:
@@ -558,6 +781,9 @@ def process_msm_controls_update(
             return (None, f"❌ Error: {snapshot.error_message or snapshot.fetch_status}", status_style, panel)
 
         try:
+            calc_mode = calculation_mode_val or "STANDALONE_MSM"
+            show_m = "markers" in (display_toggles_val or [])
+            show_z = "zones" in (display_toggles_val or [])
             msm_ctx = MSMContext(
                 data_source=snapshot.data_source,
                 symbol=snapshot.symbol,
@@ -565,18 +791,36 @@ def process_msm_controls_update(
                 start_candle_time=start_candle_val,
                 direction=Direction(direction_val),
                 enabled=True,
+                calculation_mode=calc_mode,
+                show_choch_markers=show_m,
+                show_choch_zones=show_z,
             )
             df = snapshot.to_dataframe()
             res = calculate_msm(df, msm_ctx)
             if res.is_valid and res.snapshot is not None:
                 pair_cnt = len(res.snapshot.confirmed_pairs)
-                status_style = {"marginTop": "10px", "fontSize": "12px", "color": "#00e676", "fontWeight": "bold"}
-                status_text = (
-                    f"🟢 Applied: {msm_ctx.direction.value} from "
-                    f"{msm_ctx.start_candle_time.strftime('%Y-%m-%d %H:%M UTC')} | "
-                    f"{pair_cnt} pairs confirmed | {res.snapshot.trend_status} (rev: {snapshot.revision_id})"
-                )
-                panel = render_msm_inspection_table(res.snapshot, msm_ctx, snapshot.revision_id)
+                choch_cnt = len(res.confirmed_choch_events)
+                if res.is_unresolved:
+                    status_style = {"marginTop": "10px", "fontSize": "12px", "color": "#ff9800", "fontWeight": "bold"}
+                    status_text = (
+                        f"⚠️ Integrated structure unresolved: ambiguous at candle {res.unresolved_candle_index} | "
+                        f"Last Authoritative: {res.snapshot.trend_status} | "
+                        f"Pairs: {pair_cnt} | CHOCH: {choch_cnt} (rev: {snapshot.revision_id})"
+                    )
+                else:
+                    applied_dir = (
+                        res.coordinator_snapshot.active_direction.value
+                        if res.coordinator_snapshot
+                        else msm_ctx.direction.value
+                    )
+                    choch_info = f" | {choch_cnt} CHOCH confirmed" if calc_mode == "INTEGRATED_MSM_CHOCH" else ""
+                    status_style = {"marginTop": "10px", "fontSize": "12px", "color": "#00e676", "fontWeight": "bold"}
+                    status_text = (
+                        f"🟢 Applied: {applied_dir} from "
+                        f"{msm_ctx.start_candle_time.strftime('%Y-%m-%d %H:%M UTC')} | "
+                        f"{pair_cnt} pairs confirmed{choch_info} | {res.snapshot.trend_status} (rev: {snapshot.revision_id})"
+                    )
+                panel = render_msm_inspection_table(res.snapshot, msm_ctx, snapshot.revision_id, msm_result=res)
                 return (msm_ctx.to_dict(), status_text, status_style, panel)
             else:
                 status_style = {"marginTop": "10px", "fontSize": "12px", "color": "#ff5252", "fontWeight": "bold"}
@@ -639,6 +883,8 @@ def register_msm_callbacks(app: Dash, adapter: Any = None) -> tuple[Any, Any]:
         Output("msm-inspection-panel", "children"),
         Input("msm-apply-btn", "n_clicks"),
         Input("msm-enable-toggle", "value"),
+        Input("strategy-calculation-mode", "value"),
+        Input("choch-display-toggles", "value"),
         Input("msm-direction-selector", "value"),
         Input("msm-start-candle-dropdown", "value"),
         Input("market-data-store", "data"),
@@ -648,6 +894,8 @@ def register_msm_callbacks(app: Dash, adapter: Any = None) -> tuple[Any, Any]:
     def handle_msm_controls(
         apply_clicks: int,
         enable_toggle_val: list[str],
+        calculation_mode_val: str | None,
+        display_toggles_val: list[str] | None,
         direction_val: str | None,
         start_candle_val: str | None,
         market_snapshot_data: dict | None,
@@ -664,6 +912,8 @@ def register_msm_callbacks(app: Dash, adapter: Any = None) -> tuple[Any, Any]:
             market_snapshot_data=market_snapshot_data,
             applied_data=applied_data,
             active_req_data=active_req_data,
+            calculation_mode_val=calculation_mode_val,
+            display_toggles_val=display_toggles_val,
         )
 
     return update_msm_dropdown_options, handle_msm_controls
