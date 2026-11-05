@@ -118,13 +118,25 @@ Standalone detector for CHOCH transitions.
   ```
 - **`CoordinatorSnapshot`**:
   ```python
-  msm_snapshot: MSMSnapshot
-  choch_snapshot: ChochSnapshot
+  msm_snapshot: MSMSnapshot              # Last authoritative MSM state (frozen if unresolved)
+  choch_snapshot: ChochSnapshot          # Last authoritative CHOCH state (frozen if unresolved)
   confirmed_choch_events: Tuple[ConfirmedChoch, ...]
-  active_direction: Direction
-  is_unresolved: bool
-  last_processed_index: int
+  active_direction: Direction            # Last authoritative marking direction
+  is_unresolved: bool                    # True if ambiguous transition occurred
+  last_processed_index: int              # Last authoritatively processed candle index
+  unresolved_diagnostic: Optional[ChochDiagnostic]  # Ambiguity diagnostic if unresolved
+  unresolved_candle_index: Optional[int] # Candle source index where ambiguity occurred
+  last_received_index: int               # Latest received input candle index
   ```
+
+### Consumer Guidance for Integrated State
+
+Consumers of `CoordinatorSnapshot` must inspect `is_unresolved`:
+- **When `is_unresolved == False`**: `msm_snapshot`, `active_direction`, and `choch_snapshot` represent the current authoritative market structure. `last_processed_index` matches `last_received_index`.
+- **When `is_unresolved == True`**:
+  - `msm_snapshot` and `active_direction` are **frozen at the last authoritative state prior to ambiguity**. They must NOT be presented as the resolved current market structure.
+  - `unresolved_diagnostic` and `unresolved_candle_index` provide the specific reason and bar where evaluation stopped pending source reconciliation.
+  - `last_received_index` indicates that later market data was received, but no speculative continuation or dependent reversal was advanced.
 
 ---
 
@@ -145,12 +157,16 @@ Standalone detector for CHOCH transitions.
    - Both `ChochDetector` and `MSMChochCoordinator` guard against forming and unconfirmed inputs.
    - Forming candles cause zero state mutations, advance no counters, and cannot confirm candidates.
    - Out-of-order or duplicate inputs fail closed with `ValueError` without corrupting state.
-5. **Transactional Batch & Replay Validation**:
-   - `process_candles` and `replay_candles` validate input integrity and configured start candle before resetting internal state. If validation fails, existing state is completely preserved.
-   - Missing restart reference candles raise `ValueError` and never silently fall back to position 0.
-6. **Unresolved State Isolation**:
-   - A candle simultaneously identifying Point 3 and closing beyond the level ($c_1 == p_2$) emits `UNRESOLVED_SAME_CLOSE` and sets `is_unresolved = True`.
-   - While unresolved, no subsequent candidate, confirmation, transition, or restart may be published.
+5. **Atomic Coordinated Transitions & Staged Validation**:
+   - Every candle transition is staged in a local working copy (`copy.deepcopy` of MSM engine and CHOCH detector).
+   - Validations (chronology, uniqueness, MSM progression, detector qualification, and restart reference existence) occur before modifying coordinator state.
+   - Any exception during evaluation or restart leaves both child engines and coordinator state 100% unmutated.
+   - Subsequent valid input can be processed normally after a rejected transition.
+6. **Unresolved State Containment Policy**:
+   - A candle simultaneously identifying Point 3 and closing beyond the level ($c_1 == p_2$) triggers `UNRESOLVED_SAME_CLOSE`.
+   - The coordinator does not commit staged MSM continuation or detector changes.
+   - The authoritative integrated state (`msm_snapshot`, `choch_snapshot`, `active_direction`, `last_processed_index`) remains strictly frozen at the pre-ambiguity state.
+   - Later received candles update `last_received_index` but do not advance authoritative structure. No speculative continuation is published as resolved market structure.
 7. **Strict 3-Zone Provenance Requirement**:
    - CHOCH confirmation requires provenance for all three original-candle zones (SBR/RBS, QML/A+, Double Top/Bottom).
    - If any required source candle is missing, confirmation is withheld with `REQUIRED_ZONE_PROVENANCE_MISSING`. Partial 2-zone events are never published.

@@ -11,12 +11,14 @@ zero MT5 dependencies, zero Plotly/Dash UI code, and zero mutable external state
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple, Union
 import pandas as pd
 
 from .choch_detector import ChochDetector
 from .choch_types import (
+    ChochDiagnostic,
     ChochSnapshot,
     ConfirmedChoch,
 )
@@ -33,13 +35,28 @@ from .validator import adapt_candles, validate_start_candle
 
 @dataclass(frozen=True)
 class CoordinatorSnapshot:
-    """Immutable snapshot of coordinated MSM and CHOCH execution state."""
+    """Immutable snapshot of coordinated MSM and CHOCH execution state.
+
+    Attributes:
+        msm_snapshot: Authoritative MSM snapshot (frozen at last pre-ambiguity state if unresolved).
+        choch_snapshot: Authoritative CHOCH snapshot (frozen at last pre-ambiguity state if unresolved).
+        confirmed_choch_events: Historical list of confirmed CHOCH events.
+        active_direction: Authoritative structural marking direction.
+        is_unresolved: True if an ambiguous transition (e.g. c1 == p2) occurred.
+        last_processed_index: Source index of the last authoritatively processed completed candle.
+        unresolved_diagnostic: Diagnostic record explaining the ambiguity if unresolved.
+        unresolved_candle_index: Source index of the candle where ambiguity occurred.
+        last_received_index: Source index of the latest received candle (tracks input while unresolved).
+    """
     msm_snapshot: MSMSnapshot
     choch_snapshot: ChochSnapshot
     confirmed_choch_events: Tuple[ConfirmedChoch, ...]
     active_direction: Direction
     is_unresolved: bool
     last_processed_index: int
+    unresolved_diagnostic: Optional[ChochDiagnostic] = None
+    unresolved_candle_index: Optional[int] = None
+    last_received_index: int = -1
 
 
 class MSMChochCoordinator:
@@ -53,7 +70,10 @@ class MSMChochCoordinator:
         self._candle_lookup: Dict[int, StrategyCandle] = {}
         self._completed_candles: List[StrategyCandle] = []
         self._is_unresolved: bool = False
+        self._unresolved_diagnostic: Optional[ChochDiagnostic] = None
+        self._unresolved_candle_index: Optional[int] = None
         self._last_processed_index: int = -1
+        self._last_received_index: int = -1
 
     @property
     def direction(self) -> Direction:
@@ -66,6 +86,14 @@ class MSMChochCoordinator:
     @property
     def is_unresolved(self) -> bool:
         return self._is_unresolved
+
+    @property
+    def last_processed_index(self) -> int:
+        return self._last_processed_index
+
+    @property
+    def last_received_index(self) -> int:
+        return self._last_received_index if self._last_received_index >= 0 else self._last_processed_index
 
     def reset(self) -> None:
         """Resets coordinator to clean initial state."""
@@ -112,15 +140,20 @@ class MSMChochCoordinator:
         return snapshots
 
     def _ingest_candle(self, candle: StrategyCandle) -> None:
-        """Ingests a single candle through MSM and CHOCH detection sequentially."""
+        """Ingests a single candle with atomic staged transitions and unresolved containment."""
         if not isinstance(candle, StrategyCandle):
             raise TypeError(f"Ingest candle requires StrategyCandle instance, got {type(candle).__name__}")
 
         if candle.is_forming or candle.bar_status != "CONFIRMED_COMPLETED":
-            # Forming bars cause zero state mutations (do NOT update last_processed_index, lookup, or buffers)
+            # Forming bars cause zero state mutations
             return
 
-        # Validate ordering and uniqueness before committing coordinator mutations
+        # Unresolved containment: if already unresolved, do NOT advance authoritative state!
+        if self._is_unresolved:
+            self._last_received_index = candle.index
+            return
+
+        # Validate ordering and uniqueness against authoritative history
         if self._completed_candles:
             last_completed = self._completed_candles[-1]
             if candle.index in self._candle_lookup:
@@ -130,20 +163,25 @@ class MSMChochCoordinator:
                     f"Non-chronological candle open_time: {candle.open_time} <= {last_completed.open_time}"
                 )
 
-        chronological_pos = len(self._completed_candles)
+        # -------------------------------------------------------------
+        # Stage the entire transition in a staged working copy
+        # -------------------------------------------------------------
+        msm_engine_copy = copy.deepcopy(self._msm_engine)
+        choch_detector_copy = copy.deepcopy(self._choch_detector)
+        completed_candles_copy = list(self._completed_candles)
+        candle_lookup_copy = dict(self._candle_lookup)
+        confirmed_events_copy = list(self._confirmed_choch_events)
 
-        # 1. Advance MSMEngine first (if MSM raises error, coordinator state remains unmutated)
-        msm_snap = self._msm_engine.process_candle(candle)
+        # Stage candle addition
+        candle_lookup_copy[candle.index] = candle
+        completed_candles_copy.append(candle)
+        chronological_pos = len(completed_candles_copy) - 1
+        candle_positions = {c.index: i for i, c in enumerate(completed_candles_copy)}
 
-        # Commit coordinator mutations after validation
-        self._candle_lookup[candle.index] = candle
-        self._completed_candles.append(candle)
-        self._last_processed_index = candle.index
+        # 1. Stage MSM advance
+        msm_snap = msm_engine_copy.process_candle(candle)
 
-        # Build position lookup for identification-timing resolution
-        candle_positions = {c.index: i for i, c in enumerate(self._completed_candles)}
-
-        # Extract latest confirmed high and low for QML zone creation
+        # Extract confirmed high/low for QML
         confirmed_high: Optional[SwingPoint] = None
         confirmed_low: Optional[SwingPoint] = None
         if msm_snap.confirmed_pairs:
@@ -151,15 +189,15 @@ class MSMChochCoordinator:
             confirmed_high = latest_pair.high
             confirmed_low = latest_pair.low
 
-        # 2. Advance ChochDetector
-        choch_snap = self._choch_detector.process_candle(
+        # 2. Stage CHOCH detector advance
+        choch_snap = choch_detector_copy.process_candle(
             candle=candle,
             chronological_pos=chronological_pos,
             msm_direction=msm_snap.direction,
             last_support=msm_snap.last_support,
             last_resistance=msm_snap.last_resistance,
             tentative_point=msm_snap.tentative_point,
-            candle_lookup=self._candle_lookup,
+            candle_lookup=candle_lookup_copy,
             confirmed_high=confirmed_high,
             confirmed_low=confirmed_low,
             candle_positions=candle_positions,
@@ -167,19 +205,25 @@ class MSMChochCoordinator:
 
         # 3. Check for unresolved same-close condition
         if choch_snap.is_unresolved:
+            # Containment: do NOT commit staged engine changes.
+            # Preserve authoritative pre-ambiguity state.
             self._is_unresolved = True
-            # Fails closed without publishing dependent confirmation, transition, or restart
+            self._unresolved_candle_index = candle.index
+            self._unresolved_diagnostic = next(
+                (d for d in choch_snap.diagnostics if d.is_unresolved),
+                None,
+            )
+            self._last_received_index = candle.index
             return
 
         # 4. Check for confirmed CHOCH event
-        if choch_snap.confirmed_choch is not None and not self._is_unresolved:
+        if choch_snap.confirmed_choch is not None:
             event = choch_snap.confirmed_choch
-            self._confirmed_choch_events.append(event)
 
-            # Find chronological position of Point 3 source candle for restart reference
+            # Validate restart reference BEFORE appending event or restarting
             p3_source_idx = event.point_3_source_index
             restart_pos = next(
-                (i for i, c in enumerate(self._completed_candles) if c.index == p3_source_idx),
+                (i for i, c in enumerate(completed_candles_copy) if c.index == p3_source_idx),
                 None,
             )
             if restart_pos is None:
@@ -188,18 +232,25 @@ class MSMChochCoordinator:
                     f"not found in completed candles history"
                 )
 
-            # Forward scan boundary strictly after confirmation candle
-            first_eligible_pullback_pos = event.first_eligible_pullback_pos
-
-            # Restart MSM engine in new direction
-            self._msm_engine.restart_after_choch(
+            # Stage restart on child engines
+            msm_engine_copy.restart_after_choch(
                 new_direction=event.new_direction,
                 restart_reference_pos=restart_pos,
-                first_eligible_pullback_pos=first_eligible_pullback_pos,
+                first_eligible_pullback_pos=event.first_eligible_pullback_pos,
             )
+            choch_detector_copy.reset_for_new_direction(event.new_direction)
+            confirmed_events_copy.append(event)
 
-            # Reset detector for new direction (clearing confirmed event so it is not re-emitted)
-            self._choch_detector.reset_for_new_direction(event.new_direction)
+        # -------------------------------------------------------------
+        # Commit staged transition: all stages and validations succeeded
+        # -------------------------------------------------------------
+        self._msm_engine = msm_engine_copy
+        self._choch_detector = choch_detector_copy
+        self._completed_candles = completed_candles_copy
+        self._candle_lookup = candle_lookup_copy
+        self._confirmed_choch_events = confirmed_events_copy
+        self._last_processed_index = candle.index
+        self._last_received_index = candle.index
 
     def get_snapshot(self) -> CoordinatorSnapshot:
         """Returns an immutable snapshot of coordinated execution state."""
@@ -210,4 +261,7 @@ class MSMChochCoordinator:
             active_direction=self._msm_engine.direction,
             is_unresolved=self._is_unresolved,
             last_processed_index=self._last_processed_index,
+            unresolved_diagnostic=self._unresolved_diagnostic,
+            unresolved_candle_index=self._unresolved_candle_index,
+            last_received_index=self._last_received_index if self._last_received_index >= 0 else self._last_processed_index,
         )

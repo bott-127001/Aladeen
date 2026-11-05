@@ -593,7 +593,7 @@ class TestCHOCHExecution:
             coord.process_candles(earlier_candles)
 
     def test_missing_restart_reference_raises_error(self, choch_fixtures, monkeypatch):
-        """R20.5: Missing restart reference candle in completed candles history raises ValueError, never defaulting to 0."""
+        """R20.5 & R21: Missing restart reference candle in completed candles history raises ValueError and leaves state 100% unchanged."""
         from aladeen.strategy.choch_types import ChochSnapshot
         fix = choch_fixtures["choch_bearish_basic_end_to_end"]
         config = MSMConfig(
@@ -606,6 +606,8 @@ class TestCHOCHExecution:
         candles = adapt_candles(fix["candles"])
         for c in candles[:8]:
             coordinator.process_candle(c)
+
+        snap_before = coordinator.get_snapshot()
 
         # Manually construct an event referencing a nonexistent point_3_source_index
         bad_event = ConfirmedChoch(
@@ -649,6 +651,11 @@ class TestCHOCHExecution:
 
         with pytest.raises(ValueError, match="Missing restart reference candle"):
             coordinator.process_candle(candles[9])
+
+        snap_after = coordinator.get_snapshot()
+        assert snap_after == snap_before
+        assert len(coordinator.confirmed_choch_events) == 0
+        assert coordinator.last_processed_index == candles[7].index
 
     def test_unresolved_path_never_publishes_dependent_confirmation_or_restart(self, choch_fixtures):
         """R20.6: An unresolved same-close path never publishes dependent confirmation or restart."""
@@ -716,3 +723,146 @@ class TestCHOCHExecution:
         coord_batch = MSMChochCoordinator(config)
         final_batch_snap = coord_batch.process_candles(fix["candles"])
         assert final_batch_snap == replay_snapshots[-1]
+
+    def test_unresolved_containment_freezes_authoritative_state_across_later_candles(self, choch_fixtures):
+        """R21.1: Ambiguous same-close freeze: authoritative state and history remain fixed; subsequent continuation and break candles do not advance state."""
+        fix = choch_fixtures["choch_bearish_basic_end_to_end"]
+        config = MSMConfig(
+            start_candle_time=datetime.fromisoformat(fix["start_candle_time"]),
+            direction=Direction.UPWARD,
+        )
+        coordinator = MSMChochCoordinator(config)
+        from aladeen.strategy.validator import adapt_candles
+        candles = adapt_candles(fix["candles"])
+
+        # Ingest candles up to candle 6 (prior to ambiguous candle 7)
+        for c in candles[:7]:
+            coordinator.process_candle(c)
+
+        snap_pre_ambiguity = coordinator.get_snapshot()
+        assert snap_pre_ambiguity.is_unresolved is False
+        assert snap_pre_ambiguity.last_processed_index == candles[6].index
+
+        # Modify candle 7 so that close is 1.090 < support (1.105), simultaneously identifying P3 and closing below support
+        orig_c7 = candles[7]
+        ambig_c7 = StrategyCandle(
+            index=orig_c7.index,
+            open_time=orig_c7.open_time,
+            open=1.130,
+            high=1.132,
+            low=1.085,
+            close=1.090,  # Below support 1.105!
+            is_forming=False,
+            bar_status="CONFIRMED_COMPLETED",
+            close_time=orig_c7.close_time,
+        )
+
+        # Candle 7 triggers ambiguous same-close (c1 == p2)
+        snap7 = coordinator.process_candle(ambig_c7)
+        assert snap7.is_unresolved is True
+        assert snap7.unresolved_candle_index == ambig_c7.index
+        assert snap7.unresolved_diagnostic is not None
+        assert snap7.unresolved_diagnostic.diagnostic_type == ChochDiagnosticType.UNRESOLVED_SAME_CLOSE
+        # Authoritative MSM and CHOCH state remain frozen at pre-ambiguity state
+        assert snap7.msm_snapshot == snap_pre_ambiguity.msm_snapshot
+        assert snap7.last_processed_index == candles[6].index
+        assert snap7.last_received_index == ambig_c7.index
+
+        # Now feed subsequent candles (would-be MSM continuation, then would-be CHOCH breaks)
+        subsequent_candles = [
+            # Candle 8 closes strictly below support
+            candles[8],
+            # Additional continuation candles that would form new swing points under assumed continuation
+            StrategyCandle(9, datetime(2026, 10, 2, 12, tzinfo=timezone.utc), 1.085, 1.150, 1.080, 1.145, False, "CONFIRMED_COMPLETED"),
+            StrategyCandle(10, datetime(2026, 10, 2, 16, tzinfo=timezone.utc), 1.145, 1.180, 1.140, 1.175, False, "CONFIRMED_COMPLETED"),
+        ]
+
+        for c in subsequent_candles:
+            snap = coordinator.process_candle(c)
+            # Authoritative integrated structure remains 100% fixed at pre-ambiguity state!
+            assert snap.is_unresolved is True
+            assert snap.msm_snapshot == snap_pre_ambiguity.msm_snapshot
+            assert snap.confirmed_choch_events == ()
+            assert snap.last_processed_index == candles[6].index
+            assert snap.last_received_index == c.index
+            assert snap.unresolved_candle_index == ambig_c7.index
+
+    def test_independent_runs_process_normally_while_another_is_unresolved(self, choch_fixtures):
+        """R21.2: One coordinator encountering ambiguity does not affect independent coordinator runs."""
+        fix = choch_fixtures["choch_bearish_basic_end_to_end"]
+        config = MSMConfig(start_candle_time=datetime.fromisoformat(fix["start_candle_time"]), direction=Direction.UPWARD)
+
+        coord_a = MSMChochCoordinator(config)
+        coord_b = MSMChochCoordinator(config)
+
+        from aladeen.strategy.validator import adapt_candles
+        candles = adapt_candles(fix["candles"])
+
+        # Feed coordinator A with ambiguous candle 7
+        for c in candles[:7]:
+            coord_a.process_candle(c)
+        orig_c7 = candles[7]
+        ambig_c7 = StrategyCandle(orig_c7.index, orig_c7.open_time, 1.130, 1.132, 1.085, 1.090, False, "CONFIRMED_COMPLETED", orig_c7.close_time)
+        coord_a.process_candle(ambig_c7)
+        assert coord_a.is_unresolved is True
+        assert len(coord_a.confirmed_choch_events) == 0
+
+        # Coordinator B processes clean settled data and confirms CHOCH normally
+        coord_b.process_candles(fix["candles"])
+        assert coord_b.is_unresolved is False
+        assert len(coord_b.confirmed_choch_events) == 1
+        assert coord_b.direction == Direction.DOWNWARD
+
+    def test_detector_or_restart_exception_leaves_both_child_engines_unchanged(self, choch_fixtures, monkeypatch):
+        """R21.4: An unexpected detector exception during transition leaves both child engines and coordinator state 100% unmutated."""
+        fix = choch_fixtures["choch_bearish_basic_end_to_end"]
+        config = MSMConfig(start_candle_time=datetime.fromisoformat(fix["start_candle_time"]), direction=Direction.UPWARD)
+        coordinator = MSMChochCoordinator(config)
+
+        from aladeen.strategy.validator import adapt_candles
+        candles = adapt_candles(fix["candles"])
+        for c in candles[:8]:
+            coordinator.process_candle(c)
+
+        msm_before = coordinator._msm_engine.get_snapshot()
+        choch_before = coordinator._choch_detector.get_snapshot()
+        snap_before = coordinator.get_snapshot()
+
+        # Monkeypatch detector to raise an error during evaluation of candle 9
+        def crashing_process_candle(*args, **kwargs):
+            raise RuntimeError("Simulated detector crash")
+
+        monkeypatch.setattr(coordinator._choch_detector, "process_candle", crashing_process_candle)
+
+        with pytest.raises(RuntimeError, match="Simulated detector crash"):
+            coordinator.process_candle(candles[8])
+
+        # State is 100% intact!
+        assert coordinator._msm_engine.get_snapshot() == msm_before
+        assert coordinator._choch_detector.get_snapshot() == choch_before
+        assert coordinator.get_snapshot() == snap_before
+
+    def test_valid_input_processed_successfully_after_rejected_transition(self, choch_fixtures):
+        """R21.5: Valid input is processed normally and commits cleanly after a rejected transition."""
+        fix = choch_fixtures["choch_bearish_basic_end_to_end"]
+        config = MSMConfig(start_candle_time=datetime.fromisoformat(fix["start_candle_time"]), direction=Direction.UPWARD)
+        coordinator = MSMChochCoordinator(config)
+
+        from aladeen.strategy.validator import adapt_candles
+        candles = adapt_candles(fix["candles"])
+        for c in candles[:8]:
+            coordinator.process_candle(c)
+
+        snap_before = coordinator.get_snapshot()
+
+        # Try to ingest an invalid candle (duplicate index)
+        with pytest.raises(ValueError, match="Duplicate candle source index detected"):
+            coordinator.process_candle(candles[7])
+
+        assert coordinator.get_snapshot() == snap_before
+
+        # Now ingest the valid next candle (candle 8)
+        snap_after = coordinator.process_candle(candles[8])
+        assert snap_after.last_processed_index == candles[8].index
+        assert snap_after.choch_snapshot.candidate is not None
+        assert snap_after.choch_snapshot.candidate.c1_candle_index == candles[8].index
