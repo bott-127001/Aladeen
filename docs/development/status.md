@@ -51,22 +51,37 @@ Last Updated: 2026-11-05 (MSM Dashboard Milestone Accepted — Transition to CHO
 
 ---
 
-## 4. Current Task: Pure Offline CHOCH Strategy Engine Implementation & Lifecycle Hardening
-- **Active Branch**: `feature/choch-engine`
-- **Objective**: Implement pure domain types, settled CHOCH detector, same-close unresolved diagnostic handling, and MSM + CHOCH coordinator with cycle restart in `src/aladeen/strategy/`.
-- **Scope Boundary**: Pure offline strategy logic. **Strictly zero UI, zero MT5 dependencies, zero ISS, zero TJL, zero zone activations, zero trade entry signals, zero automated trading, and zero merging to `main`**.
-- **Completed Deliverables (HANDOFF-022: Unresolved Containment & Atomic Coordinated Transitions)**:
-  1. `src/aladeen/strategy/coordinator.py`:
-     - **Unresolved State Containment**: Ambiguous same-close ($c_1 == p_2$) freezes authoritative integrated state at the last pre-ambiguity snapshot (`msm_snapshot`, `choch_snapshot`, `active_direction`, `last_processed_index`). Subsequent input updates `last_received_index` without advancing speculative MSM continuation or publishing dependent CHOCH events.
-     - **Atomic Transitions via Staged Working Copy**: Every candle ingestion is staged via a working copy (`copy.deepcopy` of MSM engine and detector). Validation of ordering, MSM advance, detector qualification, and restart reference existence occurs before any state is committed. Any exception leaves both child engines and coordinator state 100% unmutated.
-     - **Restart Prerequisite Validation**: Point 3 restart reference is validated before appending confirmed events or modifying engines, preventing partially committed transitions.
-  2. `src/aladeen/strategy/choch_detector.py`: Pure sequential CHOCH detector with strict single-transition event emission, chronological position timing, complete prerequisite identity binding, forming candle rejection, and 3-zone provenance requirement.
-  3. `tests/test_choch_engine.py`: 31 comprehensive tests verifying all 6 required criteria:
-     - Ambiguous identification close followed by would-be MSM continuation and break closes: authoritative state/history remain fixed; received index advances; no dependent event published (`test_unresolved_containment_freezes_authoritative_state_across_later_candles`).
-     - Independent coordinator runs still process normally while another is unresolved (`test_independent_runs_process_normally_while_another_is_unresolved`).
-     - Missing restart reference leaves the entire previous snapshot unchanged (`test_missing_restart_reference_raises_error`).
-     - Detector or restart exception leaves both child engines unchanged (`test_detector_or_restart_exception_leaves_both_child_engines_unchanged`).
-     - Valid input can be processed successfully after a rejected transition (`test_valid_input_processed_successfully_after_rejected_transition`).
-     - Existing settled bearish/bullish, zero-width lines, and two-reversal sequences still pass.
-  4. `docs/strategy/choch-engine.md`: Comprehensive documentation detailing snapshot fields, consumer guidance for unresolved states, atomic transition guarantees, and containment policies.
-- **Current Status**: Complete and verified across 248 offline tests (0 failures). Ready for HANDOFF-022 review.
+## 4. Milestone Acceptance: CHOCH Strategy Engine Implementation & Lifecycle Hardening
+- **Accepted Milestone**: Pure Offline CHOCH Strategy Engine Implementation.
+- **Accepted Commit Hash**: `86b247f9` (HANDOFF-023)
+- **Reviewer Status**: **ACCEPTED** by Perplexity with standing authorization for ISS requirements phase.
+
+---
+
+## 5. Milestone Acceptance: ISS Requirements & Acceptance Specification
+- **Accepted Milestone**: Internal Structure Shift (ISS) Acceptance Specification & Boundary Hardening.
+- **Accepted Commit Hash**: `c6e58a26ef7d813e8bc884bbb8ac285440e9649d` (HANDOFF-027)
+- **Reviewer Status**: **ACCEPTED** by Perplexity as bounded ISS requirements baseline.
+
+---
+
+## 6. Current Task: Pure Offline ISS Strategy Engine Implementation & Coordination
+- **Active Branch**: `feature/iss-engine`
+- **Objective**: Implement pure domain types, progressive point detection, boundary validation, and lifecycle coordination for Internal Structure Shift (ISS).
+- **Scope Boundary**: Pure offline strategy logic. **Strictly zero UI, zero MT5 dependencies, zero TJL, zero zone activations, zero trade entry signals, zero automated trading, and zero merging to `main`**.
+- **Completed Deliverables**:
+  1. `src/aladeen/strategy/iss_types.py`:
+     - Immutable value objects (`FrozenBoundary`, `CandidateIdentity`, `InternalPoint`, `InternalFivePointStructure`, `ISSZone`, `ConfirmedISSEvent`, `ISSSnapshot`, `ISSConfig`).
+     - Distinct lifecycle states (`PENDING_PREREQUISITES`, `ELIGIBLE_SEARCH`, `CONFIRMED`, `OUT_OF_BOUNDS_REJECTED`, `OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY`, `MAIN_CONTINUATION_CANCELLED`, `MAIN_CHOCH_CANCELLED`).
+     - Exact zone geometry: high-side $[UB, \text{high}]$ and low-side $[\text{low}, LB]$; zero-width price lines (`is_line = True`).
+  2. `src/aladeen/strategy/iss_engine.py`:
+     - Deterministic sequential coordinator linking `MSMChochCoordinator` (main path) and internal `MSMEngine` (opposite direction with delayed forward-scan boundary).
+     - Progressive out-of-bounds rejection: immediately rejects as soon as any marked level breaches boundary.
+     - Exact 5-point confirmation timing: confirms upon identification of Point 5 if completion candle closes inside boundary.
+     - Tracking-only isolation: outside-range completion close transitions to permanent tracking without revival.
+     - Main event coordination: main continuation/CHOCH cleanly cancels unfinished searches while preserving previously confirmed ISS history.
+     - Unresolved main dependency containment: pauses active progression safely without publishing speculative states.
+     - Full batch (`process_candles`), incremental sequential (`process_candle`), and replay (`replay_snapshots`) APIs with 100% parity and transactional rollback safety.
+  3. `tests/test_iss_engine.py`: 19 comprehensive tests executing all 15 acceptance fixtures and verifying API safety, parity, forming candle rejection, and unresolved containment.
+  4. `docs/development/iss-engine-api.md`: Complete public API and architecture documentation.
+- **Current Status**: Complete and verified across 299 offline tests (0 failures). Ready for HANDOFF-028 review.
