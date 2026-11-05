@@ -1,7 +1,13 @@
 """Controlled browser verification for CHOCH Dashboard Integration using Playwright.
 
+NOTE ON VERIFICATION EVIDENCE SCOPE:
+These tests exercise fixture-backed rendering scenarios across dropdown selector
+values to verify Dash/Plotly UI rendering, coordinate placement, inspection panels,
+and context switching. They do NOT constitute validation of genuine native broker
+H1/D1 candle boundaries.
+
 Covers live UI rendering and coordinates in a real Chromium browser instance:
-- Case 1: Deterministic Bearish CHOCH (H4):
+- Case 1: Deterministic Bearish CHOCH (H4 selector / fixture):
     - Confirmed CHOCH at c2 close (2026-10-02 16:00 UTC)
     - Zones start horizontally strictly at 2026-10-02 16:00 UTC, NEVER at c2 open (12:00 UTC)
     - Marker on c2 anchored to c2 open with explicit tooltip distinguishing open from close

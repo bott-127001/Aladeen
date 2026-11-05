@@ -1,0 +1,3222 @@
+{
+  "description": "Standardized Acceptance Fixtures for Internal Structure Shift (ISS) Module",
+  "version": "1.0",
+  "categories": [
+    "source_settled",
+    "end_to_end_msm_derived",
+    "synthetic_prerequisite_unit",
+    "unresolved_boundary"
+  ],
+  "fixtures": {
+    "iss_01_bearish_basic_end_to_end": {
+      "category": [
+        "end_to_end_msm_derived",
+        "source_settled"
+      ],
+      "description": "Standard Bearish main structure with 5 internal upward points strictly inside boundary and completion close inside. Creates RBS zone on CH2 (Bar 10) and buying A+ zone on CL2 (Bar 12).",
+      "main_direction": "BEARISH",
+      "main_prerequisites": {
+        "main_level_2": {
+          "role": "CH",
+          "candle_index": 0,
+          "price": 1.2,
+          "time": "2026-10-01T00:00:00Z"
+        },
+        "main_level_3": {
+          "role": "tentative_low",
+          "candle_index": 3,
+          "price": 1.14,
+          "time": "2026-10-01T03:00:00Z"
+        },
+        "captured_boundary": {
+          "min_price": 1.14,
+          "max_price": 1.2,
+          "frozen_at_index": 5,
+          "frozen_at_time": "2026-10-01T05:00:00Z"
+        },
+        "internal_search_reference_index": 3,
+        "first_eligible_internal_pullback_index": 6
+      },
+      "candles": [
+        {
+          "time": "2026-10-01T00:00:00Z",
+          "open": 1.195,
+          "high": 1.205,
+          "low": 1.19,
+          "close": 1.2,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T01:00:00Z"
+        },
+        {
+          "time": "2026-10-01T01:00:00Z",
+          "open": 1.2,
+          "high": 1.201,
+          "low": 1.175,
+          "close": 1.18,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T02:00:00Z"
+        },
+        {
+          "time": "2026-10-01T02:00:00Z",
+          "open": 1.18,
+          "high": 1.181,
+          "low": 1.155,
+          "close": 1.16,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T03:00:00Z"
+        },
+        {
+          "time": "2026-10-01T03:00:00Z",
+          "open": 1.16,
+          "high": 1.161,
+          "low": 1.138,
+          "close": 1.14,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T04:00:00Z"
+        },
+        {
+          "time": "2026-10-01T04:00:00Z",
+          "open": 1.14,
+          "high": 1.148,
+          "low": 1.139,
+          "close": 1.145,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T05:00:00Z"
+        },
+        {
+          "time": "2026-10-01T05:00:00Z",
+          "open": 1.145,
+          "high": 1.152,
+          "low": 1.144,
+          "close": 1.15,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T06:00:00Z"
+        },
+        {
+          "time": "2026-10-01T06:00:00Z",
+          "open": 1.15,
+          "high": 1.162,
+          "low": 1.149,
+          "close": 1.16,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T07:00:00Z"
+        },
+        {
+          "time": "2026-10-01T07:00:00Z",
+          "open": 1.16,
+          "high": 1.161,
+          "low": 1.154,
+          "close": 1.155,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T08:00:00Z"
+        },
+        {
+          "time": "2026-10-01T08:00:00Z",
+          "open": 1.155,
+          "high": 1.156,
+          "low": 1.147,
+          "close": 1.148,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T09:00:00Z"
+        },
+        {
+          "time": "2026-10-01T09:00:00Z",
+          "open": 1.15,
+          "high": 1.17,
+          "low": 1.148,
+          "close": 1.168,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T10:00:00Z"
+        },
+        {
+          "time": "2026-10-01T10:00:00Z",
+          "open": 1.168,
+          "high": 1.178,
+          "low": 1.167,
+          "close": 1.175,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T11:00:00Z"
+        },
+        {
+          "time": "2026-10-01T11:00:00Z",
+          "open": 1.175,
+          "high": 1.176,
+          "low": 1.171,
+          "close": 1.172,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T12:00:00Z"
+        },
+        {
+          "time": "2026-10-01T12:00:00Z",
+          "open": 1.172,
+          "high": 1.173,
+          "low": 1.165,
+          "close": 1.168,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T13:00:00Z"
+        },
+        {
+          "time": "2026-10-01T13:00:00Z",
+          "open": 1.17,
+          "high": 1.186,
+          "low": 1.167,
+          "close": 1.185,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T14:00:00Z"
+        },
+        {
+          "time": "2026-10-01T14:00:00Z",
+          "open": 1.185,
+          "high": 1.193,
+          "low": 1.184,
+          "close": 1.192,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T15:00:00Z"
+        },
+        {
+          "time": "2026-10-01T15:00:00Z",
+          "open": 1.192,
+          "high": 1.193,
+          "low": 1.1905,
+          "close": 1.191,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T16:00:00Z"
+        },
+        {
+          "time": "2026-10-01T16:00:00Z",
+          "open": 1.191,
+          "high": 1.192,
+          "low": 1.187,
+          "close": 1.188,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T17:00:00Z"
+        }
+      ],
+      "expected_internal_points": [
+        {
+          "point_number": 1,
+          "role": "CH1",
+          "candle_index": 6,
+          "body_edge_price": 1.16,
+          "is_inside_boundary": true
+        },
+        {
+          "point_number": 2,
+          "role": "CL1",
+          "candle_index": 8,
+          "body_edge_price": 1.148,
+          "is_inside_boundary": true
+        },
+        {
+          "point_number": 3,
+          "role": "CH2",
+          "candle_index": 10,
+          "body_edge_price": 1.175,
+          "is_inside_boundary": true
+        },
+        {
+          "point_number": 4,
+          "role": "CL2",
+          "candle_index": 12,
+          "body_edge_price": 1.168,
+          "is_inside_boundary": true
+        },
+        {
+          "point_number": 5,
+          "role": "TENTATIVE_HIGH",
+          "candle_index": 14,
+          "body_edge_price": 1.192,
+          "is_inside_boundary": true
+        }
+      ],
+      "expected_outcome": {
+        "lifecycle_status": "CONFIRMED",
+        "confirmation_candle_index": 16,
+        "confirmation_time": "2026-10-01T17:00:00Z",
+        "completion_close_price": 1.188,
+        "completion_close_inside_boundary": true,
+        "zones": {
+          "level_3_zone": {
+            "role": "RBS",
+            "source_candle_index": 10,
+            "lower_price": 1.175,
+            "upper_price": 1.178,
+            "is_line": false
+          },
+          "level_4_a_plus_zone": {
+            "role": "BUYING_A_PLUS",
+            "source_candle_index": 12,
+            "lower_price": 1.165,
+            "upper_price": 1.168,
+            "is_line": false
+          }
+        }
+      }
+    },
+    "iss_02_bullish_basic_end_to_end": {
+      "category": [
+        "end_to_end_msm_derived",
+        "source_settled"
+      ],
+      "description": "Standard Bullish main structure with 5 internal downward points strictly inside boundary and completion close inside. Creates SBR zone on CL2 (Bar 10) and selling A+ zone on CH2 (Bar 12).",
+      "main_direction": "BULLISH",
+      "main_prerequisites": {
+        "main_level_2": {
+          "role": "CL",
+          "candle_index": 0,
+          "price": 1.1,
+          "time": "2026-10-01T00:00:00Z"
+        },
+        "main_level_3": {
+          "role": "tentative_high",
+          "candle_index": 3,
+          "price": 1.16,
+          "time": "2026-10-01T03:00:00Z"
+        },
+        "captured_boundary": {
+          "min_price": 1.1,
+          "max_price": 1.16,
+          "frozen_at_index": 5,
+          "frozen_at_time": "2026-10-01T05:00:00Z"
+        },
+        "internal_search_reference_index": 3,
+        "first_eligible_internal_pullback_index": 6
+      },
+      "candles": [
+        {
+          "time": "2026-10-01T00:00:00Z",
+          "open": 1.105,
+          "high": 1.11,
+          "low": 1.095,
+          "close": 1.1,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T01:00:00Z"
+        },
+        {
+          "time": "2026-10-01T01:00:00Z",
+          "open": 1.1,
+          "high": 1.125,
+          "low": 1.099,
+          "close": 1.12,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T02:00:00Z"
+        },
+        {
+          "time": "2026-10-01T02:00:00Z",
+          "open": 1.12,
+          "high": 1.145,
+          "low": 1.119,
+          "close": 1.14,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T03:00:00Z"
+        },
+        {
+          "time": "2026-10-01T03:00:00Z",
+          "open": 1.14,
+          "high": 1.162,
+          "low": 1.139,
+          "close": 1.16,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T04:00:00Z"
+        },
+        {
+          "time": "2026-10-01T04:00:00Z",
+          "open": 1.16,
+          "high": 1.161,
+          "low": 1.152,
+          "close": 1.155,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T05:00:00Z"
+        },
+        {
+          "time": "2026-10-01T05:00:00Z",
+          "open": 1.155,
+          "high": 1.156,
+          "low": 1.148,
+          "close": 1.15,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T06:00:00Z"
+        },
+        {
+          "time": "2026-10-01T06:00:00Z",
+          "open": 1.15,
+          "high": 1.151,
+          "low": 1.138,
+          "close": 1.14,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T07:00:00Z"
+        },
+        {
+          "time": "2026-10-01T07:00:00Z",
+          "open": 1.14,
+          "high": 1.146,
+          "low": 1.139,
+          "close": 1.145,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T08:00:00Z"
+        },
+        {
+          "time": "2026-10-01T08:00:00Z",
+          "open": 1.145,
+          "high": 1.153,
+          "low": 1.144,
+          "close": 1.152,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T09:00:00Z"
+        },
+        {
+          "time": "2026-10-01T09:00:00Z",
+          "open": 1.15,
+          "high": 1.152,
+          "low": 1.13,
+          "close": 1.132,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T10:00:00Z"
+        },
+        {
+          "time": "2026-10-01T10:00:00Z",
+          "open": 1.132,
+          "high": 1.133,
+          "low": 1.122,
+          "close": 1.125,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T11:00:00Z"
+        },
+        {
+          "time": "2026-10-01T11:00:00Z",
+          "open": 1.125,
+          "high": 1.129,
+          "low": 1.124,
+          "close": 1.128,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T12:00:00Z"
+        },
+        {
+          "time": "2026-10-01T12:00:00Z",
+          "open": 1.128,
+          "high": 1.135,
+          "low": 1.127,
+          "close": 1.132,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T13:00:00Z"
+        },
+        {
+          "time": "2026-10-01T13:00:00Z",
+          "open": 1.13,
+          "high": 1.133,
+          "low": 1.114,
+          "close": 1.115,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T14:00:00Z"
+        },
+        {
+          "time": "2026-10-01T14:00:00Z",
+          "open": 1.115,
+          "high": 1.116,
+          "low": 1.107,
+          "close": 1.108,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T15:00:00Z"
+        },
+        {
+          "time": "2026-10-01T15:00:00Z",
+          "open": 1.108,
+          "high": 1.11,
+          "low": 1.107,
+          "close": 1.1095,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T16:00:00Z"
+        },
+        {
+          "time": "2026-10-01T16:00:00Z",
+          "open": 1.1095,
+          "high": 1.113,
+          "low": 1.109,
+          "close": 1.112,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T17:00:00Z"
+        }
+      ],
+      "expected_internal_points": [
+        {
+          "point_number": 1,
+          "role": "CL1",
+          "candle_index": 6,
+          "body_edge_price": 1.14,
+          "is_inside_boundary": true
+        },
+        {
+          "point_number": 2,
+          "role": "CH1",
+          "candle_index": 8,
+          "body_edge_price": 1.152,
+          "is_inside_boundary": true
+        },
+        {
+          "point_number": 3,
+          "role": "CL2",
+          "candle_index": 10,
+          "body_edge_price": 1.125,
+          "is_inside_boundary": true
+        },
+        {
+          "point_number": 4,
+          "role": "CH2",
+          "candle_index": 12,
+          "body_edge_price": 1.132,
+          "is_inside_boundary": true
+        },
+        {
+          "point_number": 5,
+          "role": "TENTATIVE_LOW",
+          "candle_index": 14,
+          "body_edge_price": 1.108,
+          "is_inside_boundary": true
+        }
+      ],
+      "expected_outcome": {
+        "lifecycle_status": "CONFIRMED",
+        "confirmation_candle_index": 16,
+        "confirmation_time": "2026-10-01T17:00:00Z",
+        "completion_close_price": 1.112,
+        "completion_close_inside_boundary": true,
+        "zones": {
+          "level_3_zone": {
+            "role": "SBR",
+            "source_candle_index": 10,
+            "lower_price": 1.122,
+            "upper_price": 1.125,
+            "is_line": false
+          },
+          "level_4_a_plus_zone": {
+            "role": "SELLING_A_PLUS",
+            "source_candle_index": 12,
+            "lower_price": 1.132,
+            "upper_price": 1.135,
+            "is_line": false
+          }
+        }
+      }
+    },
+    "iss_03_boundary_equality": {
+      "category": [
+        "source_settled",
+        "end_to_end_msm_derived"
+      ],
+      "description": "Marked internal point 5 body-edge price exactly equals captured boundary price (1.2000). Verified that boundary equality satisfies the inclusive range condition.",
+      "main_direction": "BEARISH",
+      "main_prerequisites": {
+        "main_level_2": {
+          "role": "CH",
+          "candle_index": 0,
+          "price": 1.2,
+          "time": "2026-10-01T00:00:00Z"
+        },
+        "main_level_3": {
+          "role": "tentative_low",
+          "candle_index": 3,
+          "price": 1.14,
+          "time": "2026-10-01T03:00:00Z"
+        },
+        "captured_boundary": {
+          "min_price": 1.14,
+          "max_price": 1.2,
+          "frozen_at_index": 5,
+          "frozen_at_time": "2026-10-01T05:00:00Z"
+        },
+        "internal_search_reference_index": 3,
+        "first_eligible_internal_pullback_index": 6
+      },
+      "candles": [
+        {
+          "time": "2026-10-01T00:00:00Z",
+          "open": 1.195,
+          "high": 1.205,
+          "low": 1.19,
+          "close": 1.2,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T01:00:00Z"
+        },
+        {
+          "time": "2026-10-01T01:00:00Z",
+          "open": 1.2,
+          "high": 1.201,
+          "low": 1.175,
+          "close": 1.18,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T02:00:00Z"
+        },
+        {
+          "time": "2026-10-01T02:00:00Z",
+          "open": 1.18,
+          "high": 1.181,
+          "low": 1.155,
+          "close": 1.16,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T03:00:00Z"
+        },
+        {
+          "time": "2026-10-01T03:00:00Z",
+          "open": 1.16,
+          "high": 1.161,
+          "low": 1.138,
+          "close": 1.14,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T04:00:00Z"
+        },
+        {
+          "time": "2026-10-01T04:00:00Z",
+          "open": 1.14,
+          "high": 1.148,
+          "low": 1.139,
+          "close": 1.145,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T05:00:00Z"
+        },
+        {
+          "time": "2026-10-01T05:00:00Z",
+          "open": 1.145,
+          "high": 1.152,
+          "low": 1.144,
+          "close": 1.15,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T06:00:00Z"
+        },
+        {
+          "time": "2026-10-01T06:00:00Z",
+          "open": 1.15,
+          "high": 1.162,
+          "low": 1.149,
+          "close": 1.16,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T07:00:00Z"
+        },
+        {
+          "time": "2026-10-01T07:00:00Z",
+          "open": 1.16,
+          "high": 1.161,
+          "low": 1.154,
+          "close": 1.155,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T08:00:00Z"
+        },
+        {
+          "time": "2026-10-01T08:00:00Z",
+          "open": 1.155,
+          "high": 1.156,
+          "low": 1.147,
+          "close": 1.148,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T09:00:00Z"
+        },
+        {
+          "time": "2026-10-01T09:00:00Z",
+          "open": 1.15,
+          "high": 1.17,
+          "low": 1.148,
+          "close": 1.168,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T10:00:00Z"
+        },
+        {
+          "time": "2026-10-01T10:00:00Z",
+          "open": 1.168,
+          "high": 1.178,
+          "low": 1.167,
+          "close": 1.175,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T11:00:00Z"
+        },
+        {
+          "time": "2026-10-01T11:00:00Z",
+          "open": 1.175,
+          "high": 1.176,
+          "low": 1.171,
+          "close": 1.172,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T12:00:00Z"
+        },
+        {
+          "time": "2026-10-01T12:00:00Z",
+          "open": 1.172,
+          "high": 1.173,
+          "low": 1.165,
+          "close": 1.168,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T13:00:00Z"
+        },
+        {
+          "time": "2026-10-01T13:00:00Z",
+          "open": 1.17,
+          "high": 1.186,
+          "low": 1.167,
+          "close": 1.185,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T14:00:00Z"
+        },
+        {
+          "time": "2026-10-01T14:00:00Z",
+          "open": 1.185,
+          "high": 1.201,
+          "low": 1.184,
+          "close": 1.2,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T15:00:00Z"
+        },
+        {
+          "time": "2026-10-01T15:00:00Z",
+          "open": 1.192,
+          "high": 1.193,
+          "low": 1.1905,
+          "close": 1.191,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T16:00:00Z"
+        },
+        {
+          "time": "2026-10-01T16:00:00Z",
+          "open": 1.191,
+          "high": 1.192,
+          "low": 1.187,
+          "close": 1.188,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T17:00:00Z"
+        }
+      ],
+      "expected_internal_points": [
+        {
+          "point_number": 1,
+          "role": "CH1",
+          "candle_index": 6,
+          "body_edge_price": 1.16,
+          "is_inside_boundary": true
+        },
+        {
+          "point_number": 2,
+          "role": "CL1",
+          "candle_index": 8,
+          "body_edge_price": 1.148,
+          "is_inside_boundary": true
+        },
+        {
+          "point_number": 3,
+          "role": "CH2",
+          "candle_index": 10,
+          "body_edge_price": 1.175,
+          "is_inside_boundary": true
+        },
+        {
+          "point_number": 4,
+          "role": "CL2",
+          "candle_index": 12,
+          "body_edge_price": 1.168,
+          "is_inside_boundary": true
+        },
+        {
+          "point_number": 5,
+          "role": "TENTATIVE_HIGH",
+          "candle_index": 14,
+          "body_edge_price": 1.2,
+          "is_inside_boundary": true
+        }
+      ],
+      "expected_outcome": {
+        "lifecycle_status": "CONFIRMED",
+        "confirmation_candle_index": 16,
+        "completion_close_price": 1.188,
+        "completion_close_inside_boundary": true
+      }
+    },
+    "iss_04_wick_excursion_allowed": {
+      "category": [
+        "source_settled",
+        "end_to_end_msm_derived"
+      ],
+      "description": "Candle wicks pierce beyond the frozen range boundaries (low 1.1350 < 1.1400 and high 1.2060 > 1.2000) while all marked body edges remain strictly inside. Confirms ISS per Section 5.",
+      "main_direction": "BEARISH",
+      "main_prerequisites": {
+        "main_level_2": {
+          "role": "CH",
+          "candle_index": 0,
+          "price": 1.2,
+          "time": "2026-10-01T00:00:00Z"
+        },
+        "main_level_3": {
+          "role": "tentative_low",
+          "candle_index": 3,
+          "price": 1.14,
+          "time": "2026-10-01T03:00:00Z"
+        },
+        "captured_boundary": {
+          "min_price": 1.14,
+          "max_price": 1.2,
+          "frozen_at_index": 5,
+          "frozen_at_time": "2026-10-01T05:00:00Z"
+        },
+        "internal_search_reference_index": 3,
+        "first_eligible_internal_pullback_index": 6
+      },
+      "candles": [
+        {
+          "time": "2026-10-01T00:00:00Z",
+          "open": 1.195,
+          "high": 1.205,
+          "low": 1.19,
+          "close": 1.2,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T01:00:00Z"
+        },
+        {
+          "time": "2026-10-01T01:00:00Z",
+          "open": 1.2,
+          "high": 1.201,
+          "low": 1.175,
+          "close": 1.18,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T02:00:00Z"
+        },
+        {
+          "time": "2026-10-01T02:00:00Z",
+          "open": 1.18,
+          "high": 1.181,
+          "low": 1.155,
+          "close": 1.16,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T03:00:00Z"
+        },
+        {
+          "time": "2026-10-01T03:00:00Z",
+          "open": 1.16,
+          "high": 1.161,
+          "low": 1.138,
+          "close": 1.14,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T04:00:00Z"
+        },
+        {
+          "time": "2026-10-01T04:00:00Z",
+          "open": 1.14,
+          "high": 1.148,
+          "low": 1.139,
+          "close": 1.145,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T05:00:00Z"
+        },
+        {
+          "time": "2026-10-01T05:00:00Z",
+          "open": 1.145,
+          "high": 1.152,
+          "low": 1.144,
+          "close": 1.15,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T06:00:00Z"
+        },
+        {
+          "time": "2026-10-01T06:00:00Z",
+          "open": 1.15,
+          "high": 1.162,
+          "low": 1.149,
+          "close": 1.16,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T07:00:00Z"
+        },
+        {
+          "time": "2026-10-01T07:00:00Z",
+          "open": 1.16,
+          "high": 1.161,
+          "low": 1.154,
+          "close": 1.155,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T08:00:00Z"
+        },
+        {
+          "time": "2026-10-01T08:00:00Z",
+          "open": 1.155,
+          "high": 1.156,
+          "low": 1.135,
+          "close": 1.148,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T09:00:00Z"
+        },
+        {
+          "time": "2026-10-01T09:00:00Z",
+          "open": 1.15,
+          "high": 1.17,
+          "low": 1.148,
+          "close": 1.168,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T10:00:00Z"
+        },
+        {
+          "time": "2026-10-01T10:00:00Z",
+          "open": 1.168,
+          "high": 1.206,
+          "low": 1.167,
+          "close": 1.175,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T11:00:00Z"
+        },
+        {
+          "time": "2026-10-01T11:00:00Z",
+          "open": 1.175,
+          "high": 1.176,
+          "low": 1.171,
+          "close": 1.172,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T12:00:00Z"
+        },
+        {
+          "time": "2026-10-01T12:00:00Z",
+          "open": 1.172,
+          "high": 1.173,
+          "low": 1.165,
+          "close": 1.168,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T13:00:00Z"
+        },
+        {
+          "time": "2026-10-01T13:00:00Z",
+          "open": 1.17,
+          "high": 1.186,
+          "low": 1.167,
+          "close": 1.185,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T14:00:00Z"
+        },
+        {
+          "time": "2026-10-01T14:00:00Z",
+          "open": 1.185,
+          "high": 1.193,
+          "low": 1.184,
+          "close": 1.192,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T15:00:00Z"
+        },
+        {
+          "time": "2026-10-01T15:00:00Z",
+          "open": 1.192,
+          "high": 1.193,
+          "low": 1.1905,
+          "close": 1.191,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T16:00:00Z"
+        },
+        {
+          "time": "2026-10-01T16:00:00Z",
+          "open": 1.191,
+          "high": 1.192,
+          "low": 1.187,
+          "close": 1.188,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T17:00:00Z"
+        }
+      ],
+      "expected_outcome": {
+        "lifecycle_status": "CONFIRMED",
+        "confirmation_candle_index": 16,
+        "zones": {
+          "level_3_zone": {
+            "role": "RBS",
+            "source_candle_index": 10,
+            "lower_price": 1.175,
+            "upper_price": 1.206,
+            "is_line": false
+          },
+          "level_4_a_plus_zone": {
+            "role": "BUYING_A_PLUS",
+            "source_candle_index": 12,
+            "lower_price": 1.165,
+            "upper_price": 1.168,
+            "is_line": false
+          }
+        }
+      }
+    },
+    "iss_05_out_of_bounds_marked_point_rejection": {
+      "category": [
+        "source_settled",
+        "end_to_end_msm_derived"
+      ],
+      "description": "Marked internal point 3 body edge (1.2020) breaches frozen upper boundary (1.2000). Candidate permanently rejected, internal markings removed, zero zones created.",
+      "main_direction": "BEARISH",
+      "main_prerequisites": {
+        "main_level_2": {
+          "role": "CH",
+          "candle_index": 0,
+          "price": 1.2,
+          "time": "2026-10-01T00:00:00Z"
+        },
+        "main_level_3": {
+          "role": "tentative_low",
+          "candle_index": 3,
+          "price": 1.14,
+          "time": "2026-10-01T03:00:00Z"
+        },
+        "captured_boundary": {
+          "min_price": 1.14,
+          "max_price": 1.2,
+          "frozen_at_index": 5,
+          "frozen_at_time": "2026-10-01T05:00:00Z"
+        },
+        "internal_search_reference_index": 3,
+        "first_eligible_internal_pullback_index": 6
+      },
+      "candles": [
+        {
+          "time": "2026-10-01T00:00:00Z",
+          "open": 1.195,
+          "high": 1.205,
+          "low": 1.19,
+          "close": 1.2,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T01:00:00Z"
+        },
+        {
+          "time": "2026-10-01T01:00:00Z",
+          "open": 1.2,
+          "high": 1.201,
+          "low": 1.175,
+          "close": 1.18,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T02:00:00Z"
+        },
+        {
+          "time": "2026-10-01T02:00:00Z",
+          "open": 1.18,
+          "high": 1.181,
+          "low": 1.155,
+          "close": 1.16,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T03:00:00Z"
+        },
+        {
+          "time": "2026-10-01T03:00:00Z",
+          "open": 1.16,
+          "high": 1.161,
+          "low": 1.138,
+          "close": 1.14,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T04:00:00Z"
+        },
+        {
+          "time": "2026-10-01T04:00:00Z",
+          "open": 1.14,
+          "high": 1.148,
+          "low": 1.139,
+          "close": 1.145,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T05:00:00Z"
+        },
+        {
+          "time": "2026-10-01T05:00:00Z",
+          "open": 1.145,
+          "high": 1.152,
+          "low": 1.144,
+          "close": 1.15,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T06:00:00Z"
+        },
+        {
+          "time": "2026-10-01T06:00:00Z",
+          "open": 1.15,
+          "high": 1.162,
+          "low": 1.149,
+          "close": 1.16,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T07:00:00Z"
+        },
+        {
+          "time": "2026-10-01T07:00:00Z",
+          "open": 1.16,
+          "high": 1.161,
+          "low": 1.154,
+          "close": 1.155,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T08:00:00Z"
+        },
+        {
+          "time": "2026-10-01T08:00:00Z",
+          "open": 1.155,
+          "high": 1.156,
+          "low": 1.147,
+          "close": 1.148,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T09:00:00Z"
+        },
+        {
+          "time": "2026-10-01T09:00:00Z",
+          "open": 1.15,
+          "high": 1.17,
+          "low": 1.148,
+          "close": 1.168,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T10:00:00Z"
+        },
+        {
+          "time": "2026-10-01T10:00:00Z",
+          "open": 1.168,
+          "high": 1.205,
+          "low": 1.167,
+          "close": 1.202,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T11:00:00Z"
+        },
+        {
+          "time": "2026-10-01T11:00:00Z",
+          "open": 1.175,
+          "high": 1.176,
+          "low": 1.171,
+          "close": 1.172,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T12:00:00Z"
+        },
+        {
+          "time": "2026-10-01T12:00:00Z",
+          "open": 1.172,
+          "high": 1.173,
+          "low": 1.165,
+          "close": 1.168,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T13:00:00Z"
+        },
+        {
+          "time": "2026-10-01T13:00:00Z",
+          "open": 1.17,
+          "high": 1.186,
+          "low": 1.167,
+          "close": 1.185,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T14:00:00Z"
+        },
+        {
+          "time": "2026-10-01T14:00:00Z",
+          "open": 1.185,
+          "high": 1.193,
+          "low": 1.184,
+          "close": 1.192,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T15:00:00Z"
+        },
+        {
+          "time": "2026-10-01T15:00:00Z",
+          "open": 1.192,
+          "high": 1.193,
+          "low": 1.1905,
+          "close": 1.191,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T16:00:00Z"
+        },
+        {
+          "time": "2026-10-01T16:00:00Z",
+          "open": 1.191,
+          "high": 1.192,
+          "low": 1.187,
+          "close": 1.188,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T17:00:00Z"
+        }
+      ],
+      "expected_outcome": {
+        "lifecycle_status": "OUT_OF_BOUNDS_REJECTED",
+        "rejection_candle_index": 12,
+        "rejection_reason": "Marked level CH2 price 1.2020 exceeds upper boundary 1.2000",
+        "active_markings_deleted": true,
+        "zones_created": false
+      }
+    },
+    "iss_06_outside_range_completion_tracking_only": {
+      "category": [
+        "source_settled",
+        "end_to_end_msm_derived"
+      ],
+      "description": "All 5 marked points valid inside [1.1400, 1.2000], but completion candle closes at 1.1350 outside boundary. ISS not confirmed, no zones created, internal markings retained only for tracking.",
+      "main_direction": "BEARISH",
+      "main_prerequisites": {
+        "main_level_2": {
+          "role": "CH",
+          "candle_index": 0,
+          "price": 1.2,
+          "time": "2026-10-01T00:00:00Z"
+        },
+        "main_level_3": {
+          "role": "tentative_low",
+          "candle_index": 3,
+          "price": 1.14,
+          "time": "2026-10-01T03:00:00Z"
+        },
+        "captured_boundary": {
+          "min_price": 1.14,
+          "max_price": 1.2,
+          "frozen_at_index": 5,
+          "frozen_at_time": "2026-10-01T05:00:00Z"
+        },
+        "internal_search_reference_index": 3,
+        "first_eligible_internal_pullback_index": 6
+      },
+      "candles": [
+        {
+          "time": "2026-10-01T00:00:00Z",
+          "open": 1.195,
+          "high": 1.205,
+          "low": 1.19,
+          "close": 1.2,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T01:00:00Z"
+        },
+        {
+          "time": "2026-10-01T01:00:00Z",
+          "open": 1.2,
+          "high": 1.201,
+          "low": 1.175,
+          "close": 1.18,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T02:00:00Z"
+        },
+        {
+          "time": "2026-10-01T02:00:00Z",
+          "open": 1.18,
+          "high": 1.181,
+          "low": 1.155,
+          "close": 1.16,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T03:00:00Z"
+        },
+        {
+          "time": "2026-10-01T03:00:00Z",
+          "open": 1.16,
+          "high": 1.161,
+          "low": 1.138,
+          "close": 1.14,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T04:00:00Z"
+        },
+        {
+          "time": "2026-10-01T04:00:00Z",
+          "open": 1.14,
+          "high": 1.148,
+          "low": 1.139,
+          "close": 1.145,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T05:00:00Z"
+        },
+        {
+          "time": "2026-10-01T05:00:00Z",
+          "open": 1.145,
+          "high": 1.152,
+          "low": 1.144,
+          "close": 1.15,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T06:00:00Z"
+        },
+        {
+          "time": "2026-10-01T06:00:00Z",
+          "open": 1.15,
+          "high": 1.162,
+          "low": 1.149,
+          "close": 1.16,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T07:00:00Z"
+        },
+        {
+          "time": "2026-10-01T07:00:00Z",
+          "open": 1.16,
+          "high": 1.161,
+          "low": 1.154,
+          "close": 1.155,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T08:00:00Z"
+        },
+        {
+          "time": "2026-10-01T08:00:00Z",
+          "open": 1.155,
+          "high": 1.156,
+          "low": 1.147,
+          "close": 1.148,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T09:00:00Z"
+        },
+        {
+          "time": "2026-10-01T09:00:00Z",
+          "open": 1.15,
+          "high": 1.17,
+          "low": 1.148,
+          "close": 1.168,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T10:00:00Z"
+        },
+        {
+          "time": "2026-10-01T10:00:00Z",
+          "open": 1.168,
+          "high": 1.178,
+          "low": 1.167,
+          "close": 1.175,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T11:00:00Z"
+        },
+        {
+          "time": "2026-10-01T11:00:00Z",
+          "open": 1.175,
+          "high": 1.176,
+          "low": 1.171,
+          "close": 1.172,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T12:00:00Z"
+        },
+        {
+          "time": "2026-10-01T12:00:00Z",
+          "open": 1.172,
+          "high": 1.173,
+          "low": 1.165,
+          "close": 1.168,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T13:00:00Z"
+        },
+        {
+          "time": "2026-10-01T13:00:00Z",
+          "open": 1.17,
+          "high": 1.186,
+          "low": 1.167,
+          "close": 1.185,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T14:00:00Z"
+        },
+        {
+          "time": "2026-10-01T14:00:00Z",
+          "open": 1.185,
+          "high": 1.193,
+          "low": 1.184,
+          "close": 1.192,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T15:00:00Z"
+        },
+        {
+          "time": "2026-10-01T15:00:00Z",
+          "open": 1.192,
+          "high": 1.193,
+          "low": 1.139,
+          "close": 1.14,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T16:00:00Z"
+        },
+        {
+          "time": "2026-10-01T16:00:00Z",
+          "open": 1.14,
+          "high": 1.141,
+          "low": 1.134,
+          "close": 1.135,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T17:00:00Z"
+        }
+      ],
+      "expected_outcome": {
+        "lifecycle_status": "OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY",
+        "completion_close_price": 1.135,
+        "completion_close_inside_boundary": false,
+        "zones_created": false,
+        "markings_retained_for_tracking_only": true
+      }
+    },
+    "iss_07_no_revival_under_same_main_level_3": {
+      "category": [
+        "source_settled",
+        "end_to_end_msm_derived"
+      ],
+      "description": "Subsequent internal price action following an outside-range completion attempt cannot revive ISS eligibility under the same main level 3.",
+      "main_direction": "BEARISH",
+      "main_prerequisites": {
+        "main_level_2": {
+          "role": "CH",
+          "candle_index": 0,
+          "price": 1.2,
+          "time": "2026-10-01T00:00:00Z"
+        },
+        "main_level_3": {
+          "role": "tentative_low",
+          "candle_index": 3,
+          "price": 1.14,
+          "time": "2026-10-01T03:00:00Z"
+        },
+        "captured_boundary": {
+          "min_price": 1.14,
+          "max_price": 1.2,
+          "frozen_at_index": 5,
+          "frozen_at_time": "2026-10-01T05:00:00Z"
+        },
+        "internal_search_reference_index": 3,
+        "first_eligible_internal_pullback_index": 6
+      },
+      "candles": [
+        {
+          "time": "2026-10-01T00:00:00Z",
+          "open": 1.195,
+          "high": 1.205,
+          "low": 1.19,
+          "close": 1.2,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T01:00:00Z"
+        },
+        {
+          "time": "2026-10-01T01:00:00Z",
+          "open": 1.2,
+          "high": 1.201,
+          "low": 1.175,
+          "close": 1.18,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T02:00:00Z"
+        },
+        {
+          "time": "2026-10-01T02:00:00Z",
+          "open": 1.18,
+          "high": 1.181,
+          "low": 1.155,
+          "close": 1.16,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T03:00:00Z"
+        },
+        {
+          "time": "2026-10-01T03:00:00Z",
+          "open": 1.16,
+          "high": 1.161,
+          "low": 1.138,
+          "close": 1.14,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T04:00:00Z"
+        },
+        {
+          "time": "2026-10-01T04:00:00Z",
+          "open": 1.14,
+          "high": 1.148,
+          "low": 1.139,
+          "close": 1.145,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T05:00:00Z"
+        },
+        {
+          "time": "2026-10-01T05:00:00Z",
+          "open": 1.145,
+          "high": 1.152,
+          "low": 1.144,
+          "close": 1.15,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T06:00:00Z"
+        },
+        {
+          "time": "2026-10-01T06:00:00Z",
+          "open": 1.15,
+          "high": 1.162,
+          "low": 1.149,
+          "close": 1.16,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T07:00:00Z"
+        },
+        {
+          "time": "2026-10-01T07:00:00Z",
+          "open": 1.16,
+          "high": 1.161,
+          "low": 1.154,
+          "close": 1.155,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T08:00:00Z"
+        },
+        {
+          "time": "2026-10-01T08:00:00Z",
+          "open": 1.155,
+          "high": 1.156,
+          "low": 1.147,
+          "close": 1.148,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T09:00:00Z"
+        },
+        {
+          "time": "2026-10-01T09:00:00Z",
+          "open": 1.15,
+          "high": 1.17,
+          "low": 1.148,
+          "close": 1.168,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T10:00:00Z"
+        },
+        {
+          "time": "2026-10-01T10:00:00Z",
+          "open": 1.168,
+          "high": 1.178,
+          "low": 1.167,
+          "close": 1.175,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T11:00:00Z"
+        },
+        {
+          "time": "2026-10-01T11:00:00Z",
+          "open": 1.175,
+          "high": 1.176,
+          "low": 1.171,
+          "close": 1.172,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T12:00:00Z"
+        },
+        {
+          "time": "2026-10-01T12:00:00Z",
+          "open": 1.172,
+          "high": 1.173,
+          "low": 1.165,
+          "close": 1.168,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T13:00:00Z"
+        },
+        {
+          "time": "2026-10-01T13:00:00Z",
+          "open": 1.17,
+          "high": 1.186,
+          "low": 1.167,
+          "close": 1.185,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T14:00:00Z"
+        },
+        {
+          "time": "2026-10-01T14:00:00Z",
+          "open": 1.185,
+          "high": 1.193,
+          "low": 1.184,
+          "close": 1.192,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T15:00:00Z"
+        },
+        {
+          "time": "2026-10-01T15:00:00Z",
+          "open": 1.192,
+          "high": 1.193,
+          "low": 1.139,
+          "close": 1.14,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T16:00:00Z"
+        },
+        {
+          "time": "2026-10-01T16:00:00Z",
+          "open": 1.14,
+          "high": 1.141,
+          "low": 1.134,
+          "close": 1.135,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T17:00:00Z"
+        },
+        {
+          "time": "2026-10-01T17:00:00Z",
+          "open": 1.135,
+          "high": 1.16,
+          "low": 1.135,
+          "close": 1.158,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T18:00:00Z"
+        },
+        {
+          "time": "2026-10-01T18:00:00Z",
+          "open": 1.158,
+          "high": 1.159,
+          "low": 1.15,
+          "close": 1.152,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T19:00:00Z"
+        },
+        {
+          "time": "2026-10-01T19:00:00Z",
+          "open": 1.152,
+          "high": 1.153,
+          "low": 1.146,
+          "close": 1.148,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T20:00:00Z"
+        }
+      ],
+      "expected_outcome": {
+        "lifecycle_status": "PERMANENTLY_INELIGIBLE_FOR_CURRENT_MAIN_L3",
+        "revival_permitted": false,
+        "zones_created": false
+      }
+    },
+    "iss_08_fresh_search_on_new_main_level_3": {
+      "category": [
+        "source_settled",
+        "end_to_end_msm_derived"
+      ],
+      "description": "Following prior candidate rejection, a new valid main level 3 is identified. A fresh candidate opens with new captured boundaries and succeeds.",
+      "main_direction": "BEARISH",
+      "candles": [
+        {
+          "time": "2026-10-01T00:00:00Z",
+          "open": 1.195,
+          "high": 1.205,
+          "low": 1.19,
+          "close": 1.2,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T01:00:00Z"
+        },
+        {
+          "time": "2026-10-01T01:00:00Z",
+          "open": 1.2,
+          "high": 1.201,
+          "low": 1.175,
+          "close": 1.18,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T02:00:00Z"
+        },
+        {
+          "time": "2026-10-01T02:00:00Z",
+          "open": 1.18,
+          "high": 1.181,
+          "low": 1.155,
+          "close": 1.16,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T03:00:00Z"
+        },
+        {
+          "time": "2026-10-01T03:00:00Z",
+          "open": 1.16,
+          "high": 1.161,
+          "low": 1.138,
+          "close": 1.14,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T04:00:00Z"
+        },
+        {
+          "time": "2026-10-01T04:00:00Z",
+          "open": 1.14,
+          "high": 1.148,
+          "low": 1.139,
+          "close": 1.145,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T05:00:00Z"
+        },
+        {
+          "time": "2026-10-01T05:00:00Z",
+          "open": 1.145,
+          "high": 1.152,
+          "low": 1.144,
+          "close": 1.15,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T06:00:00Z"
+        },
+        {
+          "time": "2026-10-01T06:00:00Z",
+          "open": 1.15,
+          "high": 1.162,
+          "low": 1.149,
+          "close": 1.16,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T07:00:00Z"
+        },
+        {
+          "time": "2026-10-01T07:00:00Z",
+          "open": 1.16,
+          "high": 1.161,
+          "low": 1.154,
+          "close": 1.155,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T08:00:00Z"
+        },
+        {
+          "time": "2026-10-01T08:00:00Z",
+          "open": 1.155,
+          "high": 1.156,
+          "low": 1.147,
+          "close": 1.148,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T09:00:00Z"
+        },
+        {
+          "time": "2026-10-01T09:00:00Z",
+          "open": 1.15,
+          "high": 1.17,
+          "low": 1.148,
+          "close": 1.168,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T10:00:00Z"
+        },
+        {
+          "time": "2026-10-01T10:00:00Z",
+          "open": 1.168,
+          "high": 1.178,
+          "low": 1.167,
+          "close": 1.175,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T11:00:00Z"
+        },
+        {
+          "time": "2026-10-01T11:00:00Z",
+          "open": 1.175,
+          "high": 1.176,
+          "low": 1.171,
+          "close": 1.172,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T12:00:00Z"
+        },
+        {
+          "time": "2026-10-01T12:00:00Z",
+          "open": 1.172,
+          "high": 1.173,
+          "low": 1.165,
+          "close": 1.168,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T13:00:00Z"
+        },
+        {
+          "time": "2026-10-01T13:00:00Z",
+          "open": 1.17,
+          "high": 1.186,
+          "low": 1.167,
+          "close": 1.185,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T14:00:00Z"
+        },
+        {
+          "time": "2026-10-01T14:00:00Z",
+          "open": 1.185,
+          "high": 1.193,
+          "low": 1.184,
+          "close": 1.192,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T15:00:00Z"
+        },
+        {
+          "time": "2026-10-01T15:00:00Z",
+          "open": 1.192,
+          "high": 1.193,
+          "low": 1.1905,
+          "close": 1.191,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T16:00:00Z"
+        },
+        {
+          "time": "2026-10-01T16:00:00Z",
+          "open": 1.191,
+          "high": 1.192,
+          "low": 1.187,
+          "close": 1.188,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T17:00:00Z"
+        }
+      ],
+      "expected_outcome": {
+        "lifecycle_status": "FRESH_SEARCH_OPENED",
+        "revives_prior_candidate": false,
+        "uses_new_boundaries": true
+      }
+    },
+    "iss_09_main_continuation_cancellation": {
+      "category": [
+        "source_settled",
+        "end_to_end_msm_derived"
+      ],
+      "description": "Main continuation closing break (1.1320 < 1.1400) occurs before ISS completes. Unfinished ISS candidate cancelled without zones.",
+      "main_direction": "BEARISH",
+      "main_prerequisites": {
+        "main_level_2": {
+          "role": "CH",
+          "candle_index": 0,
+          "price": 1.2,
+          "time": "2026-10-01T00:00:00Z"
+        },
+        "main_level_3": {
+          "role": "tentative_low",
+          "candle_index": 3,
+          "price": 1.14,
+          "time": "2026-10-01T03:00:00Z"
+        },
+        "captured_boundary": {
+          "min_price": 1.14,
+          "max_price": 1.2,
+          "frozen_at_index": 5,
+          "frozen_at_time": "2026-10-01T05:00:00Z"
+        },
+        "internal_search_reference_index": 3,
+        "first_eligible_internal_pullback_index": 6
+      },
+      "candles": [
+        {
+          "time": "2026-10-01T00:00:00Z",
+          "open": 1.195,
+          "high": 1.205,
+          "low": 1.19,
+          "close": 1.2,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T01:00:00Z"
+        },
+        {
+          "time": "2026-10-01T01:00:00Z",
+          "open": 1.2,
+          "high": 1.201,
+          "low": 1.175,
+          "close": 1.18,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T02:00:00Z"
+        },
+        {
+          "time": "2026-10-01T02:00:00Z",
+          "open": 1.18,
+          "high": 1.181,
+          "low": 1.155,
+          "close": 1.16,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T03:00:00Z"
+        },
+        {
+          "time": "2026-10-01T03:00:00Z",
+          "open": 1.16,
+          "high": 1.161,
+          "low": 1.138,
+          "close": 1.14,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T04:00:00Z"
+        },
+        {
+          "time": "2026-10-01T04:00:00Z",
+          "open": 1.14,
+          "high": 1.148,
+          "low": 1.139,
+          "close": 1.145,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T05:00:00Z"
+        },
+        {
+          "time": "2026-10-01T05:00:00Z",
+          "open": 1.145,
+          "high": 1.152,
+          "low": 1.144,
+          "close": 1.15,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T06:00:00Z"
+        },
+        {
+          "time": "2026-10-01T06:00:00Z",
+          "open": 1.15,
+          "high": 1.162,
+          "low": 1.149,
+          "close": 1.16,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T07:00:00Z"
+        },
+        {
+          "time": "2026-10-01T07:00:00Z",
+          "open": 1.16,
+          "high": 1.161,
+          "low": 1.154,
+          "close": 1.155,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T08:00:00Z"
+        },
+        {
+          "time": "2026-10-01T08:00:00Z",
+          "open": 1.155,
+          "high": 1.156,
+          "low": 1.147,
+          "close": 1.148,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T09:00:00Z"
+        },
+        {
+          "time": "2026-10-01T09:00:00Z",
+          "open": 1.15,
+          "high": 1.17,
+          "low": 1.148,
+          "close": 1.168,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T10:00:00Z"
+        },
+        {
+          "time": "2026-10-01T10:00:00Z",
+          "open": 1.15,
+          "high": 1.151,
+          "low": 1.13,
+          "close": 1.132,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T11:00:00Z"
+        }
+      ],
+      "expected_outcome": {
+        "lifecycle_status": "MAIN_CONTINUATION_CANCELLED",
+        "zones_created": false,
+        "main_marking_proceeds": true
+      }
+    },
+    "iss_10_main_choch_cancellation": {
+      "category": [
+        "source_settled",
+        "end_to_end_msm_derived"
+      ],
+      "description": "Main CHOCH confirms (two consecutive closes > 1.2000) while internal candidate is unfinished. Active ISS candidate cancelled; confirmed history retained.",
+      "main_direction": "BEARISH",
+      "main_prerequisites": {
+        "main_level_2": {
+          "role": "CH",
+          "candle_index": 0,
+          "price": 1.2,
+          "time": "2026-10-01T00:00:00Z"
+        },
+        "main_level_3": {
+          "role": "tentative_low",
+          "candle_index": 3,
+          "price": 1.14,
+          "time": "2026-10-01T03:00:00Z"
+        },
+        "captured_boundary": {
+          "min_price": 1.14,
+          "max_price": 1.2,
+          "frozen_at_index": 5,
+          "frozen_at_time": "2026-10-01T05:00:00Z"
+        },
+        "internal_search_reference_index": 3,
+        "first_eligible_internal_pullback_index": 6
+      },
+      "candles": [
+        {
+          "time": "2026-10-01T00:00:00Z",
+          "open": 1.195,
+          "high": 1.205,
+          "low": 1.19,
+          "close": 1.2,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T01:00:00Z"
+        },
+        {
+          "time": "2026-10-01T01:00:00Z",
+          "open": 1.2,
+          "high": 1.201,
+          "low": 1.175,
+          "close": 1.18,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T02:00:00Z"
+        },
+        {
+          "time": "2026-10-01T02:00:00Z",
+          "open": 1.18,
+          "high": 1.181,
+          "low": 1.155,
+          "close": 1.16,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T03:00:00Z"
+        },
+        {
+          "time": "2026-10-01T03:00:00Z",
+          "open": 1.16,
+          "high": 1.161,
+          "low": 1.138,
+          "close": 1.14,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T04:00:00Z"
+        },
+        {
+          "time": "2026-10-01T04:00:00Z",
+          "open": 1.14,
+          "high": 1.148,
+          "low": 1.139,
+          "close": 1.145,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T05:00:00Z"
+        },
+        {
+          "time": "2026-10-01T05:00:00Z",
+          "open": 1.145,
+          "high": 1.152,
+          "low": 1.144,
+          "close": 1.15,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T06:00:00Z"
+        },
+        {
+          "time": "2026-10-01T06:00:00Z",
+          "open": 1.15,
+          "high": 1.162,
+          "low": 1.149,
+          "close": 1.16,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T07:00:00Z"
+        },
+        {
+          "time": "2026-10-01T07:00:00Z",
+          "open": 1.16,
+          "high": 1.161,
+          "low": 1.154,
+          "close": 1.155,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T08:00:00Z"
+        },
+        {
+          "time": "2026-10-01T08:00:00Z",
+          "open": 1.155,
+          "high": 1.156,
+          "low": 1.147,
+          "close": 1.148,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T09:00:00Z"
+        },
+        {
+          "time": "2026-10-01T09:00:00Z",
+          "open": 1.15,
+          "high": 1.17,
+          "low": 1.148,
+          "close": 1.168,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T10:00:00Z"
+        },
+        {
+          "time": "2026-10-01T10:00:00Z",
+          "open": 1.168,
+          "high": 1.206,
+          "low": 1.168,
+          "close": 1.204,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T11:00:00Z"
+        },
+        {
+          "time": "2026-10-01T11:00:00Z",
+          "open": 1.204,
+          "high": 1.208,
+          "low": 1.202,
+          "close": 1.205,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T12:00:00Z"
+        }
+      ],
+      "expected_outcome": {
+        "lifecycle_status": "MAIN_CHOCH_CANCELLED",
+        "zones_created": false,
+        "confirmed_history_retained": true
+      }
+    },
+    "iss_11_retained_history_preservation": {
+      "category": [
+        "source_settled",
+        "end_to_end_msm_derived"
+      ],
+      "description": "Confirmed ISS zones and labels remain in history after later main continuation break.",
+      "main_direction": "BEARISH",
+      "main_prerequisites": {
+        "main_level_2": {
+          "role": "CH",
+          "candle_index": 0,
+          "price": 1.2,
+          "time": "2026-10-01T00:00:00Z"
+        },
+        "main_level_3": {
+          "role": "tentative_low",
+          "candle_index": 3,
+          "price": 1.14,
+          "time": "2026-10-01T03:00:00Z"
+        },
+        "captured_boundary": {
+          "min_price": 1.14,
+          "max_price": 1.2,
+          "frozen_at_index": 5,
+          "frozen_at_time": "2026-10-01T05:00:00Z"
+        },
+        "internal_search_reference_index": 3,
+        "first_eligible_internal_pullback_index": 6
+      },
+      "candles": [
+        {
+          "time": "2026-10-01T00:00:00Z",
+          "open": 1.195,
+          "high": 1.205,
+          "low": 1.19,
+          "close": 1.2,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T01:00:00Z"
+        },
+        {
+          "time": "2026-10-01T01:00:00Z",
+          "open": 1.2,
+          "high": 1.201,
+          "low": 1.175,
+          "close": 1.18,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T02:00:00Z"
+        },
+        {
+          "time": "2026-10-01T02:00:00Z",
+          "open": 1.18,
+          "high": 1.181,
+          "low": 1.155,
+          "close": 1.16,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T03:00:00Z"
+        },
+        {
+          "time": "2026-10-01T03:00:00Z",
+          "open": 1.16,
+          "high": 1.161,
+          "low": 1.138,
+          "close": 1.14,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T04:00:00Z"
+        },
+        {
+          "time": "2026-10-01T04:00:00Z",
+          "open": 1.14,
+          "high": 1.148,
+          "low": 1.139,
+          "close": 1.145,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T05:00:00Z"
+        },
+        {
+          "time": "2026-10-01T05:00:00Z",
+          "open": 1.145,
+          "high": 1.152,
+          "low": 1.144,
+          "close": 1.15,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T06:00:00Z"
+        },
+        {
+          "time": "2026-10-01T06:00:00Z",
+          "open": 1.15,
+          "high": 1.162,
+          "low": 1.149,
+          "close": 1.16,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T07:00:00Z"
+        },
+        {
+          "time": "2026-10-01T07:00:00Z",
+          "open": 1.16,
+          "high": 1.161,
+          "low": 1.154,
+          "close": 1.155,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T08:00:00Z"
+        },
+        {
+          "time": "2026-10-01T08:00:00Z",
+          "open": 1.155,
+          "high": 1.156,
+          "low": 1.147,
+          "close": 1.148,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T09:00:00Z"
+        },
+        {
+          "time": "2026-10-01T09:00:00Z",
+          "open": 1.15,
+          "high": 1.17,
+          "low": 1.148,
+          "close": 1.168,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T10:00:00Z"
+        },
+        {
+          "time": "2026-10-01T10:00:00Z",
+          "open": 1.168,
+          "high": 1.178,
+          "low": 1.167,
+          "close": 1.175,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T11:00:00Z"
+        },
+        {
+          "time": "2026-10-01T11:00:00Z",
+          "open": 1.175,
+          "high": 1.176,
+          "low": 1.171,
+          "close": 1.172,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T12:00:00Z"
+        },
+        {
+          "time": "2026-10-01T12:00:00Z",
+          "open": 1.172,
+          "high": 1.173,
+          "low": 1.165,
+          "close": 1.168,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T13:00:00Z"
+        },
+        {
+          "time": "2026-10-01T13:00:00Z",
+          "open": 1.17,
+          "high": 1.186,
+          "low": 1.167,
+          "close": 1.185,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T14:00:00Z"
+        },
+        {
+          "time": "2026-10-01T14:00:00Z",
+          "open": 1.185,
+          "high": 1.193,
+          "low": 1.184,
+          "close": 1.192,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T15:00:00Z"
+        },
+        {
+          "time": "2026-10-01T15:00:00Z",
+          "open": 1.192,
+          "high": 1.193,
+          "low": 1.1905,
+          "close": 1.191,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T16:00:00Z"
+        },
+        {
+          "time": "2026-10-01T16:00:00Z",
+          "open": 1.191,
+          "high": 1.192,
+          "low": 1.187,
+          "close": 1.188,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T17:00:00Z"
+        },
+        {
+          "time": "2026-10-01T17:00:00Z",
+          "open": 1.188,
+          "high": 1.189,
+          "low": 1.145,
+          "close": 1.15,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T18:00:00Z"
+        },
+        {
+          "time": "2026-10-01T18:00:00Z",
+          "open": 1.15,
+          "high": 1.151,
+          "low": 1.13,
+          "close": 1.132,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T19:00:00Z"
+        }
+      ],
+      "expected_outcome": {
+        "lifecycle_status": "CONFIRMED_HISTORY_RETAINED",
+        "historical_zones_count": 2,
+        "retroactive_cancellation": false
+      }
+    },
+    "iss_12_zone_provenance_and_geometry": {
+      "category": [
+        "source_settled",
+        "end_to_end_msm_derived"
+      ],
+      "description": "Zone provenance check: zones derived strictly from internal points 3 and 4, never from main level 3 or internal point 5.",
+      "main_direction": "BEARISH",
+      "main_prerequisites": {
+        "main_level_2": {
+          "role": "CH",
+          "candle_index": 0,
+          "price": 1.2,
+          "time": "2026-10-01T00:00:00Z"
+        },
+        "main_level_3": {
+          "role": "tentative_low",
+          "candle_index": 3,
+          "price": 1.14,
+          "time": "2026-10-01T03:00:00Z"
+        },
+        "captured_boundary": {
+          "min_price": 1.14,
+          "max_price": 1.2,
+          "frozen_at_index": 5,
+          "frozen_at_time": "2026-10-01T05:00:00Z"
+        },
+        "internal_search_reference_index": 3,
+        "first_eligible_internal_pullback_index": 6
+      },
+      "candles": [
+        {
+          "time": "2026-10-01T00:00:00Z",
+          "open": 1.195,
+          "high": 1.205,
+          "low": 1.19,
+          "close": 1.2,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T01:00:00Z"
+        },
+        {
+          "time": "2026-10-01T01:00:00Z",
+          "open": 1.2,
+          "high": 1.201,
+          "low": 1.175,
+          "close": 1.18,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T02:00:00Z"
+        },
+        {
+          "time": "2026-10-01T02:00:00Z",
+          "open": 1.18,
+          "high": 1.181,
+          "low": 1.155,
+          "close": 1.16,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T03:00:00Z"
+        },
+        {
+          "time": "2026-10-01T03:00:00Z",
+          "open": 1.16,
+          "high": 1.161,
+          "low": 1.138,
+          "close": 1.14,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T04:00:00Z"
+        },
+        {
+          "time": "2026-10-01T04:00:00Z",
+          "open": 1.14,
+          "high": 1.148,
+          "low": 1.139,
+          "close": 1.145,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T05:00:00Z"
+        },
+        {
+          "time": "2026-10-01T05:00:00Z",
+          "open": 1.145,
+          "high": 1.152,
+          "low": 1.144,
+          "close": 1.15,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T06:00:00Z"
+        },
+        {
+          "time": "2026-10-01T06:00:00Z",
+          "open": 1.15,
+          "high": 1.162,
+          "low": 1.149,
+          "close": 1.16,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T07:00:00Z"
+        },
+        {
+          "time": "2026-10-01T07:00:00Z",
+          "open": 1.16,
+          "high": 1.161,
+          "low": 1.154,
+          "close": 1.155,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T08:00:00Z"
+        },
+        {
+          "time": "2026-10-01T08:00:00Z",
+          "open": 1.155,
+          "high": 1.156,
+          "low": 1.147,
+          "close": 1.148,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T09:00:00Z"
+        },
+        {
+          "time": "2026-10-01T09:00:00Z",
+          "open": 1.15,
+          "high": 1.17,
+          "low": 1.148,
+          "close": 1.168,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T10:00:00Z"
+        },
+        {
+          "time": "2026-10-01T10:00:00Z",
+          "open": 1.168,
+          "high": 1.178,
+          "low": 1.167,
+          "close": 1.175,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T11:00:00Z"
+        },
+        {
+          "time": "2026-10-01T11:00:00Z",
+          "open": 1.175,
+          "high": 1.176,
+          "low": 1.171,
+          "close": 1.172,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T12:00:00Z"
+        },
+        {
+          "time": "2026-10-01T12:00:00Z",
+          "open": 1.172,
+          "high": 1.173,
+          "low": 1.165,
+          "close": 1.168,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T13:00:00Z"
+        },
+        {
+          "time": "2026-10-01T13:00:00Z",
+          "open": 1.17,
+          "high": 1.186,
+          "low": 1.167,
+          "close": 1.185,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T14:00:00Z"
+        },
+        {
+          "time": "2026-10-01T14:00:00Z",
+          "open": 1.185,
+          "high": 1.193,
+          "low": 1.184,
+          "close": 1.192,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T15:00:00Z"
+        },
+        {
+          "time": "2026-10-01T15:00:00Z",
+          "open": 1.192,
+          "high": 1.193,
+          "low": 1.1905,
+          "close": 1.191,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T16:00:00Z"
+        },
+        {
+          "time": "2026-10-01T16:00:00Z",
+          "open": 1.191,
+          "high": 1.192,
+          "low": 1.187,
+          "close": 1.188,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T17:00:00Z"
+        }
+      ],
+      "expected_outcome": {
+        "level_3_provenance": {
+          "point_number": 3,
+          "role": "CH2",
+          "source_candle_index": 10,
+          "geometry": [
+            1.175,
+            1.178
+          ]
+        },
+        "level_4_provenance": {
+          "point_number": 4,
+          "role": "CL2",
+          "source_candle_index": 12,
+          "geometry": [
+            1.165,
+            1.168
+          ]
+        },
+        "disallowed_sources": [
+          "MAIN_LEVEL_3",
+          "INTERNAL_POINT_5"
+        ]
+      }
+    },
+    "iss_13_zero_width_zones": {
+      "category": [
+        "source_settled",
+        "end_to_end_msm_derived"
+      ],
+      "description": "Original candle has zero relevant top wick (high == UB == 1.1750). RBS zone retains thickness 0 ([1.1750, 1.1750]), single price line.",
+      "main_direction": "BEARISH",
+      "main_prerequisites": {
+        "main_level_2": {
+          "role": "CH",
+          "candle_index": 0,
+          "price": 1.2,
+          "time": "2026-10-01T00:00:00Z"
+        },
+        "main_level_3": {
+          "role": "tentative_low",
+          "candle_index": 3,
+          "price": 1.14,
+          "time": "2026-10-01T03:00:00Z"
+        },
+        "captured_boundary": {
+          "min_price": 1.14,
+          "max_price": 1.2,
+          "frozen_at_index": 5,
+          "frozen_at_time": "2026-10-01T05:00:00Z"
+        },
+        "internal_search_reference_index": 3,
+        "first_eligible_internal_pullback_index": 6
+      },
+      "candles": [
+        {
+          "time": "2026-10-01T00:00:00Z",
+          "open": 1.195,
+          "high": 1.205,
+          "low": 1.19,
+          "close": 1.2,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T01:00:00Z"
+        },
+        {
+          "time": "2026-10-01T01:00:00Z",
+          "open": 1.2,
+          "high": 1.201,
+          "low": 1.175,
+          "close": 1.18,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T02:00:00Z"
+        },
+        {
+          "time": "2026-10-01T02:00:00Z",
+          "open": 1.18,
+          "high": 1.181,
+          "low": 1.155,
+          "close": 1.16,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T03:00:00Z"
+        },
+        {
+          "time": "2026-10-01T03:00:00Z",
+          "open": 1.16,
+          "high": 1.161,
+          "low": 1.138,
+          "close": 1.14,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T04:00:00Z"
+        },
+        {
+          "time": "2026-10-01T04:00:00Z",
+          "open": 1.14,
+          "high": 1.148,
+          "low": 1.139,
+          "close": 1.145,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T05:00:00Z"
+        },
+        {
+          "time": "2026-10-01T05:00:00Z",
+          "open": 1.145,
+          "high": 1.152,
+          "low": 1.144,
+          "close": 1.15,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T06:00:00Z"
+        },
+        {
+          "time": "2026-10-01T06:00:00Z",
+          "open": 1.15,
+          "high": 1.162,
+          "low": 1.149,
+          "close": 1.16,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T07:00:00Z"
+        },
+        {
+          "time": "2026-10-01T07:00:00Z",
+          "open": 1.16,
+          "high": 1.161,
+          "low": 1.154,
+          "close": 1.155,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T08:00:00Z"
+        },
+        {
+          "time": "2026-10-01T08:00:00Z",
+          "open": 1.155,
+          "high": 1.156,
+          "low": 1.147,
+          "close": 1.148,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T09:00:00Z"
+        },
+        {
+          "time": "2026-10-01T09:00:00Z",
+          "open": 1.15,
+          "high": 1.17,
+          "low": 1.148,
+          "close": 1.168,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T10:00:00Z"
+        },
+        {
+          "time": "2026-10-01T10:00:00Z",
+          "open": 1.168,
+          "high": 1.175,
+          "low": 1.167,
+          "close": 1.175,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T11:00:00Z"
+        },
+        {
+          "time": "2026-10-01T11:00:00Z",
+          "open": 1.175,
+          "high": 1.176,
+          "low": 1.171,
+          "close": 1.172,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T12:00:00Z"
+        },
+        {
+          "time": "2026-10-01T12:00:00Z",
+          "open": 1.172,
+          "high": 1.173,
+          "low": 1.165,
+          "close": 1.168,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T13:00:00Z"
+        },
+        {
+          "time": "2026-10-01T13:00:00Z",
+          "open": 1.17,
+          "high": 1.186,
+          "low": 1.167,
+          "close": 1.185,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T14:00:00Z"
+        },
+        {
+          "time": "2026-10-01T14:00:00Z",
+          "open": 1.185,
+          "high": 1.193,
+          "low": 1.184,
+          "close": 1.192,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T15:00:00Z"
+        },
+        {
+          "time": "2026-10-01T15:00:00Z",
+          "open": 1.192,
+          "high": 1.193,
+          "low": 1.1905,
+          "close": 1.191,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T16:00:00Z"
+        },
+        {
+          "time": "2026-10-01T16:00:00Z",
+          "open": 1.191,
+          "high": 1.192,
+          "low": 1.187,
+          "close": 1.188,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T17:00:00Z"
+        }
+      ],
+      "expected_outcome": {
+        "level_3_zone": {
+          "role": "RBS",
+          "source_candle_index": 10,
+          "lower_price": 1.175,
+          "upper_price": 1.175,
+          "is_line": true
+        }
+      }
+    },
+    "iss_14_first_internal_pullback_timing_restriction": {
+      "category": [
+        "source_settled",
+        "end_to_end_msm_derived"
+      ],
+      "description": "Internal pullback candles must occur strictly after the second candle of the main pullback (index > 5).",
+      "main_direction": "BEARISH",
+      "main_prerequisites": {
+        "main_level_2": {
+          "role": "CH",
+          "candle_index": 0,
+          "price": 1.2,
+          "time": "2026-10-01T00:00:00Z"
+        },
+        "main_level_3": {
+          "role": "tentative_low",
+          "candle_index": 3,
+          "price": 1.14,
+          "time": "2026-10-01T03:00:00Z"
+        },
+        "captured_boundary": {
+          "min_price": 1.14,
+          "max_price": 1.2,
+          "frozen_at_index": 5,
+          "frozen_at_time": "2026-10-01T05:00:00Z"
+        },
+        "internal_search_reference_index": 3,
+        "first_eligible_internal_pullback_index": 6
+      },
+      "candles": [
+        {
+          "time": "2026-10-01T00:00:00Z",
+          "open": 1.195,
+          "high": 1.205,
+          "low": 1.19,
+          "close": 1.2,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T01:00:00Z"
+        },
+        {
+          "time": "2026-10-01T01:00:00Z",
+          "open": 1.2,
+          "high": 1.201,
+          "low": 1.175,
+          "close": 1.18,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T02:00:00Z"
+        },
+        {
+          "time": "2026-10-01T02:00:00Z",
+          "open": 1.18,
+          "high": 1.181,
+          "low": 1.155,
+          "close": 1.16,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T03:00:00Z"
+        },
+        {
+          "time": "2026-10-01T03:00:00Z",
+          "open": 1.16,
+          "high": 1.161,
+          "low": 1.138,
+          "close": 1.14,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T04:00:00Z"
+        },
+        {
+          "time": "2026-10-01T04:00:00Z",
+          "open": 1.14,
+          "high": 1.148,
+          "low": 1.139,
+          "close": 1.145,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T05:00:00Z"
+        },
+        {
+          "time": "2026-10-01T05:00:00Z",
+          "open": 1.145,
+          "high": 1.152,
+          "low": 1.144,
+          "close": 1.15,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T06:00:00Z"
+        },
+        {
+          "time": "2026-10-01T06:00:00Z",
+          "open": 1.15,
+          "high": 1.162,
+          "low": 1.149,
+          "close": 1.16,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T07:00:00Z"
+        },
+        {
+          "time": "2026-10-01T07:00:00Z",
+          "open": 1.16,
+          "high": 1.161,
+          "low": 1.154,
+          "close": 1.155,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T08:00:00Z"
+        },
+        {
+          "time": "2026-10-01T08:00:00Z",
+          "open": 1.155,
+          "high": 1.156,
+          "low": 1.147,
+          "close": 1.148,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T09:00:00Z"
+        },
+        {
+          "time": "2026-10-01T09:00:00Z",
+          "open": 1.15,
+          "high": 1.17,
+          "low": 1.148,
+          "close": 1.168,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T10:00:00Z"
+        },
+        {
+          "time": "2026-10-01T10:00:00Z",
+          "open": 1.168,
+          "high": 1.178,
+          "low": 1.167,
+          "close": 1.175,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T11:00:00Z"
+        },
+        {
+          "time": "2026-10-01T11:00:00Z",
+          "open": 1.175,
+          "high": 1.176,
+          "low": 1.171,
+          "close": 1.172,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T12:00:00Z"
+        },
+        {
+          "time": "2026-10-01T12:00:00Z",
+          "open": 1.172,
+          "high": 1.173,
+          "low": 1.165,
+          "close": 1.168,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T13:00:00Z"
+        },
+        {
+          "time": "2026-10-01T13:00:00Z",
+          "open": 1.17,
+          "high": 1.186,
+          "low": 1.167,
+          "close": 1.185,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T14:00:00Z"
+        },
+        {
+          "time": "2026-10-01T14:00:00Z",
+          "open": 1.185,
+          "high": 1.193,
+          "low": 1.184,
+          "close": 1.192,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T15:00:00Z"
+        },
+        {
+          "time": "2026-10-01T15:00:00Z",
+          "open": 1.192,
+          "high": 1.193,
+          "low": 1.1905,
+          "close": 1.191,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T16:00:00Z"
+        },
+        {
+          "time": "2026-10-01T16:00:00Z",
+          "open": 1.191,
+          "high": 1.192,
+          "low": 1.187,
+          "close": 1.188,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T17:00:00Z"
+        }
+      ],
+      "expected_outcome": {
+        "min_allowed_first_pullback_index": 6,
+        "reused_main_pullback_candles": false
+      }
+    },
+    "iss_15_prefix_consistency_and_ids": {
+      "category": [
+        "source_settled",
+        "end_to_end_msm_derived"
+      ],
+      "description": "Sequential prefix evaluations with arbitrary IDs verify idempotent deterministic point identification.",
+      "main_direction": "BEARISH",
+      "main_prerequisites": {
+        "main_level_2": {
+          "role": "CH",
+          "candle_index": 0,
+          "price": 1.2,
+          "time": "2026-10-01T00:00:00Z"
+        },
+        "main_level_3": {
+          "role": "tentative_low",
+          "candle_index": 3,
+          "price": 1.14,
+          "time": "2026-10-01T03:00:00Z"
+        },
+        "captured_boundary": {
+          "min_price": 1.14,
+          "max_price": 1.2,
+          "frozen_at_index": 5,
+          "frozen_at_time": "2026-10-01T05:00:00Z"
+        },
+        "internal_search_reference_index": 3,
+        "first_eligible_internal_pullback_index": 6
+      },
+      "candles": [
+        {
+          "time": "2026-10-01T00:00:00Z",
+          "open": 1.195,
+          "high": 1.205,
+          "low": 1.19,
+          "close": 1.2,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T01:00:00Z"
+        },
+        {
+          "time": "2026-10-01T01:00:00Z",
+          "open": 1.2,
+          "high": 1.201,
+          "low": 1.175,
+          "close": 1.18,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T02:00:00Z"
+        },
+        {
+          "time": "2026-10-01T02:00:00Z",
+          "open": 1.18,
+          "high": 1.181,
+          "low": 1.155,
+          "close": 1.16,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T03:00:00Z"
+        },
+        {
+          "time": "2026-10-01T03:00:00Z",
+          "open": 1.16,
+          "high": 1.161,
+          "low": 1.138,
+          "close": 1.14,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T04:00:00Z"
+        },
+        {
+          "time": "2026-10-01T04:00:00Z",
+          "open": 1.14,
+          "high": 1.148,
+          "low": 1.139,
+          "close": 1.145,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T05:00:00Z"
+        },
+        {
+          "time": "2026-10-01T05:00:00Z",
+          "open": 1.145,
+          "high": 1.152,
+          "low": 1.144,
+          "close": 1.15,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T06:00:00Z"
+        },
+        {
+          "time": "2026-10-01T06:00:00Z",
+          "open": 1.15,
+          "high": 1.162,
+          "low": 1.149,
+          "close": 1.16,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T07:00:00Z"
+        },
+        {
+          "time": "2026-10-01T07:00:00Z",
+          "open": 1.16,
+          "high": 1.161,
+          "low": 1.154,
+          "close": 1.155,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T08:00:00Z"
+        },
+        {
+          "time": "2026-10-01T08:00:00Z",
+          "open": 1.155,
+          "high": 1.156,
+          "low": 1.147,
+          "close": 1.148,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T09:00:00Z"
+        },
+        {
+          "time": "2026-10-01T09:00:00Z",
+          "open": 1.15,
+          "high": 1.17,
+          "low": 1.148,
+          "close": 1.168,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T10:00:00Z"
+        },
+        {
+          "time": "2026-10-01T10:00:00Z",
+          "open": 1.168,
+          "high": 1.178,
+          "low": 1.167,
+          "close": 1.175,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T11:00:00Z"
+        },
+        {
+          "time": "2026-10-01T11:00:00Z",
+          "open": 1.175,
+          "high": 1.176,
+          "low": 1.171,
+          "close": 1.172,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T12:00:00Z"
+        },
+        {
+          "time": "2026-10-01T12:00:00Z",
+          "open": 1.172,
+          "high": 1.173,
+          "low": 1.165,
+          "close": 1.168,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T13:00:00Z"
+        },
+        {
+          "time": "2026-10-01T13:00:00Z",
+          "open": 1.17,
+          "high": 1.186,
+          "low": 1.167,
+          "close": 1.185,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T14:00:00Z"
+        },
+        {
+          "time": "2026-10-01T14:00:00Z",
+          "open": 1.185,
+          "high": 1.193,
+          "low": 1.184,
+          "close": 1.192,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T15:00:00Z"
+        },
+        {
+          "time": "2026-10-01T15:00:00Z",
+          "open": 1.192,
+          "high": 1.193,
+          "low": 1.1905,
+          "close": 1.191,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T16:00:00Z"
+        },
+        {
+          "time": "2026-10-01T16:00:00Z",
+          "open": 1.191,
+          "high": 1.192,
+          "low": 1.187,
+          "close": 1.188,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "close_time": "2026-10-01T17:00:00Z"
+        }
+      ],
+      "expected_outcome": {
+        "deterministic_reproducibility": true
+      }
+    }
+  }
+}

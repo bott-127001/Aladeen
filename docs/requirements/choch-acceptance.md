@@ -258,3 +258,14 @@ Can a single completed candle `k` simultaneously satisfy an MSM continuation bre
 | **AC-CHOCH-13** | Zero-Wick Line Preservation | Original candle has zero relevant wick | Zone thickness is exactly 0 (`[price, price]`); no artificial widening. |
 | **AC-CHOCH-14** | Cycle Termination & Restart | CHOCH confirmed | Old cycle terminates; direction reverses; restart reference is Point 3 candle. |
 | **AC-CHOCH-15** | Post-Confirmation Pullback | First pullback in new direction | Both pullback candles must be strictly after `c2`. |
+
+---
+
+## 10. Checkpoint & Milestone Status: Bounded Dashboard Acceptance (HANDOFF-024)
+
+- **Milestone Status**: Formally Accepted by Perplexity review for the bounded source-settled MSM+CHOCH dashboard scope at commit `9e4a33b672b1e82e36ea042ac84868a2fa10201a`.
+- **Preserved Limitations & Boundary Qualifications**:
+  1. **Isolated CHOCH Identification-Close Interpretation**: The unresolved question of whether candle $p_2$'s close can simultaneously establish Point 3 and count as the first CHOCH candidate close $c_1$ remains isolated as `INTEGRATED_STRUCTURE_UNRESOLVED`. Bounded milestone acceptance does not resolve it or establish complete integrated strategy coverage.
+  2. **Browser Verification Evidence Characterization**: The deterministic browser verification (`tests/test_choch_browser_verification.py`) routes deterministic fixture datasets through H1 and D1 dropdown selector values. This confirms Dash/Plotly UI rendering, component lifecycle, coordinate calculation, and context switching; it does **not** validate genuine native broker H1/D1 candle boundaries. These results are recorded strictly as **fixture-backed rendering scenarios**, not timeframe-boundary verification.
+- **Successor Scope**: Transition to source-backed Internal Structure Shift (ISS) requirements and acceptance fixtures under branch `requirements/iss-acceptance`.
+
