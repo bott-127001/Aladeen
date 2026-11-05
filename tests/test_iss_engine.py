@@ -18,6 +18,7 @@ import pytest
 
 from aladeen.strategy import (
     CandidateIdentity,
+    ChochType,
     ConfirmedISSEvent,
     Direction,
     FrozenBoundary,
@@ -33,6 +34,7 @@ from aladeen.strategy import (
 )
 from tests.fixtures.iss_fixtures import (
     get_candle_19_20_cancellation_fixture,
+    get_synthetic_missing_evidence_tracking_fixture,
     get_tracking_only_fixture,
 )
 
@@ -597,7 +599,12 @@ class TestISSEngineAPIAndSafety:
         assert z_a_plus.lower_price < z_a_plus.upper_price
 
     def test_tracking_points_continue_independently_of_attempted_points(self, iss_fixtures) -> None:
-        """Candidate in tracking-only continues internal MSM tracking through later swings with zero new ISS events."""
+        """[Isolated Lifecycle Test - Private State Mutation]
+
+        Candidate in tracking-only continues internal MSM tracking through later swings with zero new ISS events.
+        Note: Evaluates isolated tracking-only engine behavior via private state initialization,
+        not complete-state candle-driven reachability.
+        """
         fix = iss_fixtures["iss_01_bearish_basic_end_to_end"]
         start_time = datetime.fromisoformat(fix["candles"][0]["time"])
         engine = ISSEngine(ISSConfig(main_direction=Direction.DOWNWARD, start_candle_time=start_time))
@@ -632,7 +639,11 @@ class TestISSEngineAPIAndSafety:
         assert len(snap.confirmed_events) == 0
 
     def test_tracking_only_candidate_followed_by_main_continuation_cancels(self, iss_fixtures) -> None:
-        """Existing tracking-only candidate cancels cleanly when subsequent main continuation breaks Level 3."""
+        """[Isolated Lifecycle Test - Private State Mutation]
+
+        Existing tracking-only candidate cancels cleanly when subsequent main continuation breaks Level 3.
+        Note: Evaluates isolated cancellation behavior via private state initialization.
+        """
         fix = iss_fixtures["iss_01_bearish_basic_end_to_end"]
         start_time = datetime.fromisoformat(fix["candles"][0]["time"])
         engine = ISSEngine(ISSConfig(main_direction=Direction.DOWNWARD, start_candle_time=start_time))
@@ -668,7 +679,11 @@ class TestISSEngineAPIAndSafety:
         assert len(snap.confirmed_events) == 0
 
     def test_tracking_only_candidate_followed_by_main_choch_cancels(self, iss_fixtures) -> None:
-        """Existing tracking-only candidate cancels cleanly when subsequent main CHOCH confirms."""
+        """[Isolated Lifecycle Test - Private State Mutation]
+
+        Existing tracking-only candidate cancels cleanly when subsequent main CHOCH confirms.
+        Note: Evaluates isolated cancellation behavior via private state initialization.
+        """
         fix = iss_fixtures["iss_01_bearish_basic_end_to_end"]
         start_time = datetime.fromisoformat(fix["candles"][0]["time"])
         engine = ISSEngine(ISSConfig(main_direction=Direction.DOWNWARD, start_candle_time=start_time))
@@ -794,8 +809,12 @@ class TestISSEngineAPIAndSafety:
         assert engine.last_processed_index == 9
         assert engine.last_received_index == 10
 
-    def test_genuine_tracking_only_distinct_from_continuation_cancellation(self, iss_fixtures) -> None:
-        """Genuine tracking-only case where completion close is outside boundary but Main L3 remains intact."""
+    def test_isolated_tracking_only_distinct_from_continuation_cancellation(self, iss_fixtures) -> None:
+        """[Isolated Lifecycle Test - Private State Mutation]
+
+        Contrasts tracking-only state semantics with main continuation cancellation.
+        Note: Uses private-state mutation to isolate tracking-only snapshot properties.
+        """
         fix = iss_fixtures["iss_01_bearish_basic_end_to_end"]
         start_time = datetime.fromisoformat(fix["candles"][0]["time"])
         engine = ISSEngine(ISSConfig(main_direction=Direction.DOWNWARD, start_candle_time=start_time))
@@ -836,11 +855,12 @@ class TestISSEngineAPIAndSafety:
         assert snap_cancelled.tracking_points == ()
 
     def test_candle_19_20_both_closing_above_level_2_confirms_main_choch_and_cancels_candidate(self) -> None:
-        """When Candle 19 and 20 both close above Level 2 (1.2000), Candle 20 confirms Main Bullish CHOCH.
+        """[Complete-State Engine Test - Genuine Candle-Driven Fixture]
 
+        When Candle 19 and 20 both close above Level 2 (1.2000), Candle 20 confirms Main Bullish CHOCH.
         Uses centralized fixture get_candle_19_20_cancellation_fixture().
-        Asserts main bullish CHOCH at candle 20, final ISS lifecycle MAIN_CHOCH_CANCELLED,
-        0 active tracking points, 0 active zones, and 0 confirmed events.
+        Asserts main bullish CHOCH event at candle 20, final ISS lifecycle MAIN_CHOCH_CANCELLED,
+        attempted_points cleared to None, 0 active tracking points, 0 active zones, and 0 confirmed events.
         """
         fixture_data = get_candle_19_20_cancellation_fixture()
         raw_candles = fixture_data["candles"]
@@ -857,25 +877,31 @@ class TestISSEngineAPIAndSafety:
         assert snap20.lifecycle_status == ISSLifecycleStatus.MAIN_CHOCH_CANCELLED
         assert snap20.diagnostic_type == ISSDiagnosticType.CANCELLED_BY_MAIN_CHOCH
         assert snap20.is_tracking_only is False
+        assert snap20.attempted_points is None
         assert len(snap20.tracking_points) == 0
         assert len(snap20.active_zones) == 0
         assert len(snap20.confirmed_events) == 0
-        assert len(engine.get_main_coordinator_snapshot().confirmed_choch_events) == 1
+        
+        main_snap = engine.get_main_coordinator_snapshot()
+        assert len(main_snap.confirmed_choch_events) == 1
+        assert main_snap.confirmed_choch_events[0].choch_type == ChochType.BULLISH_CHOCH
 
-    def test_tracking_only_central_fixture_progression_and_cancellation(self) -> None:
-        """Tests the genuine tracking-only central fixture across all lifecycle stages:
+    def test_synthetic_missing_evidence_isolated_tracking_progression_and_cancellation(self) -> None:
+        """[Isolated Lifecycle Test - Scoped Prerequisite Modification]
 
+        Tests isolated tracking-only engine progression using synthetic missing-evidence setup:
         1. Prefix 20: 5 internal points inside boundary [1.1400, 1.2000], valid Point 5 identification,
-           completion close outside boundary on Level 2 side (> 1.2000), Main CHOCH count == 0
-           (confirmation withheld under REQUIRED_ZONE_PROVENANCE_MISSING), produces exact
-           OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY with 5 attempted points, internal tracking points,
-           0 active zones, and 0 events.
-        2. Extension prefix (Candles 21-22): internal tracking points advance without revival,
-           Main CHOCH count remains 0.
-        3. Subsequent cancellation prefix (Candle 24): Main CHOCH confirms and cleanly cancels
-           candidate with MAIN_CHOCH_CANCELLED, 0 tracking points, 0 zones.
+           completion close outside boundary on Level 2 side (> 1.2000). Main CHOCH confirmation is
+           withheld by scoping out low_candle provenance (REQUIRED_ZONE_PROVENANCE_MISSING), keeping
+           Main CHOCH count == 0. Verifies exact OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY state, 5 attempted
+           points, internal tracking points, 0 active zones, and 0 events.
+           Note: Missing CHOCH provenance leaves the dependency blocked/unresolved; this isolated test
+           does NOT represent an authoritative complete-state candle-driven reachability demonstration.
+        2. Extension prefix (Candles 21-22): internal tracking points advance from 5 to 6 without revival.
+        3. Subsequent cancellation prefix (Candle 24): low_candle provenance restored at Bar 23, allowing
+           Candle 24 to confirm Main Bullish CHOCH and cleanly cancel tracking with MAIN_CHOCH_CANCELLED.
         """
-        fix = get_tracking_only_fixture()
+        fix = get_synthetic_missing_evidence_tracking_fixture()
         raw_candles = fix["all_candles"]
 
         candles = []

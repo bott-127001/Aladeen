@@ -16,11 +16,13 @@ Covers live UI rendering and coordinates in a real Chromium browser instance acr
    - Confirmed ISS event
    - Exactly two ISS zone shapes (SBR, Selling A+)
    - Inspection panel shows CONFIRMED badge and active zones
-3. Scenario 3: Genuine Tracking-Only Progression (GBPUSD / H1):
-   - Status badge shows OUTSIDE RANGE COMPLETION (TRACKING ONLY — NOT ELIGIBLE)
-   - Attempted points table with TRACKING ONLY — NOT ELIGIBLE badges
-   - Ongoing tracking points table with TRACKING ONLY — NOT ELIGIBLE badges
-   - Zero active zones
+3. Scenario 3: Outside-Range Completion Cancelled by Main CHOCH (GBPUSD / H1):
+   - Genuine candle-driven complete-state fixture (get_candle_19_20_cancellation_fixture())
+   - Both Candles 19 & 20 close strictly above Level 2 (1.2000), confirming Main Bullish CHOCH
+   - Status badge shows MAIN_CHOCH_CANCELLED
+   - Diagnostic indicates 'Cancelled by main CHOCH confirmation.'
+   - Inspection panel shows confirmed BULLISH_CHOCH event
+   - Zero active ISS zones on chart
 4. Scenario 4: Out-of-Bounds Marked Point Rejection (iss_05 / M5):
    - Status badge shows OUT_OF_BOUNDS_REJECTED
    - Diagnostic indicates marked point outside boundary

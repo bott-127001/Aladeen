@@ -8,6 +8,18 @@ coordination cancellation.
 Used across unit tests (test_iss_engine.py), offline dashboard integration tests
 (test_iss_dashboard_integration.py), and browser automation tests (test_iss_browser_controlled.py).
 Zero monkey-patching, zero order execution.
+
+EVIDENCE CATEGORIES:
+-------------------
+1. Complete-State Integration Fixtures:
+   - get_candle_19_20_cancellation_fixture(): Full deterministic history where Candle 19 (1.205)
+     and Candle 20 (1.201) close strictly above Level 2 (1.200). With complete provenance,
+     Candle 20 confirms Main Bullish CHOCH and cancels the unfinished candidate with MAIN_CHOCH_CANCELLED.
+2. Synthetic Missing-Evidence Fixtures:
+   - get_synthetic_missing_evidence_tracking_fixture(): Supplies OHLC candles for an isolated
+     lifecycle test where Main CHOCH confirmation is withheld via missing zone provenance
+     (REQUIRED_ZONE_PROVENANCE_MISSING), isolating the source-defined tracking-only engine branch.
+     This does NOT represent a complete-state candle-driven reachability demonstration.
 """
 
 from __future__ import annotations
@@ -63,27 +75,29 @@ def get_candle_19_20_cancellation_fixture() -> Dict[str, Any]:
     }
 
 
-def get_tracking_only_fixture() -> Dict[str, Any]:
-    """Genuine tracking-only fixture with extension and subsequent cancellation candles.
+def get_synthetic_missing_evidence_tracking_fixture() -> Dict[str, Any]:
+    """Synthetic missing-evidence fixture for isolated tracking-only lifecycle testing.
 
-    Geometry and Semantics:
-    -----------------------
-    - Bearish Main structure with boundary [1.1400, 1.2000].
-    - 5 internal points strictly inside boundary:
-        Point 1: CH1 at Bar 10 (price 1.1600)
-        Point 2: CL1 at Bar 12 (price 1.1480)
-        Point 3: CH2 at Bar 14 (price 1.1750)
-        Point 4: CL2 at Bar 16 (price 1.1680)
-        Point 5: Tentative High at Bar 18 (price 1.1920)
-    - Valid fifth-point identification on Candle 20 (pullback: Candle 19 red, Candle 20 red, C20 < L19).
-    - Completion close on Candle 20 is outside boundary on Level-2 side (1.2010 > 1.2000).
-    - No main continuation (Tentative Low at 1.1400 unbroken).
-    - Under unmodified production rules where Main CHOCH confirmation is withheld
-      (e.g., REQUIRED_ZONE_PROVENANCE_MISSING), Main CHOCH count is 0 at Candle 20 prefix.
-    - Exact tracking-only outcome: OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY, 5 attempted points,
-      internal tracking points, 0 active zones, 0 confirmed events.
-    - Extension candles (Candles 21, 22) advance internal tracking points without revival.
-    - Subsequent cancellation candle (Candle 24) confirms Main CHOCH and cancels cleanly.
+    NON-REACHABILITY IN COMPLETE INTEGRATED STATE:
+    ----------------------------------------------
+    In an integrated complete-state run with complete provenance:
+    - Upward candidate requires pullback (p1, p2) with C2 < L1 <= C1.
+    - If completion candle C20 (p2) closes above Level 2 (> 1.2000), then C19 (p1)
+      necessarily closes above Level 2 (> 1.2000) as well.
+    - Both adjacent closes above Level 2 trigger Main Bullish CHOCH confirmation,
+      unconditionally cancelling the candidate (MAIN_CHOCH_CANCELLED).
+    - Therefore, OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY cannot be reached in a complete-state
+      integrated run where all zone provenances are intact.
+
+    PURPOSE OF THIS SYNTHETIC FIXTURE:
+    ----------------------------------
+    - Models an isolated lifecycle test where Main CHOCH confirmation is withheld due
+      to missing zone provenance (REQUIRED_ZONE_PROVENANCE_MISSING at Main Level 2).
+    - Allows direct verification of the source-defined OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY
+      state, progression of tracking points without eligibility revival, and subsequent
+      clean cancellation when evidence is restored.
+    - Missing CHOCH provenance leaves the dependency blocked/unresolved; it does NOT
+      represent an authoritative candle-driven complete-state resolution.
     """
     base_candles = _load_base_iss_01_candles()
     base_candles[19]["open"] = 1.206
@@ -151,6 +165,10 @@ def get_tracking_only_fixture() -> Dict[str, Any]:
         "cancellation_candles": [c23, c24],
         "all_candles": base_candles[:21] + [c21, c22, c23, c24],
     }
+
+
+# Backward compatibility alias
+get_tracking_only_fixture = get_synthetic_missing_evidence_tracking_fixture
 
 
 def make_dataframe_from_candles(raw_candles: List[Dict[str, Any]]) -> pd.DataFrame:

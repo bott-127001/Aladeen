@@ -501,8 +501,12 @@ class TestISSDashboardInspectionPanel:
         assert "MAIN_CONTINUATION_CANCELLED" in panel_text
         assert "TRACKING ONLY — NOT ELIGIBLE" not in panel_text
 
-    def test_genuine_tracking_only_presentation(self, iss_fixtures) -> None:
-        """Genuine tracking-only case: status OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY with explicit not-eligible labeling."""
+    def test_isolated_tracking_only_presentation(self, iss_fixtures) -> None:
+        """[Isolated Presentation Test - Injected Snapshot]
+
+        Tests UI rendering of OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY badge and 'TRACKING ONLY — NOT ELIGIBLE' labeling.
+        Note: Uses an injected ISSSnapshot to verify presentation components; does NOT represent candle-driven reachability.
+        """
         fix = iss_fixtures["iss_01_bearish_basic_end_to_end"]
         snap = _make_snapshot_from_fixture(fix, "rev-track-genuine")
         df = snap.to_dataframe()

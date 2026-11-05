@@ -166,3 +166,61 @@ Last Updated: 2026-11-05 (MSM Dashboard Milestone Accepted — Transition to CHO
     - `pytest tests/test_iss_engine.py`: 35/35 passed in 1.09s.
     - `python tests/test_iss_browser_controlled.py`: All 9 scenarios passed with 0 console errors and 0 page errors.
     - Full offline test suite (`pytest -m "not slow" -k "not browser"`): 330 passed, 1 deselected in 4.56s.
+
+### HANDOFF-035: Honest ISS Verification Closure, Reachability Limitation & Provenance Audit
+- **Context & Motivation**:
+  - Per review feedback for HANDOFF-034, verified production cancellation patch, formally audited all tracking-only tests, recorded the mathematical reachability limitation, and closed ISS verification honestly without modifying strategy rules.
+- **1. Verified Production Cancellation Patch**:
+  - In `src/aladeen/strategy/iss_engine.py`, completely excised the `candidate_completed_outside_this_bar` exemption.
+  - When Main CHOCH confirms on any bar (including an outside-completion bar), `if len(main_coord_copy.confirmed_choch_events) > prev_choch_count:` unconditionally transitions the candidate to `MAIN_CHOCH_CANCELLED`, clearing attempted points, tracking points, active zones, and active candidate data.
+  - The distinction between Main Continuation cancellation (`msm_tentative is None and len(main_coord_copy.confirmed_choch_events) == prev_choch_count`) and Main CHOCH cancellation (`len(main_coord_copy.confirmed_choch_events) > prev_choch_count`) is preserved.
+- **2. Mathematical Pullback Inequalities & Reachability Limitation**:
+  - **Upward Internal Marking (Bearish Main)**:
+    - In any valid 2-candle pullback $(p_1, p_2)$, $p_1$ is RED ($C_1 < O_1$), $p_2$ is RED ($C_2 < O_2$), and strict wick-break requires $C_2 < L_1$.
+    - By definition of candlestick low, $L_1 = \min(O_1, H_1, L_1, C_1) \le C_1$.
+    - Transitivity dictates:
+      $$C_2 < L_1 \le C_1 \implies C_2 < C_1$$
+    - Invariance to Price Gaps: A gap between $C_1$ and $O_2$ only bounds $C_2 < O_2$ from above; it cannot overturn $C_2 < L_1 \le C_1$.
+    - If completion close $C_2 > 1.2000$ (Level 2 Last Resistance), then $C_1 > C_2 > 1.2000$.
+    - Consequently, both pullback candles necessarily close above Level 2, qualifying as the two consecutive closes for Main Bullish CHOCH.
+  - **Mirrored Downward Internal Marking (Bullish Main)**:
+    - In any valid 2-candle pullback $(p_1, p_2)$, $p_1$ is GREEN ($C_1 > O_1$), $p_2$ is GREEN ($C_2 > O_2$), and strict wick-break requires $C_2 > H_1$.
+    - By definition of candlestick high, $H_1 = \max(O_1, H_1, L_1, C_1) \ge C_1$.
+    - Transitivity dictates:
+      $$C_2 > H_1 \ge C_1 \implies C_2 > C_1$$
+    - Invariance to Price Gaps: A gap between $C_1$ and $O_2$ only bounds $C_2 > O_2$ from below; it cannot overturn $C_2 > H_1 \ge C_1$.
+    - If completion close $C_2 < 1.1000$ (Level 2 Last Support), then $C_1 < C_2 < 1.1000$.
+    - Consequently, both pullback candles necessarily close below Level 2, qualifying as the two consecutive closes for Main Bearish CHOCH.
+  - **Prerequisites for Complete-State Reachability**:
+    - Under complete provenance (source candles for resistance/support, tentative point 3, and confirmed low/high all exist in history) and active Main Point 3, two adjacent closes outside Level 2 necessarily confirm Main CHOCH.
+    - Because confirmed Main CHOCH unconditionally cancels any active candidate, the source-defined `OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY` lifecycle state is **unreachable in an integrated complete-state run with complete provenance**.
+  - **Non-Invention & Strategy Authority**:
+    - This deduction establishes non-reachability under existing rules; it is NOT a new approved strategy rule.
+    - The source-defined tracking-only branch remains fully implemented and preserved in `ISSEngine`. Reconciliation of this branch with integrated complete-state reachability is formally recorded as a known limitation.
+- **3. Test-Provenance Audit**:
+  - Formally categorized all tracking-only tests across the test suite:
+    - `test_tracking_points_continue_independently_of_attempted_points` (`tests/test_iss_engine.py`): `[Isolated Lifecycle Test - Private State Mutation]`
+    - `test_tracking_only_candidate_followed_by_main_continuation_cancels` (`tests/test_iss_engine.py`): `[Isolated Lifecycle Test - Private State Mutation]`
+    - `test_tracking_only_candidate_followed_by_main_choch_cancels` (`tests/test_iss_engine.py`): `[Isolated Lifecycle Test - Private State Mutation]`
+    - `test_isolated_tracking_only_distinct_from_continuation_cancellation` (`tests/test_iss_engine.py`): `[Isolated Lifecycle Test - Private State Mutation]`
+    - `test_synthetic_missing_evidence_isolated_tracking_progression_and_cancellation` (`tests/test_iss_engine.py`): `[Isolated Lifecycle Test - Scoped Prerequisite Modification]` (withholds `low_candle` lookup entry `2` to isolate the engine's tracking-only progression, verifying clean cancellation when restored).
+    - `test_isolated_tracking_only_presentation` (`tests/test_iss_dashboard_integration.py`): `[Isolated Presentation Test - Injected Snapshot]`.
+  - Disclaimed Evidence: None of the above isolated tests are counted as complete engine-to-browser candle-driven lifecycle evidence.
+- **4. Browser Acceptance & Error Accounting**:
+  - `tests/test_iss_browser_controlled.py`:
+    - Scenario 1: Bearish ISS Success (`iss_01` / H1) — genuine candle-driven.
+    - Scenario 2: Bullish ISS Success (`iss_02` / H4) — genuine candle-driven.
+    - Scenario 3: Outside-Range Completion Cancelled by Main CHOCH (`GBPUSD` / H1) — genuine candle-driven complete-state fixture (`get_candle_19_20_cancellation_fixture()`). Asserts `MAIN_CHOCH_CANCELLED`, `Cancelled by main CHOCH confirmation.`, `BULLISH_CHOCH` event, and 0 active ISS zones.
+    - Scenario 4: Out-of-Bounds Rejection (`iss_05` / M5) — genuine candle-driven.
+    - Scenario 5: Main-Continuation Cancellation (`iss_09` / M1) — genuine candle-driven.
+    - Scenario 6: Unresolved Main Structure (`D1`, `c1 == p2`) — genuine candle-driven unresolved dependency presentation.
+    - Scenario 7: Mode Apply vs Unapplied Draft Edits — interactive UI state.
+    - Scenario 8: ISS Display Toggles — interactive UI state.
+    - Scenario 9: Context Switch / Refresh with Shared Revision — interactive UI state.
+  - Console Errors: 0
+  - Page Errors: 0
+- **5. Test Verification Summary**:
+  - `pytest tests/test_iss_engine.py`: 35 passed in 1.08s.
+  - `pytest tests/test_iss_dashboard_integration.py`: 15 passed in 1.15s.
+  - `python tests/test_iss_browser_controlled.py`: All 9 scenarios passed.
+  - Full offline suite (`pytest -m "not slow" -k "not browser"`): 330 passed, 1 deselected in 4.56s.
