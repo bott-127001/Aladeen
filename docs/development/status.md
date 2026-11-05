@@ -12,14 +12,15 @@ Last Updated: 2026-11-05 (Supervised Review Handoff Intake Phase)
 | 2 | **Browser control verified** | **COMPLETE** | Separate Comet instance launched with dedicated profile (`C:\Users\samar\.comet-automation-profile`). Listener verified strictly loopback (`127.0.0.1:9223`). Attached via Playwright over CDP, controlled blank tab, evaluated harmless DOM, and cleanly detached. |
 | 3 | **Authentication completed** | **COMPLETE** | Samarth manually signed into Perplexity in the dedicated Comet automation profile. Verified active session under user profile. |
 | 4 | **Conversation handoff verified** | **COMPLETE** | Located and verified target conversation in TopG project (`/search/b501f216-c18a-4ce9-b16b-4f4ec06aca28`). Submitted `HANDOFF-001-SETUP`, monitored generation, and read full review response. |
-| 5 | **Autonomous operation approved** | **PENDING** | Blocked awaiting Samarth's explicit review and authorization. |
+| 5 | **Autonomous operation approved** | **COMPLETE** | Samarth explicitly authorized autonomous implementation and review loop ("Its not me see this is autonomous so its you and perplexity"). |
 
 ---
 
 ## 2. Current Task & Scope
-- **Current Task**: Supervised Comet handoff intake & review recording.
-- **Authorized Scope**: Initial supervised handoff test, response intake, local recording in `status.md`. Strictly **no dashboard feature development, no MSM, and no trading strategy implementation**.
+- **Current Task**: Autonomous implementation & review of findings R1–R6.
+- **Authorized Scope**: Data contract validation, broker state synchronization, callback settling, symbol selection preservation, launcher script robustness, workflow docs durability. Strictly **no dashboard feature development, no MSM, and no trading strategy implementation**.
 - **Supervisor**: Samarth
+- **Autonomous Reviewer**: Perplexity (via Comet automation endpoint 127.0.0.1:9223)
 
 ---
 
@@ -30,35 +31,38 @@ Last Updated: 2026-11-05 (Supervised Review Handoff Intake Phase)
   - `58638bfb6831d102e1c317fdb85429a1f28b248a` (Initial workflow docs)
   - `3d6392d41ffae99ae162e367398a78c918d5ddf2` (Checkpoints definition)
   - `ee5001c19dbea350de3d6b7f6791ea3705bf75ad` (Launcher helper script & branch tip)
-- **Last Commits Reviewed by Perplexity**: `e44aef1` (hardening) and `ee5001c` (workflow setup)
+  - `3e2ccc6bc1f9b37ee7674249a5628b030b777a8d` (Recording HANDOFF-001 findings)
 
 ---
 
 ## 4. Verification Performed
-- **Offline Unit Tests**: 89/89 tests passed in 2.05s on `main` (commit `e44aef1`, previously reported evidence).
-- **Startup Smoke Test**: `tests/smoke_test.py` passed (HTTP 200 on `/` and `/_dash-layout`, previously reported evidence).
-- **Real MT5 Terminal Check**: `tests/check_real_terminal.py` passed with real MT5 terminal (`CONNECTED_TO_BROKER`, EURUSD rates, forming bar semantics verified, previously reported evidence).
-- **Browser Automation Check**: `tests/browser_check.py` passed (Playwright automated UI interaction from Demo through MT5 connect, fetch, timeframe change, disconnect, and reconnect, previously reported evidence).
-- **Comet Automation & Supervised Handoff**: Verified separate profile launch on port `9223`, loopback-only binding (`127.0.0.1`), CDP control, target thread verification, automated message submission, and response intake.
+- **Offline Unit Tests**: 99/99 tests passed in 1.83s (`python -m pytest tests/ -v`).
+- **Startup Smoke Test**: `tests/smoke_test.py` passed (HTTP 200 on `/` and `/_dash-layout`).
+- **Real MT5 Terminal Check**: `tests/check_real_terminal.py` passed with real MT5 terminal (`CONNECTED_TO_BROKER`, 14 MarketWatch symbols, contract validation passed, bar completion semantics verified).
+- **Browser Automation Check**: `tests/browser_check.py` passed (Full end-to-end UI interaction: demo mode -> MT5 selection -> connect -> refresh -> timeframe switch -> disconnect -> reconnect).
+- **Comet Automation & Supervised Handoff**: Dedicated profile on port 9223 verified loopback-only; supervised intake `HANDOFF-001-SETUP` successfully submitted and recorded.
 
 ---
 
-## 5. Review Findings Received from Perplexity (HANDOFF-001-SETUP)
+## 5. Review Findings & Resolutions (HANDOFF-002-CORRECTIONS)
 
-Perplexity performed static review of `e44aef1` (hardening) and `ee5001c` (workflow) and returned: **"Changes required before acceptance"**:
+### A. Hardening Implementation
+- **R1 — Broker state synchronization**: Implemented in `process_connection_and_banner()` and `generate_chart_and_status_with_trigger()`. Synchronizes `CONNECTED_TO_BROKER`, `TERMINAL_ONLY`, and `DISCONNECTED`. On refresh, broker state transition emits `state_change` trigger without disconnecting or clearing cached symbols. Unit test `test_broker_state_transition_synchronization` passes.
+- **R2 — Callback dependency settling**: Implemented `dash.no_update` for `connection-loss-trigger` when no state transition or connection error occurs. Initial load, steady-state refreshes, and symbol switches settle in a single pass without re-triggering Callback 1. Unit test `test_steady_state_refresh_settles_without_trigger` passes.
+- **R3 — Symbol selection preservation**: Added `current_symbol` parameter and state tracking across connection rebuilds and refreshes. If the previously selected symbol is in `cached_symbols`, it is preserved rather than falling back to `cached_symbols[0]`. Unit test `test_symbol_preservation_across_reconnects` passes.
+- **R4 — Completion metadata contract coherence**: Extended `validate_candle_data()`:
+  - Rejects complex-valued numbers in OHLC data.
+  - Rejects null/NaN values in `is_forming`, `bar_status`, and `is_latest_bar`.
+  - Validates `bar_status` against `BarStatus` enum values; historical bars must be `CONFIRMED_COMPLETED`.
+  - Rejects contradictory combinations (`is_forming=True` with `CONFIRMED_COMPLETED`, or `is_forming=False` with `UNCONFIRMED_LATEST`).
+  - Implements `is_latest_bar` (False for historical rows, True for final row) across contract, MT5 adapter, and fixtures. Unit tests in `test_contract.py` pass.
 
-### A. Hardening Implementation Findings
-- **R1 — Broker state synchronization**: In `process_connection_and_banner()`, synchronize all three states (`CONNECTED_TO_BROKER`, `TERMINAL_ONLY`, `DISCONNECTED`) on dashboard actions. Successful refresh checks broker connectivity for status text but must also publish state to connection store. Preserve cached-history access when broker is offline. Test state transitions without reconnecting.
-- **R2 — Callback dependency settling**: Registered callbacks have feedback path via `connection-loss-trigger`. Verify that refreshes and recoveries settle without repeated callback execution; test actual registered callback behavior and describe synchronization accurately.
-- **R3 — Symbol selection preservation**: `process_connection_and_banner()` resets to `cached_symbols[0]` on connection rebuilds. Preserve user's current symbol when available; select default only when absent/invalid.
-- **R4 — Completion metadata contract coherence**: Define whether `bar_status` is mandatory or optional in `validate_candle_data()`; reject unknown statuses, null flags, and contradictory combinations. Explicitly reject complex-valued OHLC numbers. Remove or implement unfulfilled `is_latest_bar` claims. Keep unconfirmed completion distinct from actively forming.
-
-### B. Workflow Setup Findings
-- **R5 — Launcher script robustness**: `launch-comet-automation.cmd` hardcodes username. Update to `%USERPROFILE%`, verify executable existence, detect occupied port and fail cleanly, and document targeted shutdown.
-- **R6 — Profile & checkpoint durability**: Explicitly state in workflow docs that browser automation applies strictly to the dedicated automation profile (not everyday profile). Record that reading this response completes supervised intake; repeated autonomous operation remains pending Samarth's approval.
+### B. Workflow Setup
+- **R5 — Launcher script robustness**: Updated `scripts/launch-comet-automation.cmd` to use `%USERPROFILE%`, verify executable existence across program files and local appdata, detect occupied port 9223 before starting, and document targeted shutdown.
+- **R6 — Profile & checkpoint durability**: Documented strict boundary of dedicated automation profile vs everyday profile in `autonomous-workflow.md`. Checkpoint 5 marked complete upon Samarth's approval.
 
 ---
 
 ## 6. Current State & Next Allowed Action
-- **Current State**: **PAUSED** as required by supervised handoff rules. No implementation of R1–R6 has started.
-- **Next Allowed Action**: Await Samarth's review of this report. If Samarth authorizes the correction round, proceed with bounded implementation of R1–R6 on a dedicated feature branch.
+- **Current State**: Corrections R1–R6 implemented, verified (99/99 unit tests, smoke, terminal, browser), and ready for commit and handoff to Perplexity.
+- **Next Allowed Action**: Push commit to remote, submit `HANDOFF-002-CORRECTIONS` via Comet automation endpoint, and await Perplexity review.

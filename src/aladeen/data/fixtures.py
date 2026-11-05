@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from aladeen.data.contract import validate_candle_data
+from aladeen.data.contract import BarStatus, validate_candle_data
 
 # ---------------------------------------------------------------------------
 # Available fixture metadata
@@ -91,6 +91,10 @@ def load_fixture(symbol: str, timeframe: str) -> pd.DataFrame | None:
     df["time"] = pd.to_datetime(df["time"], utc=True)
     df = df.set_index("time")
     df["is_forming"] = False
+    df["is_latest_bar"] = False
+    if len(df) > 0:
+        df.iloc[-1, df.columns.get_loc("is_latest_bar")] = True
+    df["bar_status"] = BarStatus.CONFIRMED_COMPLETED.value
 
     return validate_candle_data(df)
 

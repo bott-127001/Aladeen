@@ -157,11 +157,21 @@ def validate_candle_data(
     for col in REQUIRED_OHLC_COLUMNS:
         series = df[col]
 
-        # Reject non-numeric types (e.g. object, string, boolean)
-        if not pd.api.types.is_numeric_dtype(series) or pd.api.types.is_bool_dtype(series):
+        # Reject non-numeric types (e.g. object, string, boolean, complex)
+        if not pd.api.types.is_numeric_dtype(series) or pd.api.types.is_bool_dtype(series) or pd.api.types.is_complex_dtype(series):
             raise CandleValidationError(
                 f"Column '{col}' must be numeric, got dtype '{series.dtype}'."
             )
+
+        # Reject complex-valued numbers in numeric or object arrays
+        try:
+            arr = series.to_numpy()
+            if not np.isrealobj(arr):
+                raise CandleValidationError(f"Column '{col}' contains complex numbers.")
+        except CandleValidationError:
+            raise
+        except Exception:
+            pass
 
         # Reject nulls / NaNs
         if series.isnull().any():
@@ -215,12 +225,69 @@ def validate_candle_data(
     if require_forming_flag:
         if "is_forming" not in df.columns:
             raise CandleValidationError("Missing 'is_forming' boolean column.")
+        if df["is_forming"].isna().any():
+            raise CandleValidationError("Column 'is_forming' contains null/NaN values.")
         if not pd.api.types.is_bool_dtype(df["is_forming"]):
             raise CandleValidationError("'is_forming' column must be boolean dtype.")
         # Any candle before the last must be completed
         if len(df) > 1 and df["is_forming"].iloc[:-1].any():
             raise CandleValidationError(
                 "Historical candles prior to the latest candle cannot have is_forming=True."
+            )
+
+    # 7. Bar status validation (if present)
+    if "bar_status" in df.columns:
+        if df["bar_status"].isna().any():
+            raise CandleValidationError("Column 'bar_status' contains null/NaN values.")
+        valid_statuses = {s.value for s in BarStatus} | set(BarStatus)
+        invalid_statuses = [v for v in df["bar_status"] if v not in valid_statuses]
+        if invalid_statuses:
+            raise CandleValidationError(
+                f"Unknown bar_status value(s) detected: {invalid_statuses[:5]}."
+            )
+        # Preceding candles must be confirmed completed
+        if len(df) > 1:
+            historical_statuses = df["bar_status"].iloc[:-1]
+            non_completed = [
+                s for s in historical_statuses
+                if s != BarStatus.CONFIRMED_COMPLETED.value and s != BarStatus.CONFIRMED_COMPLETED
+            ]
+            if non_completed:
+                raise CandleValidationError(
+                    "Historical candles prior to the latest candle must have bar_status='CONFIRMED_COMPLETED'."
+                )
+
+        # Contradictory combinations if is_forming is also present
+        if "is_forming" in df.columns:
+            for idx, row in df.iterrows():
+                is_forming = bool(row["is_forming"])
+                status_val = (
+                    row["bar_status"].value
+                    if isinstance(row["bar_status"], BarStatus)
+                    else str(row["bar_status"])
+                )
+                if is_forming and status_val == BarStatus.CONFIRMED_COMPLETED.value:
+                    raise CandleValidationError(
+                        f"Contradictory candle status at {idx}: is_forming=True but bar_status=CONFIRMED_COMPLETED."
+                    )
+                if not is_forming and status_val == BarStatus.UNCONFIRMED_LATEST.value:
+                    raise CandleValidationError(
+                        f"Contradictory candle status at {idx}: is_forming=False but bar_status=UNCONFIRMED_LATEST."
+                    )
+
+    # 8. Latest bar flag validation (if present)
+    if "is_latest_bar" in df.columns:
+        if df["is_latest_bar"].isna().any():
+            raise CandleValidationError("Column 'is_latest_bar' contains null/NaN values.")
+        if not pd.api.types.is_bool_dtype(df["is_latest_bar"]):
+            raise CandleValidationError("'is_latest_bar' column must be boolean dtype.")
+        if len(df) > 1 and df["is_latest_bar"].iloc[:-1].any():
+            raise CandleValidationError(
+                "Historical candles prior to the latest candle cannot have is_latest_bar=True."
+            )
+        if len(df) > 0 and not bool(df["is_latest_bar"].iloc[-1]):
+            raise CandleValidationError(
+                "The final candle must have is_latest_bar=True."
             )
 
     return df

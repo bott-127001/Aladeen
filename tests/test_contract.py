@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 
 from aladeen.data.contract import (
+    BarStatus,
     CandleValidationError,
     validate_candle_data,
 )
@@ -191,3 +192,81 @@ class TestCandleDataContract:
         validated = validate_candle_data(df)
         assert len(validated) == 5
         assert bool(validated["is_forming"].iloc[-1]) is True
+
+    def test_complex_numbers_in_ohlc_rejected(self) -> None:
+        """Complex numbers in OHLC columns must be rejected with CandleValidationError."""
+        df = _make_valid_df(5)
+        df["close"] = [100.0, 101.0, 102.0 + 1j, 103.0, 104.0]
+        with pytest.raises(CandleValidationError, match="Column 'close' must be numeric|contains complex numbers"):
+            validate_candle_data(df)
+
+    def test_is_forming_null_rejected(self) -> None:
+        """Null/NaN in is_forming must be rejected."""
+        df = _make_valid_df(5)
+        df["is_forming"] = [False, False, None, False, True]
+        with pytest.raises(CandleValidationError, match="Column 'is_forming' contains null/NaN"):
+            validate_candle_data(df)
+
+    def test_bar_status_valid_and_null_rejected(self) -> None:
+        """Valid bar_status passes; null bar_status is rejected."""
+        df = _make_valid_df(5)
+        df["bar_status"] = [BarStatus.CONFIRMED_COMPLETED.value] * 4 + [BarStatus.UNCONFIRMED_LATEST.value]
+        validated = validate_candle_data(df)
+        assert "bar_status" in validated.columns
+
+        df_null = df.copy()
+        df_null.loc[df_null.index[1], "bar_status"] = None
+        with pytest.raises(CandleValidationError, match="Column 'bar_status' contains null/NaN"):
+            validate_candle_data(df_null)
+
+    def test_bar_status_unknown_value_rejected(self) -> None:
+        """Unknown bar_status strings must be rejected."""
+        df = _make_valid_df(5)
+        df["bar_status"] = [BarStatus.CONFIRMED_COMPLETED.value] * 4 + ["INVALID_STATUS"]
+        with pytest.raises(CandleValidationError, match="Unknown bar_status value"):
+            validate_candle_data(df)
+
+    def test_bar_status_historical_non_completed_rejected(self) -> None:
+        """Historical bar cannot have UNCONFIRMED_LATEST status."""
+        df = _make_valid_df(5)
+        df["bar_status"] = [BarStatus.CONFIRMED_COMPLETED.value, BarStatus.UNCONFIRMED_LATEST.value,
+                            BarStatus.CONFIRMED_COMPLETED.value, BarStatus.CONFIRMED_COMPLETED.value,
+                            BarStatus.UNCONFIRMED_LATEST.value]
+        with pytest.raises(CandleValidationError, match="Historical candles prior to the latest candle must have bar_status='CONFIRMED_COMPLETED'"):
+            validate_candle_data(df)
+
+    def test_bar_status_contradictory_combinations_rejected(self) -> None:
+        """is_forming and bar_status cannot contradict each other."""
+        df1 = _make_valid_df(5)
+        # Row with is_forming=True but bar_status=CONFIRMED_COMPLETED
+        df1["is_forming"] = [False, False, False, False, True]
+        df1["bar_status"] = [BarStatus.CONFIRMED_COMPLETED.value] * 5
+        with pytest.raises(CandleValidationError, match="Contradictory candle status.*is_forming=True but bar_status=CONFIRMED_COMPLETED"):
+            validate_candle_data(df1)
+
+        df2 = _make_valid_df(5)
+        # Row with is_forming=False but bar_status=UNCONFIRMED_LATEST
+        df2["is_forming"] = [False] * 5
+        df2["bar_status"] = [BarStatus.CONFIRMED_COMPLETED.value] * 4 + [BarStatus.UNCONFIRMED_LATEST.value]
+        with pytest.raises(CandleValidationError, match="Contradictory candle status.*is_forming=False but bar_status=UNCONFIRMED_LATEST"):
+            validate_candle_data(df2)
+
+    def test_is_latest_bar_flag_semantics(self) -> None:
+        """is_latest_bar must be False for historical and True for final row."""
+        df = _make_valid_df(5)
+        df["is_latest_bar"] = [False, False, False, False, True]
+        validated = validate_candle_data(df)
+        assert bool(validated["is_latest_bar"].iloc[-1]) is True
+        assert not validated["is_latest_bar"].iloc[:-1].any()
+
+        # Final row False rejected
+        df_invalid = df.copy()
+        df_invalid["is_latest_bar"] = [False] * 5
+        with pytest.raises(CandleValidationError, match="The final candle must have is_latest_bar=True"):
+            validate_candle_data(df_invalid)
+
+        # Historical row True rejected
+        df_hist_invalid = df.copy()
+        df_hist_invalid["is_latest_bar"] = [False, True, False, False, True]
+        with pytest.raises(CandleValidationError, match="Historical candles prior to the latest candle cannot have is_latest_bar=True"):
+            validate_candle_data(df_hist_invalid)

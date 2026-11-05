@@ -106,8 +106,9 @@ For each authorized task:
 ## 4. Comet Handoff Specification
 
 ### Browser Control Requirement
-- **Comet Only**: All automated handoffs to Perplexity must occur through the Comet browser (`comet.exe`), utilizing the existing signed-in Perplexity session.
-- **No Fallback**: Never silently fall back to another browser or isolated browser instance without the authenticated session.
+- **Dedicated Automation Instance & Profile**: All automated handoffs to Perplexity must occur through the dedicated Comet automation instance (`comet.exe`) running with profile directory `%USERPROFILE%\.comet-automation-profile` on loopback port `9223` (`127.0.0.1:9223`).
+- **Everyday Profile Isolation**: Browser automation applies strictly and exclusively to the dedicated automation profile. Samarth's everyday Comet profile (`%LOCALAPPDATA%\Perplexity\Comet\User Data`), its sessions, cookies, and tabs must NEVER be modified, inspected, attached to, or closed.
+- **No Fallback**: Never silently fall back to another browser or unauthenticated browser instance.
 - **No Credential Harvesting**: Never extract cookies, session tokens, passwords, or credentials.
 - **Conversation Verification**: Locate and verify the existing Aladeen / TopG conversation in the TopG project using recent conversation context (e.g. hardening patch review, autonomous workflow). Never rely on window/tab title alone. Do not create new conversations without authorization.
 

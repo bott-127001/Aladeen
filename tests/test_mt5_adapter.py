@@ -298,12 +298,15 @@ class TestMT5AdapterDataFetch:
 
         df = adapter.fetch_candles("EURUSD", "H4", count=10)
         assert "is_forming" in df.columns
+        assert "is_latest_bar" in df.columns
         assert "bar_status" in df.columns
         # Latest bar (index -1)
         assert bool(df["is_forming"].iloc[-1]) is True
+        assert bool(df["is_latest_bar"].iloc[-1]) is True
         assert df["bar_status"].iloc[-1] == "UNCONFIRMED_LATEST"
         # Preceding bars
         assert not df["is_forming"].iloc[:-1].any()
+        assert not df["is_latest_bar"].iloc[:-1].any()
         assert (df["bar_status"].iloc[:-1] == "CONFIRMED_COMPLETED").all()
 
     def test_stale_latest_bar_and_closed_market_snapshot(self) -> None:

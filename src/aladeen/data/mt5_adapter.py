@@ -342,15 +342,17 @@ class MT5Adapter:
         if not df.index.is_monotonic_increasing:
             df = df.sort_index()
 
-        # Explicit candle completion flags:
+        # Explicit candle completion and position flags:
         # Preceding rows are completed historical bars
         df["is_forming"] = False
-        df["bar_status"] = "CONFIRMED_COMPLETED"
+        df["is_latest_bar"] = False
+        df["bar_status"] = BarStatus.CONFIRMED_COMPLETED.value
 
-        # The latest row (pos 0) is the latest known bar (unconfirmed completion)
+        # The latest row (MT5 pos 0) is the latest known bar (unconfirmed completion in static fetch)
         if len(df) > 0:
             df.iloc[-1, df.columns.get_loc("is_forming")] = True
-            df.iloc[-1, df.columns.get_loc("bar_status")] = "UNCONFIRMED_LATEST"
+            df.iloc[-1, df.columns.get_loc("is_latest_bar")] = True
+            df.iloc[-1, df.columns.get_loc("bar_status")] = BarStatus.UNCONFIRMED_LATEST.value
 
         # Validate against the contract
         validated = validate_candle_data(df)

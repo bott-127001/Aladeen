@@ -10,6 +10,7 @@ from __future__ import annotations
 import sys
 from unittest.mock import MagicMock
 from dash import Dash
+import pandas as pd
 import pytest
 
 from aladeen.app import create_app, parse_args
@@ -20,7 +21,11 @@ from aladeen.data.mt5_adapter import (
     MT5ConnectionState,
     MT5DataError,
 )
-from aladeen.ui.layout import generate_chart_and_status, process_dashboard_update
+from aladeen.ui.layout import (
+    generate_chart_and_status,
+    process_connection_and_banner,
+    process_dashboard_update,
+)
 
 
 class TestAppConstruction:
@@ -190,3 +195,98 @@ class TestUIConsistencyAndStateSynchronization:
 
         assert res["badge_text"] == "🟡 Terminal Ready (Broker Offline)"
         assert "Broker Offline" in res["banner_text"]
+
+    def test_broker_state_transition_synchronization(self) -> None:
+        """When broker goes offline during refresh, badge and banner update without disconnecting."""
+        times = pd.date_range("2026-10-01", periods=5, freq="4h", tz="UTC")
+        df_mock = pd.DataFrame(
+            {
+                "open": [1.1, 1.11, 1.12, 1.13, 1.14],
+                "high": [1.15, 1.16, 1.17, 1.18, 1.19],
+                "low": [1.05, 1.06, 1.07, 1.08, 1.09],
+                "close": [1.12, 1.13, 1.14, 1.15, 1.16],
+                "is_forming": [False, False, False, False, True],
+                "is_latest_bar": [False, False, False, False, True],
+                "bar_status": ["CONFIRMED_COMPLETED"] * 4 + ["UNCONFIRMED_LATEST"],
+            },
+            index=times,
+        )
+
+        mock_adapter = MagicMock()
+        mock_adapter.is_connected.return_value = True
+        mock_adapter.is_broker_connected.return_value = False
+        mock_adapter.get_connection_state.return_value = MT5ConnectionState.TERMINAL_ONLY
+        mock_adapter.fetch_candles.return_value = df_mock
+
+        res = process_dashboard_update(
+            triggered_id="refresh-btn",
+            data_source="mt5",
+            current_symbol="GBPUSD",
+            timeframe="H4",
+            candle_count=100,
+            store_data={"state": "CONNECTED_TO_BROKER", "symbols": ["EURUSD", "GBPUSD"]},
+            adapter=mock_adapter,
+        )
+
+        # State must transition to TERMINAL_ONLY
+        assert res["store_data"]["state"] == "TERMINAL_ONLY"
+        assert res["badge_text"] == "🟡 Terminal Ready (Broker Offline)"
+        assert "Broker Offline" in res["banner_text"]
+        # Symbols and current selection must be preserved
+        assert res["store_data"]["symbols"] == ["EURUSD", "GBPUSD"]
+        assert res["sym_value"] == "GBPUSD"
+        # Disconnect must NOT have been called
+        mock_adapter.disconnect.assert_not_called()
+
+    def test_symbol_preservation_across_reconnects(self) -> None:
+        """When reconnecting or refreshing, existing symbol selection is preserved if present."""
+        mock_adapter = MagicMock()
+        mock_adapter.connect.return_value = MT5ConnectionState.CONNECTED_TO_BROKER
+        mock_adapter.get_symbols.return_value = ["EURUSD", "GBPUSD", "USDJPY"]
+        mock_adapter.get_connection_state.return_value = MT5ConnectionState.CONNECTED_TO_BROKER
+
+        res = process_connection_and_banner(
+            triggered_id="connect-btn",
+            data_source="mt5",
+            store_data={"state": "DISCONNECTED", "symbols": []},
+            current_symbol="GBPUSD",
+            adapter=mock_adapter,
+        )
+
+        assert res["sym_value"] == "GBPUSD"
+
+    def test_steady_state_refresh_settles_without_trigger(self) -> None:
+        """When state does not change during fetch, loss_trigger is None (dash.no_update)."""
+        times = pd.date_range("2026-10-01", periods=5, freq="4h", tz="UTC")
+        df_mock = pd.DataFrame(
+            {
+                "open": [1.1, 1.11, 1.12, 1.13, 1.14],
+                "high": [1.15, 1.16, 1.17, 1.18, 1.19],
+                "low": [1.05, 1.06, 1.07, 1.08, 1.09],
+                "close": [1.12, 1.13, 1.14, 1.15, 1.16],
+                "is_forming": [False, False, False, False, True],
+                "is_latest_bar": [False, False, False, False, True],
+                "bar_status": ["CONFIRMED_COMPLETED"] * 4 + ["UNCONFIRMED_LATEST"],
+            },
+            index=times,
+        )
+
+        mock_adapter = MagicMock()
+        mock_adapter.is_connected.return_value = True
+        mock_adapter.is_broker_connected.return_value = True
+        mock_adapter.get_connection_state.return_value = MT5ConnectionState.CONNECTED_TO_BROKER
+        mock_adapter.fetch_candles.return_value = df_mock
+
+        from aladeen.ui.layout import generate_chart_and_status_with_trigger
+        fig, status, loss_trigger = generate_chart_and_status_with_trigger(
+            data_source="mt5",
+            symbol="EURUSD",
+            timeframe="H4",
+            candle_count=100,
+            is_connected=True,
+            adapter=mock_adapter,
+            current_state="CONNECTED_TO_BROKER",
+        )
+
+        assert loss_trigger is None
+        assert "Broker Connected" in status

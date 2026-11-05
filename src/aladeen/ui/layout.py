@@ -352,6 +352,7 @@ def process_connection_and_banner(
     store_data: dict,
     loss_trigger_data: dict | None = None,
     adapter: Any = None,
+    current_symbol: str | None = None,
 ) -> dict[str, Any]:
     """Calculate connection badge, banner, and symbol options atomically."""
     if adapter is None:
@@ -362,10 +363,14 @@ def process_connection_and_banner(
     error_msg: str | None = None
 
     if triggered_id == "connection-loss-trigger" and loss_trigger_data:
-        adapter.disconnect()
-        conn_state_str = MT5ConnectionState.DISCONNECTED.value
-        cached_symbols = []
-        error_msg = f"Connection Lost during refresh: {loss_trigger_data.get('error', 'Unknown error')}"
+        trigger_type = loss_trigger_data.get("type", "connection_loss")
+        if trigger_type == "connection_loss":
+            adapter.disconnect()
+            conn_state_str = MT5ConnectionState.DISCONNECTED.value
+            cached_symbols = []
+            error_msg = f"Connection Lost during refresh: {loss_trigger_data.get('error', 'Unknown error')}"
+        elif trigger_type == "state_change":
+            conn_state_str = loss_trigger_data.get("new_state", conn_state_str)
 
     elif triggered_id == "connect-btn":
         try:
@@ -388,11 +393,15 @@ def process_connection_and_banner(
         conn_state_str = MT5ConnectionState.DISCONNECTED.value
         cached_symbols = []
 
-    # Verify adapter connection health
-    current_adapter_state = adapter.get_connection_state().value
-    if conn_state_str != MT5ConnectionState.DISCONNECTED.value and current_adapter_state == MT5ConnectionState.DISCONNECTED.value:
-        conn_state_str = MT5ConnectionState.DISCONNECTED.value
-        cached_symbols = []
+    # Verify adapter connection health and synchronize state
+    if conn_state_str != MT5ConnectionState.DISCONNECTED.value:
+        current_adapter_state = adapter.get_connection_state().value
+        if current_adapter_state == MT5ConnectionState.DISCONNECTED.value:
+            conn_state_str = MT5ConnectionState.DISCONNECTED.value
+            cached_symbols = []
+        else:
+            # Terminal is responsive: synchronize CONNECTED_TO_BROKER vs TERMINAL_ONLY
+            conn_state_str = current_adapter_state
 
     # Badge mapping
     if conn_state_str == MT5ConnectionState.CONNECTED_TO_BROKER.value:
@@ -415,7 +424,10 @@ def process_connection_and_banner(
             banner_text = "⚠️ DEMO MODE — Viewing synthetic fixtures (MT5 disconnected)"
         banner_style = BANNER_STYLE_DEMO
         sym_options = [{"label": s, "value": s} for s in available_symbols()]
-        sym_value = available_symbols()[0]
+        if current_symbol and current_symbol in available_symbols():
+            sym_value = current_symbol
+        else:
+            sym_value = available_symbols()[0]
         sym_disabled = True
     else:
         # MT5 mode
@@ -431,7 +443,13 @@ def process_connection_and_banner(
 
         if conn_state_str != MT5ConnectionState.DISCONNECTED.value and cached_symbols:
             sym_options = [{"label": s, "value": s} for s in cached_symbols]
-            sym_value = cached_symbols[0]
+            # Preserve user's current selection if valid; otherwise EURUSD or first symbol
+            if current_symbol and current_symbol in cached_symbols:
+                sym_value = current_symbol
+            elif "EURUSD" in cached_symbols:
+                sym_value = "EURUSD"
+            else:
+                sym_value = cached_symbols[0]
             sym_disabled = False
         elif conn_state_str != MT5ConnectionState.DISCONNECTED.value and not cached_symbols:
             sym_options = [{"label": "No symbols available", "value": ""}]
@@ -480,6 +498,7 @@ def generate_chart_and_status_with_trigger(
     candle_count: int,
     is_connected: bool,
     adapter: Any = None,
+    current_state: str | None = None,
 ) -> tuple[go.Figure, str, dict | None]:
     """Generate chart and status text. Returns (figure, status_text, loss_trigger)."""
     now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
@@ -549,7 +568,17 @@ def generate_chart_and_status_with_trigger(
             f"Source: MT5 Terminal{broker_note} | Symbol: {symbol} | TF: {timeframe} | "
             f"Count: {len(df)} candles | Last Fetch: {now_utc}"
         )
-        return fig, status, None
+
+        # Detect broker state transitions (e.g. CONNECTED_TO_BROKER <-> TERMINAL_ONLY)
+        new_state = adapter.get_connection_state().value
+        loss_trigger = None
+        if current_state and new_state != current_state:
+            if new_state == MT5ConnectionState.DISCONNECTED.value:
+                loss_trigger = {"type": "connection_loss", "error": "Terminal disconnected", "timestamp": now_utc}
+            else:
+                loss_trigger = {"type": "state_change", "new_state": new_state, "timestamp": now_utc}
+
+        return fig, status, loss_trigger
 
     except MT5ConnectionError as e:
         # Connection failure during fetch
@@ -557,7 +586,7 @@ def generate_chart_and_status_with_trigger(
         msg = f"Connection Lost: {e}"
         fig = create_empty_chart(msg, title="MT5: Connection Lost")
         status = f"❌ {msg}"
-        loss_trigger = {"error": str(e), "timestamp": now_utc}
+        loss_trigger = {"type": "connection_loss", "error": str(e), "timestamp": now_utc}
         return fig, status, loss_trigger
 
     except MT5SymbolError as e:
@@ -616,9 +645,16 @@ def process_dashboard_update(
         adapter = get_mt5_adapter()
 
     # If triggered by refresh-btn, check if fetch fails
-    conn_info = process_connection_and_banner(triggered_id, data_source, store_data, None, adapter)
+    conn_info = process_connection_and_banner(
+        triggered_id=triggered_id,
+        data_source=data_source,
+        store_data=store_data,
+        loss_trigger_data=None,
+        adapter=adapter,
+        current_symbol=current_symbol,
+    )
     is_conn = conn_info["store_data"].get("state") != MT5ConnectionState.DISCONNECTED.value
-    sym = current_symbol if current_symbol else conn_info["sym_value"]
+    sym = current_symbol if current_symbol and is_conn and current_symbol in conn_info["store_data"].get("symbols", []) else conn_info["sym_value"]
 
     fig, status, loss_trigger = generate_chart_and_status_with_trigger(
         data_source=data_source,
@@ -627,12 +663,17 @@ def process_dashboard_update(
         candle_count=candle_count,
         is_connected=is_conn,
         adapter=adapter,
+        current_state=conn_info["store_data"].get("state"),
     )
 
     if loss_trigger:
-        # Update connection state to disconnected
         conn_info = process_connection_and_banner(
-            "connection-loss-trigger", data_source, store_data, loss_trigger, adapter
+            "connection-loss-trigger",
+            data_source,
+            conn_info["store_data"],
+            loss_trigger,
+            adapter,
+            current_symbol=sym,
         )
 
     return {
@@ -642,7 +683,7 @@ def process_dashboard_update(
         "banner_text": conn_info["banner_text"],
         "banner_style": conn_info["banner_style"],
         "sym_options": conn_info["sym_options"],
-        "sym_value": sym if data_source == "mt5" and is_conn else conn_info["sym_value"],
+        "sym_value": sym if data_source == "mt5" and is_conn and sym in conn_info["store_data"].get("symbols", []) else conn_info["sym_value"],
         "sym_disabled": conn_info["sym_disabled"],
         "alert_children": conn_info["alert_children"],
         "alert_style": conn_info["alert_style"],
@@ -677,6 +718,7 @@ def register_callbacks(app: Dash) -> None:
         Input("data-source-selector", "value"),
         Input("connection-loss-trigger", "data"),
         State("mt5-connection-store", "data"),
+        State("symbol-selector", "value"),
     )
     def handle_connection_and_options(
         _connect_clicks: int,
@@ -684,6 +726,7 @@ def register_callbacks(app: Dash) -> None:
         data_source: str,
         loss_trigger: dict | None,
         store_data: dict,
+        current_symbol: str | None,
     ) -> tuple:
         ctx = callback_context
         triggered_id = ctx.triggered[0]["prop_id"].split(".")[0] if ctx.triggered else ""
@@ -695,6 +738,7 @@ def register_callbacks(app: Dash) -> None:
             store_data=store_data,
             loss_trigger_data=loss_trigger,
             adapter=adapter,
+            current_symbol=current_symbol,
         )
 
         return (
@@ -733,6 +777,7 @@ def register_callbacks(app: Dash) -> None:
         if not store_data:
             store_data = {}
         is_connected = store_data.get("state", "DISCONNECTED") != MT5ConnectionState.DISCONNECTED.value
+        current_state = store_data.get("state", "DISCONNECTED")
         logger.debug(
             f"update_chart source={data_source}, sym={symbol}, tf={timeframe}, "
             f"is_conn={is_connected}"
@@ -744,5 +789,7 @@ def register_callbacks(app: Dash) -> None:
             candle_count=candle_count,
             is_connected=is_connected,
             adapter=adapter,
+            current_state=current_state,
         )
-        return fig, status, loss_trigger
+        trigger_output = loss_trigger if loss_trigger is not None else dash.no_update
+        return fig, status, trigger_output
