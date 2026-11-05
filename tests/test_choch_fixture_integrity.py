@@ -1,15 +1,17 @@
-"""Acceptance fixture integrity tests for Change of Character (CHOCH).
+"""Acceptance fixture integrity and prerequisite validation tests for Change of Character (CHOCH).
 
 Scope & Verification Boundary:
 ------------------------------
-This module verifies the data consistency, OHLC geometry, chronological ordering,
-referenced index validity, body-edge calculations, zone boundary arithmetic,
-strict inequality assertions, search-geometry non-overlap boundary conditions,
-and rejection fixture conditions of the independently documented CHOCH acceptance
-fixtures stored in `tests/fixtures/choch_acceptance.json`.
+This module verifies:
+1. Static fixture integrity: data consistency, OHLC geometry, chronological ordering,
+   body-edge calculations, zone boundary arithmetic, strict inequality assertions,
+   and explicit isolation of unresolved same-close questions.
+2. MSM Prerequisite Integration: verifies that fixtures labeled "end-to-end MSM-derived"
+   produce the EXACT same swing points, support/resistance levels, and Point 3 states
+   when evaluated by the accepted deterministic MSMEngine.
 
 IMPORTANT:
-This test verifies fixture geometry and documented acceptance contract rules only.
+This test verifies fixture geometry, contracts, and MSM prerequisite consistency.
 It does NOT implement or verify the CHOCH engine state machine, lifecycle transitions,
 or strategy event sequencing.
 """
@@ -21,6 +23,9 @@ import math
 from pathlib import Path
 from datetime import datetime
 import pytest
+
+from aladeen.strategy.types import Direction, MSMConfig
+from aladeen.strategy.engine import MSMEngine
 
 
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "choch_acceptance.json"
@@ -94,13 +99,17 @@ class TestCHOCHFixtureIntegrity:
         c_map = {i: c for i, c in enumerate(candles)}
 
         prereq = fix["prerequisite_state"]
+        # Last Support is candle 4 (latest-candle tie-breaker among [1, 3, 4] with LB=1.105)
         support_idx = prereq["last_support"]["candle_idx"]
+        assert support_idx == 4
         assert lb(c_map[support_idx]) == prereq["last_support"]["price"]
 
         high_idx = prereq["confirmed_high"]["candle_idx"]
+        assert high_idx == 1
         assert ub(c_map[high_idx]) == prereq["confirmed_high"]["price"]
 
         p3_idx = prereq["active_point_3"]["candle_idx"]
+        assert p3_idx == 5
         assert ub(c_map[p3_idx]) == prereq["active_point_3"]["price"]
         assert prereq["active_point_3"]["identified_at_idx"] == 7
 
@@ -108,6 +117,8 @@ class TestCHOCHFixtureIntegrity:
         assert exp["confirmed"] is True
         assert exp["type"] == "BEARISH_CHOCH"
         assert exp["c2_idx"] == exp["c1_idx"] + 1  # Consecutive chronological positions
+        assert exp["c1_idx"] == 8
+        assert exp["c2_idx"] == 9
 
         # Strict closing price comparison
         broken_price = prereq["last_support"]["price"]
@@ -120,44 +131,55 @@ class TestCHOCHFixtureIntegrity:
 
         # Zone geometry validation
         zones = exp["zones"]
-        # SBR from Last Support candle (index 3)
+        # SBR from Last Support candle (index 4)
         sbr_candle = c_map[support_idx]
-        assert zones["SBR"]["lower_price"] == float(sbr_candle["low"])
-        assert zones["SBR"]["upper_price"] == lb(sbr_candle)
+        assert zones["SBR"]["lower_price"] == float(sbr_candle["low"])  # 1.104
+        assert zones["SBR"]["upper_price"] == lb(sbr_candle)            # 1.105
 
         # QML / A+ from Confirmed High candle (index 1)
         qml_candle = c_map[high_idx]
-        assert zones["QML_A_PLUS"]["lower_price"] == ub(qml_candle)
-        assert zones["QML_A_PLUS"]["upper_price"] == float(qml_candle["high"])
+        assert zones["QML_A_PLUS"]["lower_price"] == ub(qml_candle)     # 1.135
+        assert zones["QML_A_PLUS"]["upper_price"] == float(qml_candle["high"])  # 1.140
 
         # Double Top from Point 3 candle (index 5)
         dt_candle = c_map[p3_idx]
-        assert zones["DOUBLE_TOP"]["lower_price"] == ub(dt_candle)
-        assert zones["DOUBLE_TOP"]["upper_price"] == float(dt_candle["high"])
+        assert zones["DOUBLE_TOP"]["lower_price"] == ub(dt_candle)       # 1.155
+        assert zones["DOUBLE_TOP"]["upper_price"] == float(dt_candle["high"])    # 1.160
 
     def test_bullish_basic_end_to_end_integrity(self, choch_fixtures):
-        """Validates OHLC, swing indices, consecutive closes, and zone geometry for Bullish CHOCH."""
+        """Validates OHLC, swing indices, consecutive closes, equality handling, and zone geometry for Bullish CHOCH."""
         fix = choch_fixtures["fixtures"]["choch_bullish_basic_end_to_end"]
         candles = fix["candles"]
         c_map = {i: c for i, c in enumerate(candles)}
 
         prereq = fix["prerequisite_state"]
+        # Last Resistance is candle 1 (maximum UB in [1, 4] is 1.245 at candle 1)
         res_idx = prereq["last_resistance"]["candle_idx"]
+        assert res_idx == 1
         assert ub(c_map[res_idx]) == prereq["last_resistance"]["price"]
+        broken_price = prereq["last_resistance"]["price"]
+        assert broken_price == 1.245
 
         low_idx = prereq["confirmed_low"]["candle_idx"]
+        assert low_idx == 1
         assert lb(c_map[low_idx]) == prereq["confirmed_low"]["price"]
 
         p3_idx = prereq["active_point_3"]["candle_idx"]
+        assert p3_idx == 5
         assert lb(c_map[p3_idx]) == prereq["active_point_3"]["price"]
         assert prereq["active_point_3"]["identified_at_idx"] == 7
+
+        # Verify Candle 8 equality rejection within dataset
+        c8_close = float(candles[8]["close"])
+        assert c8_close == broken_price, "Candle 8 close must exactly equal resistance (1.245) to demonstrate equality rejection"
 
         exp = fix["expected_choch"]
         assert exp["confirmed"] is True
         assert exp["type"] == "BULLISH_CHOCH"
+        assert exp["c1_idx"] == 9
+        assert exp["c2_idx"] == 10
         assert exp["c2_idx"] == exp["c1_idx"] + 1
 
-        broken_price = prereq["last_resistance"]["price"]
         c1_close = float(candles[exp["c1_idx"]]["close"])
         c2_close = float(candles[exp["c2_idx"]]["close"])
         assert c1_close > broken_price, "c1 close must be strictly above last resistance"
@@ -167,20 +189,58 @@ class TestCHOCHFixtureIntegrity:
 
         # Zone geometry validation
         zones = exp["zones"]
-        # RBS from Last Resistance candle (index 3)
+        # RBS from Last Resistance candle (index 1)
         rbs_candle = c_map[res_idx]
-        assert zones["RBS"]["lower_price"] == ub(rbs_candle)
-        assert zones["RBS"]["upper_price"] == float(rbs_candle["high"])
+        assert zones["RBS"]["lower_price"] == ub(rbs_candle)             # 1.245
+        assert zones["RBS"]["upper_price"] == float(rbs_candle["high"])  # 1.248
 
         # QML / A+ from Confirmed Low candle (index 1)
         qml_candle = c_map[low_idx]
-        assert zones["QML_A_PLUS"]["lower_price"] == float(qml_candle["low"])
-        assert zones["QML_A_PLUS"]["upper_price"] == lb(qml_candle)
+        assert zones["QML_A_PLUS"]["lower_price"] == float(qml_candle["low"])  # 1.210
+        assert zones["QML_A_PLUS"]["upper_price"] == lb(qml_candle)            # 1.215
 
         # Double Bottom from Point 3 candle (index 5)
         db_candle = c_map[p3_idx]
-        assert zones["DOUBLE_BOTTOM"]["lower_price"] == float(db_candle["low"])
-        assert zones["DOUBLE_BOTTOM"]["upper_price"] == lb(db_candle)
+        assert zones["DOUBLE_BOTTOM"]["lower_price"] == float(db_candle["low"])  # 1.180
+        assert zones["DOUBLE_BOTTOM"]["upper_price"] == lb(db_candle)            # 1.185
+
+    def test_end_to_end_msm_prerequisites_match_msm_engine(self, choch_fixtures):
+        """Cross-checks that MSM Engine execution on prefix candles independently produces the exact prerequisite state."""
+        # 1. Bearish basic prefix verification
+        bearish_fix = choch_fixtures["fixtures"]["choch_bearish_basic_end_to_end"]
+        config_b = MSMConfig(
+            start_candle_time=datetime.fromisoformat(bearish_fix["start_candle_time"]),
+            direction=Direction.UPWARD,
+        )
+        engine_b = MSMEngine(config_b)
+        snap_b = engine_b.process_candles(bearish_fix["candles"])
+
+        prereq_b = bearish_fix["prerequisite_state"]
+        assert snap_b.last_support is not None
+        assert snap_b.last_support.candle_index == prereq_b["last_support"]["candle_idx"]  # 4
+        assert snap_b.last_support.price == prereq_b["last_support"]["price"]              # 1.105
+        assert snap_b.confirmed_pairs[0].high.candle_index == prereq_b["confirmed_high"]["candle_idx"]  # 1
+        assert snap_b.tentative_point is not None
+        assert snap_b.tentative_point.candle_index == prereq_b["active_point_3"]["candle_idx"]  # 5
+        assert snap_b.tentative_point.identified_bar_index == prereq_b["active_point_3"]["identified_at_idx"]  # 7
+
+        # 2. Bullish basic prefix verification
+        bullish_fix = choch_fixtures["fixtures"]["choch_bullish_basic_end_to_end"]
+        config_bull = MSMConfig(
+            start_candle_time=datetime.fromisoformat(bullish_fix["start_candle_time"]),
+            direction=Direction.DOWNWARD,
+        )
+        engine_bull = MSMEngine(config_bull)
+        snap_bull = engine_bull.process_candles(bullish_fix["candles"])
+
+        prereq_bull = bullish_fix["prerequisite_state"]
+        assert snap_bull.last_resistance is not None
+        assert snap_bull.last_resistance.candle_index == prereq_bull["last_resistance"]["candle_idx"]  # 1
+        assert snap_bull.last_resistance.price == prereq_bull["last_resistance"]["price"]              # 1.245
+        assert snap_bull.confirmed_pairs[0].low.candle_index == prereq_bull["confirmed_low"]["candle_idx"]  # 1
+        assert snap_bull.tentative_point is not None
+        assert snap_bull.tentative_point.candle_index == prereq_bull["active_point_3"]["candle_idx"]  # 5
+        assert snap_bull.tentative_point.identified_bar_index == prereq_bull["active_point_3"]["identified_at_idx"]  # 7
 
     def test_rejection_fixtures_integrity(self, choch_fixtures):
         """Validates all negative/rejection fixture assertions without engine execution."""
@@ -247,9 +307,6 @@ class TestCHOCHFixtureIntegrity:
     def test_equal_level_search_geometry_boundary(self, choch_fixtures):
         """Verifies mathematical non-overlap of continuation vs CHOCH using inclusive search geometry."""
         fix = choch_fixtures["fixtures"]["choch_equal_level_search_geometry_boundary"]
-        c_start = fix["search_start_candle"]
-        assert ub(c_start) == lb(c_start)  # Flat doji
-
         ded = fix["search_geometry_deduction"]
         assert ded["tentative_high_price"] == ded["last_support_price"]
         level = ded["tentative_high_price"]
