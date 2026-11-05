@@ -218,6 +218,7 @@ class MSMConfig:
     """Configuration for a Market Structure Marking run."""
     start_candle_time: datetime
     direction: Direction
+    earliest_pullback_time: Optional[datetime] = None
 
     def __post_init__(self) -> None:
         norm_start = validate_and_normalize_timestamp(self.start_candle_time, "start_candle_time")

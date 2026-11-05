@@ -26,10 +26,11 @@ Internal Structure Shift (ISS) is a secondary structural pattern operating withi
 ## 2. Main and Internal Numbering & Prerequisites
 
 ### 2.1 Main Structure Context
-An ISS candidate requires an active main cycle with two captured boundary levels:
+An ISS candidate requires an active main cycle with two captured boundary levels established through valid Market Structure Marking:
 1. **Main Level 2**:
-   - In **Bullish** main structure: The confirmed swing low (`CL`, last support).
-   - In **Bearish** main structure: The confirmed swing high (`CH`, last resistance).
+   - In **Bullish** main structure: The latest confirmed swing low (`CL`, last support) established by a completed confirmed MSM pair.
+   - In **Bearish** main structure: The latest confirmed swing high (`CH`, last resistance) established by a completed confirmed MSM pair.
+   - *Provenance Requirement*: Selecting an initial start candle does not automatically make it a confirmed structural level. Main level 2 must be established through actual completed pair confirmation before level 3 is captured.
 2. **Main Level 3**:
    - In **Bullish** main structure: The active tentative swing high (`tentative_high`).
    - In **Bearish** main structure: The active tentative swing low (`tentative_low`).
@@ -45,9 +46,9 @@ An ISS candidate requires an active main cycle with two captured boundary levels
   $$\text{Allowed Range} = [\min(P_{\text{main\_2}}, P_{\text{main\_3}}),\, \max(P_{\text{main\_2}}, P_{\text{main\_3}})]$$
 
 ### 2.3 First Internal Pullback Timing Restriction
-- **Non-Reuse of Main Pullback Candles**: Both candles of the first internal pullback must occur **strictly after** the second candle of the main pullback ($p_2$) that identified main level 3:
-  $$\text{candle\_index}(\text{internal\_p1}) > \text{candle\_index}(p_2)$$
-  $$\text{candle\_index}(\text{internal\_p2}) > \text{candle\_index}(\text{internal\_p1}) > \text{candle\_index}(p_2)$$
+- **Chronological Forward Scan Boundary**: Both candles of the first internal pullback must occur at chronological positions strictly after the completion of the second candle ($p_2$) of the main pullback that identified main level 3:
+  $$\text{chronological\_position}(\text{internal\_p1}) > \text{chronological\_position}(p_2)$$
+  $$\text{chronological\_position}(\text{internal\_p2}) > \text{chronological\_position}(\text{internal\_p1}) > \text{chronological\_position}(p_2)$$
 - Neither main pullback candle ($p_1, p_2$) may be reused as part of the first internal pullback pair.
 - The internal tentative level search window, however, looks back to the main level 3 reference candle (inclusive) through the candle before the internal pullback pair.
 
@@ -242,13 +243,13 @@ The primary ISS source (`docs/strategy/ISS.pdf` Section 11) explicitly addresses
   - Main marking continues, and the engine monitors main CHOCH.
 
 ### 7.3 Scenario 3: Shared Close Between Main CHOCH and ISS Completion
-- If a candle close simultaneously met main CHOCH confirmation (second consecutive close beyond main support/resistance) and would-be ISS completion:
-  - Main CHOCH break condition requires closing beyond main support/resistance.
-  - In a standard layout, main level 2 is the support/resistance level.
-  - A close beyond main level 2 is strictly **outside** the frozen boundary range $[P_{\text{main\_2}}, P_{\text{main\_3}}]$.
-  - Therefore, by the completion-close boundary rule, the candle close is outside the allowed range, and ISS cannot confirm!
-  - No separate invented priority rule is required; the boundary condition naturally enforces separation.
-- **Isolated Limitation**: Any potential intra-bar ambiguity or edge-case tie is documented as an isolated dependency limitation rather than inventing priority rules.
+- If a candle close simultaneously meets the closing criteria for main CHOCH confirmation (the second consecutive completed close beyond main last support/resistance) and would-be ISS completion:
+  - By structural definition, Main Level 2 is the prevailing structural anchor (last support in bullish structure, or last resistance in bearish structure).
+  - Main CHOCH requires closing strictly beyond this anchor level ({\text{main\_2}}$).
+  - Because the frozen boundary range $[P_{\text{main\_2}}, P_{\text{main\_3}}]$ has {\text{main\_2}}$ as one of its defining endpoints, any completed close strictly beyond {\text{main\_2}}$ lies strictly **outside** the inclusive boundary.
+  - Therefore, by the completion-close boundary condition (Section 4.2), that candle fails ISS completion.
+  - This consequence follows directly from the boundary rule without inventing a separate intra-bar priority heuristic.
+- **Isolated Limitation Preserved**: The separate unresolved interpretation regarding whether candle $'s close can simultaneously establish Point 3 and count as the first CHOCH candidate close $ remains an isolated dependency limitation.
 
 ---
 

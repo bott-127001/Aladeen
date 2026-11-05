@@ -1,6 +1,6 @@
 # Fixture Specification: `iss_08_fresh_search_on_new_main_level_3`
 
-**Category**: source_settled, end_to_end_msm_derived
+**Category**: end_to_end_msm_derived, source_settled
 **Main Direction**: `BEARISH`
 
 ## 1. Description & Strategy Context
@@ -18,5 +18,5 @@ Following prior candidate rejection, a new valid main level 3 is identified. A f
 - **Lifecycle Status**: `FRESH_SEARCH_OPENED`
 
 ## 5. Candles Series Summary
-Total candles: 17
-Time span: 2026-10-01T00:00:00Z to 2026-10-01T16:00:00Z
+Total candles: 21
+Time span: 2026-10-01T00:00:00Z to 2026-10-01T20:00:00Z
