@@ -830,3 +830,36 @@ class TestISSEngineAPIAndSafety:
         assert snap_cancelled.is_tracking_only is False
         assert snap_cancelled.attempted_points is None
         assert snap_cancelled.tracking_points == ()
+
+    def test_authentic_candle_sequence_produces_genuine_tracking_only(self, iss_fixtures) -> None:
+        """Authentic candle sequence naturally produces OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY without state mocking."""
+        fix = iss_fixtures["iss_01_bearish_basic_end_to_end"]
+        raw_candles = [dict(c) for c in fix["candles"]]
+
+        # Candle 19 (p1) and Candle 20 (p2) complete Point 5 with completion close > 1.2000 (Level 2 side)
+        raw_candles[19]["open"] = 1.206
+        raw_candles[19]["high"] = 1.207
+        raw_candles[19]["low"] = 1.204
+        raw_candles[19]["close"] = 1.205
+
+        raw_candles[20]["open"] = 1.205
+        raw_candles[20]["high"] = 1.206
+        raw_candles[20]["low"] = 1.2005
+        raw_candles[20]["close"] = 1.201
+
+        for i, c in enumerate(raw_candles):
+            c["index"] = i
+
+        start_time = datetime.fromisoformat(raw_candles[0]["time"])
+        engine = ISSEngine(ISSConfig(main_direction=Direction.DOWNWARD, start_candle_time=start_time))
+        snaps = engine.replay_snapshots(raw_candles)
+
+        snap20 = snaps[20]
+        assert snap20.lifecycle_status == ISSLifecycleStatus.OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY
+        assert snap20.diagnostic_type == ISSDiagnosticType.COMPLETION_CLOSE_OUTSIDE_RANGE
+        assert snap20.is_tracking_only is True
+        assert snap20.attempted_points is not None
+        assert len(snap20.attempted_points) == 5
+        assert len(snap20.tracking_points) == 5
+        assert len(snap20.active_zones) == 0
+        assert len(snap20.confirmed_events) == 0

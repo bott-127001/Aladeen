@@ -64,22 +64,6 @@ import aladeen.ui.msm_callbacks
 from aladeen.app import create_app
 from aladeen.data.contract import BarStatus
 from aladeen.data.mt5_adapter import MT5ConnectionState
-from aladeen.strategy.iss_types import (
-    CandidateIdentity,
-    ConfirmedISSEvent,
-    FrozenBoundary,
-    ISSDiagnosticType,
-    ISSLifecycleStatus,
-    ISSSnapshot,
-    ISSZone,
-    ISSZoneType,
-    InternalPoint,
-)
-from aladeen.strategy.service import (
-    MSMContext,
-    MSMServiceResult,
-    calculate_msm as original_calculate_msm,
-)
 from aladeen.strategy.types import Direction
 
 print = functools.partial(print, flush=True)
@@ -138,9 +122,20 @@ class ControllableISSMockAdapter:
 
     def fetch_candles(self, symbol: str, timeframe: str, count: int) -> pd.DataFrame:
         if symbol == "GBPUSD":
-            # Tracking-only candidate scenario (base candles from iss_01)
+            # Tracking-only candidate scenario (base candles from iss_01 modulated so completion candle closes outside Level 2)
             fix = self.iss_fixtures["iss_01_bearish_basic_end_to_end"]
-            return _make_df_from_candles(fix["candles"])
+            raw_candles = [dict(c) for c in fix["candles"]]
+            # Modulate candles 19 and 20 to produce completion close outside boundary on Level 2 side (> 1.2000)
+            raw_candles[19]["open"] = 1.206
+            raw_candles[19]["high"] = 1.207
+            raw_candles[19]["low"] = 1.204
+            raw_candles[19]["close"] = 1.205
+
+            raw_candles[20]["open"] = 1.205
+            raw_candles[20]["high"] = 1.206
+            raw_candles[20]["low"] = 1.2005
+            raw_candles[20]["close"] = 1.201
+            return _make_df_from_candles(raw_candles)
         elif timeframe == "H1":
             # Scenario 1: Bearish ISS Success
             fix = self.iss_fixtures["iss_01_bearish_basic_end_to_end"]
@@ -173,53 +168,11 @@ class ControllableISSMockAdapter:
             return _make_df_from_candles(fix["candles"])
 
 
-def _patch_calculate_msm_for_tracking_only():
-    """Wrap calculate_msm in UI modules to inject genuine tracking-only presentation when symbol is GBPUSD."""
-    def hooked_calculate_msm(df: pd.DataFrame, ctx: MSMContext) -> MSMServiceResult:
-        res = original_calculate_msm(df, ctx)
-        if ctx.symbol == "GBPUSD" and ctx.calculation_mode == "INTEGRATED_MSM_CHOCH_ISS":
-            pts = res.iss_snapshot.internal_points if res.iss_snapshot else ()
-            cand_id = res.iss_snapshot.candidate_identity if res.iss_snapshot else None
-            b = res.iss_snapshot.captured_boundary if res.iss_snapshot else None
-            tracking_snap = ISSSnapshot(
-                lifecycle_status=ISSLifecycleStatus.OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY,
-                candidate_identity=cand_id,
-                captured_boundary=b,
-                internal_points=(),
-                attempted_points=pts if pts else (),
-                tracking_points=pts[:3] if pts else (),
-                active_zones=(),
-                confirmed_events=(),
-                is_tracking_only=True,
-                last_processed_index=len(res.candles) - 1,
-                last_received_index=len(res.candles) - 1,
-                diagnostic_type=ISSDiagnosticType.COMPLETION_CLOSE_OUTSIDE_RANGE,
-                diagnostic_message="Completion candle close outside boundary. Tracking only.",
-            )
-            return MSMServiceResult(
-                context=ctx,
-                snapshot=res.snapshot,
-                candles=res.candles,
-                status_message="Tracking only — not eligible",
-                candle_count=len(res.candles),
-                start_candle_found=True,
-                coordinator_snapshot=res.coordinator_snapshot,
-                confirmed_choch_events=res.confirmed_choch_events,
-                iss_snapshot=tracking_snap,
-                confirmed_iss_events=(),
-            )
-        return res
-
-    aladeen.ui.msm_callbacks.calculate_msm = hooked_calculate_msm
-    aladeen.ui.market_coordinator.calculate_msm = hooked_calculate_msm
-
-
 def test_iss_browser_controlled() -> None:
     """Run full deterministic browser verification for ISS Dashboard across 9 scenarios."""
     print("=== STARTING DETERMINISTIC ISS BROWSER VERIFICATION (9 SCENARIOS) ===")
     iss_fixtures, choch_fixtures = _load_fixtures()
     mock_adapter = ControllableISSMockAdapter(iss_fixtures, choch_fixtures)
-    _patch_calculate_msm_for_tracking_only()
 
     app = create_app(adapter=mock_adapter)
 

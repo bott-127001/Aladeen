@@ -124,8 +124,8 @@ class InternalPoint:
     is_inside_boundary: bool = True     # Evaluated against candidate's frozen boundary
 
     def __post_init__(self) -> None:
-        if self.point_number not in (1, 2, 3, 4, 5):
-            raise ValueError(f"point_number must be 1..5, got {self.point_number}")
+        if self.point_number < 1:
+            raise ValueError(f"point_number must be >= 1, got {self.point_number}")
         if not math.isfinite(self.body_edge_price):
             raise ValueError(f"body_edge_price must be finite, got {self.body_edge_price}")
         norm_time = validate_and_normalize_timestamp(self.candle_open_time, "InternalPoint candle_open_time")
