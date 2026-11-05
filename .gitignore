@@ -85,3 +85,9 @@ MQL5/Logs/
 Tester/
 *.fxt
 *.hst
+
+# Local automation helper scripts and scratch logs
+submit_handoff_*.py
+perplexity_handoff_*.txt
+check_comet.py
+

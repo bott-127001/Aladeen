@@ -1,0 +1,377 @@
+{
+  "description": "Standardized Acceptance Fixtures for Change of Character (CHOCH) Module",
+  "version": "1.0",
+  "fixtures": {
+    "choch_bearish_basic_end_to_end": {
+      "description": "End-to-end Bearish CHOCH confirmation during upward structure with active Point 3, 2 consecutive closes below last support, and 3 zones established.",
+      "initial_direction": "UPWARD",
+      "start_candle_time": "2026-10-01T00:00:00+00:00",
+      "candles": [
+        {"time": "2026-10-01T00:00:00+00:00", "open": 1.100, "high": 1.110, "low": 1.095, "close": 1.105, "is_forming": false, "bar_status": "CONFIRMED_COMPLETED", "close_time": "2026-10-01T04:00:00+00:00"},
+        {"time": "2026-10-01T04:00:00+00:00", "open": 1.105, "high": 1.140, "low": 1.102, "close": 1.135, "is_forming": false, "bar_status": "CONFIRMED_COMPLETED", "close_time": "2026-10-01T08:00:00+00:00"},
+        {"time": "2026-10-01T08:00:00+00:00", "open": 1.135, "high": 1.136, "low": 1.115, "close": 1.120, "is_forming": false, "bar_status": "CONFIRMED_COMPLETED", "close_time": "2026-10-01T12:00:00+00:00"},
+        {"time": "2026-10-01T12:00:00+00:00", "open": 1.120, "high": 1.122, "low": 1.100, "close": 1.105, "is_forming": false, "bar_status": "CONFIRMED_COMPLETED", "close_time": "2026-10-01T16:00:00+00:00"},
+        {"time": "2026-10-01T16:00:00+00:00", "open": 1.105, "high": 1.150, "low": 1.104, "close": 1.145, "is_forming": false, "bar_status": "CONFIRMED_COMPLETED", "close_time": "2026-10-01T20:00:00+00:00"},
+        {"time": "2026-10-01T20:00:00+00:00", "open": 1.145, "high": 1.160, "low": 1.142, "close": 1.155, "is_forming": false, "bar_status": "CONFIRMED_COMPLETED", "close_time": "2026-10-02T00:00:00+00:00"},
+        {"time": "2026-10-02T00:00:00+00:00", "open": 1.155, "high": 1.156, "low": 1.135, "close": 1.140, "is_forming": false, "bar_status": "CONFIRMED_COMPLETED", "close_time": "2026-10-02T04:00:00+00:00"},
+        {"time": "2026-10-02T04:00:00+00:00", "open": 1.140, "high": 1.142, "low": 1.120, "close": 1.125, "is_forming": false, "bar_status": "CONFIRMED_COMPLETED", "close_time": "2026-10-02T08:00:00+00:00"},
+        {"time": "2026-10-02T08:00:00+00:00", "open": 1.125, "high": 1.128, "low": 1.090, "close": 1.095, "is_forming": false, "bar_status": "CONFIRMED_COMPLETED", "close_time": "2026-10-02T12:00:00+00:00"},
+        {"time": "2026-10-02T12:00:00+00:00", "open": 1.095, "high": 1.098, "low": 1.080, "close": 1.085, "is_forming": false, "bar_status": "CONFIRMED_COMPLETED", "close_time": "2026-10-02T16:00:00+00:00"}
+      ],
+      "prerequisite_state": {
+        "msm_direction": "UPWARD",
+        "last_support": {
+          "price": 1.105,
+          "candle_time": "2026-10-01T12:00:00+00:00",
+          "candle_idx": 3
+        },
+        "confirmed_high": {
+          "price": 1.135,
+          "candle_time": "2026-10-01T04:00:00+00:00",
+          "candle_idx": 1
+        },
+        "active_point_3": {
+          "price": 1.155,
+          "candle_time": "2026-10-01T20:00:00+00:00",
+          "candle_idx": 5,
+          "identified_at": "2026-10-02T08:00:00+00:00",
+          "identified_at_idx": 7
+        }
+      },
+      "expected_choch": {
+        "confirmed": true,
+        "type": "BEARISH_CHOCH",
+        "c1_idx": 8,
+        "c1_time": "2026-10-02T08:00:00+00:00",
+        "c1_close": 1.095,
+        "c2_idx": 9,
+        "c2_time": "2026-10-02T12:00:00+00:00",
+        "c2_close": 1.085,
+        "confirmed_at": "2026-10-02T16:00:00+00:00",
+        "broken_level": {
+          "type": "LAST_SUPPORT",
+          "price": 1.105
+        },
+        "new_direction": "DOWNWARD",
+        "restart_reference_time": "2026-10-01T20:00:00+00:00",
+        "zones": {
+          "SBR": {
+            "source_type": "CONFIRMED_LOW",
+            "source_time": "2026-10-01T12:00:00+00:00",
+            "lower_price": 1.100,
+            "upper_price": 1.105,
+            "is_line": false
+          },
+          "QML_A_PLUS": {
+            "source_type": "CONFIRMED_HIGH",
+            "source_time": "2026-10-01T04:00:00+00:00",
+            "lower_price": 1.135,
+            "upper_price": 1.140,
+            "is_line": false
+          },
+          "DOUBLE_TOP": {
+            "source_type": "TENTATIVE_POINT_3",
+            "source_time": "2026-10-01T20:00:00+00:00",
+            "lower_price": 1.155,
+            "upper_price": 1.160,
+            "is_line": false
+          }
+        }
+      }
+    },
+    "choch_bullish_basic_end_to_end": {
+      "description": "End-to-end Bullish CHOCH confirmation during downward structure with active Point 3, 2 consecutive closes above last resistance, and 3 zones established.",
+      "initial_direction": "DOWNWARD",
+      "start_candle_time": "2026-10-01T00:00:00+00:00",
+      "candles": [
+        {"time": "2026-10-01T00:00:00+00:00", "open": 1.250, "high": 1.255, "low": 1.240, "close": 1.245, "is_forming": false, "bar_status": "CONFIRMED_COMPLETED", "close_time": "2026-10-01T04:00:00+00:00"},
+        {"time": "2026-10-01T04:00:00+00:00", "open": 1.245, "high": 1.248, "low": 1.210, "close": 1.215, "is_forming": false, "bar_status": "CONFIRMED_COMPLETED", "close_time": "2026-10-01T08:00:00+00:00"},
+        {"time": "2026-10-01T08:00:00+00:00", "open": 1.215, "high": 1.235, "low": 1.212, "close": 1.230, "is_forming": false, "bar_status": "CONFIRMED_COMPLETED", "close_time": "2026-10-01T12:00:00+00:00"},
+        {"time": "2026-10-01T12:00:00+00:00", "open": 1.230, "high": 1.242, "low": 1.228, "close": 1.240, "is_forming": false, "bar_status": "CONFIRMED_COMPLETED", "close_time": "2026-10-01T16:00:00+00:00"},
+        {"time": "2026-10-01T16:00:00+00:00", "open": 1.240, "high": 1.241, "low": 1.200, "close": 1.205, "is_forming": false, "bar_status": "CONFIRMED_COMPLETED", "close_time": "2026-10-01T20:00:00+00:00"},
+        {"time": "2026-10-01T20:00:00+00:00", "open": 1.205, "high": 1.208, "low": 1.180, "close": 1.185, "is_forming": false, "bar_status": "CONFIRMED_COMPLETED", "close_time": "2026-10-02T00:00:00+00:00"},
+        {"time": "2026-10-02T00:00:00+00:00", "open": 1.185, "high": 1.205, "low": 1.184, "close": 1.200, "is_forming": false, "bar_status": "CONFIRMED_COMPLETED", "close_time": "2026-10-02T04:00:00+00:00"},
+        {"time": "2026-10-02T04:00:00+00:00", "open": 1.200, "high": 1.220, "low": 1.198, "close": 1.215, "is_forming": false, "bar_status": "CONFIRMED_COMPLETED", "close_time": "2026-10-02T08:00:00+00:00"},
+        {"time": "2026-10-02T08:00:00+00:00", "open": 1.215, "high": 1.248, "low": 1.214, "close": 1.245, "is_forming": false, "bar_status": "CONFIRMED_COMPLETED", "close_time": "2026-10-02T12:00:00+00:00"},
+        {"time": "2026-10-02T12:00:00+00:00", "open": 1.245, "high": 1.258, "low": 1.242, "close": 1.252, "is_forming": false, "bar_status": "CONFIRMED_COMPLETED", "close_time": "2026-10-02T16:00:00+00:00"}
+      ],
+      "prerequisite_state": {
+        "msm_direction": "DOWNWARD",
+        "last_resistance": {
+          "price": 1.240,
+          "candle_time": "2026-10-01T12:00:00+00:00",
+          "candle_idx": 3
+        },
+        "confirmed_low": {
+          "price": 1.215,
+          "candle_time": "2026-10-01T04:00:00+00:00",
+          "candle_idx": 1
+        },
+        "active_point_3": {
+          "price": 1.185,
+          "candle_time": "2026-10-01T20:00:00+00:00",
+          "candle_idx": 5,
+          "identified_at": "2026-10-02T08:00:00+00:00",
+          "identified_at_idx": 7
+        }
+      },
+      "expected_choch": {
+        "confirmed": true,
+        "type": "BULLISH_CHOCH",
+        "c1_idx": 8,
+        "c1_time": "2026-10-02T08:00:00+00:00",
+        "c1_close": 1.245,
+        "c2_idx": 9,
+        "c2_time": "2026-10-02T12:00:00+00:00",
+        "c2_close": 1.252,
+        "confirmed_at": "2026-10-02T16:00:00+00:00",
+        "broken_level": {
+          "type": "LAST_RESISTANCE",
+          "price": 1.240
+        },
+        "new_direction": "UPWARD",
+        "restart_reference_time": "2026-10-01T20:00:00+00:00",
+        "zones": {
+          "QML_A_PLUS": {
+            "source_type": "CONFIRMED_LOW",
+            "source_time": "2026-10-01T04:00:00+00:00",
+            "lower_price": 1.210,
+            "upper_price": 1.215,
+            "is_line": false
+          },
+          "RBS": {
+            "source_type": "CONFIRMED_HIGH",
+            "source_time": "2026-10-01T12:00:00+00:00",
+            "lower_price": 1.240,
+            "upper_price": 1.242,
+            "is_line": false
+          },
+          "DOUBLE_BOTTOM": {
+            "source_type": "TENTATIVE_POINT_3",
+            "source_time": "2026-10-01T20:00:00+00:00",
+            "lower_price": 1.180,
+            "upper_price": 1.185,
+            "is_line": false
+          }
+        }
+      }
+    },
+    "choch_bearish_single_qualifying_close_rejected": {
+      "description": "Candle c1 closes below last support (1.105), but candle c2 closes back above (1.110). CHOCH is not confirmed.",
+      "initial_direction": "UPWARD",
+      "prerequisite_state": {
+        "msm_direction": "UPWARD",
+        "last_support": {"price": 1.105, "candle_time": "2026-10-01T12:00:00+00:00", "candle_idx": 3},
+        "confirmed_high": {"price": 1.135, "candle_time": "2026-10-01T04:00:00+00:00", "candle_idx": 1},
+        "active_point_3": {"price": 1.155, "candle_time": "2026-10-01T20:00:00+00:00", "candle_idx": 5, "identified_at": "2026-10-02T08:00:00+00:00", "identified_at_idx": 7}
+      },
+      "candidate_candles": [
+        {"time": "2026-10-02T08:00:00+00:00", "open": 1.120, "high": 1.125, "low": 1.090, "close": 1.095, "is_forming": false, "bar_status": "CONFIRMED_COMPLETED", "close_time": "2026-10-02T12:00:00+00:00"},
+        {"time": "2026-10-02T12:00:00+00:00", "open": 1.095, "high": 1.115, "low": 1.092, "close": 1.110, "is_forming": false, "bar_status": "CONFIRMED_COMPLETED", "close_time": "2026-10-02T16:00:00+00:00"}
+      ],
+      "expected_choch": {
+        "confirmed": false,
+        "reason": "SECOND_CLOSE_FAILED_ABOVE_OR_EQUAL"
+      }
+    },
+    "choch_equality_rejected_on_first_or_second_close": {
+      "description": "Strict inequality test: exact equality on either first close (close == support) or second close fails.",
+      "initial_direction": "UPWARD",
+      "prerequisite_state": {
+        "msm_direction": "UPWARD",
+        "last_support": {"price": 1.105, "candle_time": "2026-10-01T12:00:00+00:00", "candle_idx": 3},
+        "active_point_3": {"price": 1.155, "candle_time": "2026-10-01T20:00:00+00:00", "candle_idx": 5, "identified_at": "2026-10-02T08:00:00+00:00", "identified_at_idx": 7}
+      },
+      "candidate_cases": [
+        {
+          "name": "case_a_equality_on_c1",
+          "c1": {"close": 1.105},
+          "c2": {"close": 1.090},
+          "expected_confirmed": false,
+          "reason": "EQUALITY_ON_FIRST_CLOSE"
+        },
+        {
+          "name": "case_b_equality_on_c2",
+          "c1": {"close": 1.095},
+          "c2": {"close": 1.105},
+          "expected_confirmed": false,
+          "reason": "EQUALITY_ON_SECOND_CLOSE"
+        }
+      ]
+    },
+    "choch_nonconsecutive_qualifying_closes_rejected": {
+      "description": "Candle 8 qualifies, candle 9 fails, candle 10 qualifies. Cannot combine candle 8 and 10; CHOCH fails.",
+      "initial_direction": "UPWARD",
+      "prerequisite_state": {
+        "last_support": {"price": 1.105},
+        "active_point_3": {"price": 1.155, "identified_at_idx": 7}
+      },
+      "candidate_closes": [
+        {"idx": 8, "close": 1.095, "qualifies": true},
+        {"idx": 9, "close": 1.108, "qualifies": false},
+        {"idx": 10, "close": 1.090, "qualifies": true}
+      ],
+      "expected_choch": {
+        "confirmed": false,
+        "reason": "NON_CONSECUTIVE_CLOSES"
+      }
+    },
+    "choch_wick_crossing_without_qualifying_close_rejected": {
+      "description": "Wick dips below support (low = 1.080 < 1.105) but close remains above (close = 1.106 >= 1.105). Fails closed.",
+      "initial_direction": "UPWARD",
+      "prerequisite_state": {
+        "last_support": {"price": 1.105},
+        "active_point_3": {"price": 1.155, "identified_at_idx": 7}
+      },
+      "candidate_candles": [
+        {"idx": 8, "low": 1.080, "close": 1.106},
+        {"idx": 9, "low": 1.085, "close": 1.107}
+      ],
+      "expected_choch": {
+        "confirmed": false,
+        "reason": "WICK_CROSSING_ONLY_CLOSE_FAILED"
+      }
+    },
+    "choch_qualifying_closes_with_mixed_candle_colors_confirmed": {
+      "description": "c1 is green (bullish) and c2 is red (bearish). Both close strictly below support. Confirmed CHOCH (color independent).",
+      "initial_direction": "UPWARD",
+      "prerequisite_state": {
+        "last_support": {"price": 1.105},
+        "confirmed_high": {"price": 1.135},
+        "active_point_3": {"price": 1.155, "identified_at_idx": 7}
+      },
+      "candidate_candles": [
+        {"idx": 8, "open": 1.090, "close": 1.098, "color": "GREEN", "qualifies": true},
+        {"idx": 9, "open": 1.100, "close": 1.085, "color": "RED", "qualifies": true}
+      ],
+      "expected_choch": {
+        "confirmed": true,
+        "type": "BEARISH_CHOCH"
+      }
+    },
+    "choch_rejected_when_no_active_point_3": {
+      "description": "Two consecutive closes strictly below support, but no valid pullback has occurred in current cycle (Point 3 absent). Fails.",
+      "initial_direction": "UPWARD",
+      "prerequisite_state": {
+        "last_support": {"price": 1.105},
+        "active_point_3": null
+      },
+      "candidate_candles": [
+        {"idx": 4, "close": 1.095},
+        {"idx": 5, "close": 1.085}
+      ],
+      "expected_choch": {
+        "confirmed": false,
+        "reason": "ACTIVE_POINT_3_ABSENT"
+      }
+    },
+    "choch_closes_before_point_3_identification_rejected": {
+      "description": "Candle closes below support before or during the pullback that identifies Point 3. Cannot count toward confirmation.",
+      "initial_direction": "UPWARD",
+      "prerequisite_state": {
+        "last_support": {"price": 1.105},
+        "point_3_identified_at_idx": 7
+      },
+      "candles": [
+        {"idx": 6, "time": "2026-10-02T00:00:00+00:00", "open": 1.155, "high": 1.156, "low": 1.090, "close": 1.095, "desc": "Pullback candle 1"},
+        {"idx": 7, "time": "2026-10-02T04:00:00+00:00", "open": 1.095, "high": 1.100, "low": 1.085, "close": 1.090, "desc": "Pullback candle 2 - Point 3 identified here"},
+        {"idx": 8, "time": "2026-10-02T08:00:00+00:00", "open": 1.090, "high": 1.098, "low": 1.088, "close": 1.092, "desc": "First candle strictly after Point 3"}
+      ],
+      "expected_choch": {
+        "confirmed_at_idx_7": false,
+        "confirmed_at_idx_8": false,
+        "reason": "CANNOT_COUNT_CLOSES_PRIOR_TO_POINT_3_IDENTIFICATION"
+      }
+    },
+    "choch_active_point_3_not_replaced_by_later_raw_extreme": {
+      "description": "Point 3 identified at candle 5 (UB=1.155). Later candle 6 reaches raw high 1.165 without forming a new cycle. Double top zone must use candle 5.",
+      "initial_direction": "UPWARD",
+      "prerequisite_state": {
+        "last_support": {"price": 1.105, "candle_time": "2026-10-01T12:00:00+00:00"},
+        "confirmed_high": {"price": 1.135, "candle_time": "2026-10-01T04:00:00+00:00"},
+        "active_point_3": {"price": 1.155, "candle_time": "2026-10-01T20:00:00+00:00", "candle_idx": 5, "identified_at_idx": 7}
+      },
+      "intermediate_raw_extreme": {
+        "candle_idx": 6,
+        "high": 1.165,
+        "desc": "Raw unconfirmed extreme"
+      },
+      "choch_sequence": [
+        {"idx": 8, "close": 1.095},
+        {"idx": 9, "close": 1.085}
+      ],
+      "expected_choch": {
+        "confirmed": true,
+        "double_top_source_candle_idx": 5,
+        "double_top_source_time": "2026-10-01T20:00:00+00:00",
+        "double_top_upper_price": 1.160
+      }
+    },
+    "choch_tentative_point_confirmed_resets_choch_sequence": {
+      "description": "Price achieves continuation break above tentative high (1.155). Point 3 becomes Confirmed High; tentative status lost; in-progress CHOCH count resets.",
+      "initial_direction": "UPWARD",
+      "prerequisite_state": {
+        "last_support": {"price": 1.105},
+        "active_point_3": {"price": 1.155, "candle_idx": 5, "identified_at_idx": 7}
+      },
+      "continuation_break_candle": {
+        "idx": 8,
+        "close": 1.165,
+        "desc": "Closes above tentative high 1.155"
+      },
+      "subsequent_candles": [
+        {"idx": 9, "close": 1.095},
+        {"idx": 10, "close": 1.085}
+      ],
+      "expected_state_after_idx_8": {
+        "tentative_point_3_active": false,
+        "confirmed_high_updated": 1.155,
+        "choch_close_count": 0
+      },
+      "expected_choch_at_idx_10": {
+        "confirmed": false,
+        "reason": "NO_ACTIVE_POINT_3_AFTER_CYCLE_COMPLETION"
+      }
+    },
+    "choch_zero_width_zones_preserved_as_price_lines": {
+      "description": "Confirmed High has high == UB (0 top wick), Confirmed Low has low == LB (0 bottom wick). Preserved as single price lines.",
+      "initial_direction": "UPWARD",
+      "original_candles": {
+        "confirmed_high": {"open": 1.120, "close": 1.135, "high": 1.135, "low": 1.115},
+        "confirmed_low": {"open": 1.110, "close": 1.105, "high": 1.118, "low": 1.105},
+        "point_3": {"open": 1.150, "close": 1.155, "high": 1.160, "low": 1.145}
+      },
+      "expected_zones": {
+        "QML_A_PLUS": {
+          "lower_price": 1.135,
+          "upper_price": 1.135,
+          "is_line": true
+        },
+        "SBR": {
+          "lower_price": 1.105,
+          "upper_price": 1.105,
+          "is_line": true
+        },
+        "DOUBLE_TOP": {
+          "lower_price": 1.155,
+          "upper_price": 1.160,
+          "is_line": false
+        }
+      }
+    },
+    "choch_restart_reference_and_post_confirmation_pullback_restriction": {
+      "description": "After Bearish CHOCH confirmation at candle 9, first downward pullback must occur strictly after candle 9 (p1 > 9). Candle 9 cannot be reused.",
+      "choch_confirmation_candle_idx": 9,
+      "point_3_original_candle_idx": 5,
+      "expected_new_cycle": {
+        "direction": "DOWNWARD",
+        "search_start_candle_idx": 5,
+        "first_pullback_min_candidate_idx": 10
+      }
+    },
+    "choch_prefix_replay_consistency": {
+      "description": "Evaluating on sub-slice candles[0:10] yields identical CHOCH result and zones as evaluating on candles[0:15] up to index 9.",
+      "invariant": "PREFIX_REPLAY_IDENTICAL"
+    }
+  }
+}
