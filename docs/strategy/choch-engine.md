@@ -1,6 +1,6 @@
 # Change of Character (CHOCH) Engine & Coordinator Specification
 
-Last Updated: 2026-11-05
+Last Updated: 2026-11-05 (Hardened Lifecycle, Event Identity, and Input Contracts — HANDOFF-021)
 
 ## 1. Overview & Architectural Responsibilities
 
@@ -30,16 +30,17 @@ The Change of Character (CHOCH) subsystem operates alongside the deterministic M
         ┌─────────────────────────────────────────────────────────────┐
         │ 1. Terminate old unfinished MSM cycle                       │
         │ 2. Preserve confirmed MSM history                           │
-        │ 3. Build 3 original-candle zones (SBR/RBS, QML, Double Top) │
-        │ 4. Invert marking direction                                 │
-        │ 5. Restart search_start at Point 3 original candle          │
-        │ 6. Enforce post-confirmation pullback scan (p1 >= c2 + 1)   │
+        │ 3. Clear active-cycle last_support / last_resistance        │
+        │ 4. Build 3 original-candle zones (SBR/RBS, QML, Double Top) │
+        │ 5. Invert marking direction                                 │
+        │ 6. Restart search_start at Point 3 original candle          │
+        │ 7. Enforce post-confirmation pullback scan (p1 >= c2 + 1)   │
         └─────────────────────────────────────────────────────────────┘
 ```
 
 ### Module Responsibilities
 - **`ChochDetector` (`src/aladeen/strategy/choch_detector.py`)**:
-  Pure mathematical detection unit. Monitors completed candles for two consecutive closing breaks beyond the active confirmed level while tentative Point 3 is active.
+  Pure mathematical detection unit. Evaluates completed candles for two consecutive closing breaks beyond the active confirmed level while tentative Point 3 is active.
 - **`MSMChochCoordinator` (`src/aladeen/strategy/coordinator.py`)**:
   Lifecycle orchestrator. Feeds candles sequentially through `MSMEngine` and `ChochDetector`, handles transition resets, builds structural zones, and restarts the MSM state machine in the new direction.
 - **`ChochTypes` (`src/aladeen/strategy/choch_types.py`)**:
@@ -54,16 +55,17 @@ The Change of Character (CHOCH) subsystem operates alongside the deterministic M
 #### `MSMChochCoordinator`
 The primary entry point for coordinated MSM + CHOCH evaluation.
 - `__init__(config: MSMConfig)`: Initializes coordinator with starting candle time and initial direction.
-- `process_candles(data: Union[pd.DataFrame, List[StrategyCandle], List[dict]]) -> CoordinatorSnapshot`: Fresh batch execution over a sequence of candles.
-- `process_candle(candle: StrategyCandle) -> CoordinatorSnapshot`: Sequential execution for incremental bar delivery.
-- `reset() -> None`: Resets coordinator to initial state.
+- `process_candles(data: Union[pd.DataFrame, List[StrategyCandle], List[dict]]) -> CoordinatorSnapshot`: Fresh batch execution over a sequence of candles. Validates start candle configuration and data integrity upfront before mutating state.
+- `process_candle(candle: StrategyCandle) -> CoordinatorSnapshot`: Sequential execution for incremental bar delivery. Guards against forming bars and enforces chronological monotonicity.
+- `replay_candles(data: Union[pd.DataFrame, List[StrategyCandle], List[dict]]) -> List[CoordinatorSnapshot]`: Replays candle stream bar-by-bar from a clean state and returns snapshots after each completed candle.
+- `reset() -> None`: Resets coordinator to clean initial state.
 - `get_snapshot() -> CoordinatorSnapshot`: Returns current state snapshot.
 
 #### `ChochDetector`
 Standalone detector for CHOCH transitions.
-- `__init__(initial_direction: Direction)`: Initializes detector.
-- `process_candle(candle, chronological_pos, msm_direction, last_support, last_resistance, tentative_point, candle_lookup, confirmed_high, confirmed_low) -> ChochSnapshot`: Evaluates single candle.
-- `reset_for_new_direction(new_direction: Direction) -> None`: Clears candidate state for new direction.
+- `__init__(initial_direction: Direction)`: Initializes detector with initial structural direction.
+- `process_candle(...) -> ChochSnapshot`: Evaluates a single completed candle. Requires `StrategyCandle`. Rejects forming/unconfirmed candles without state mutation. Enforces chronological sequence position ordering.
+- `reset_for_new_direction(new_direction: Direction) -> None`: Clears candidate, unresolved status, and confirmed event output upon direction reversal.
 
 ### Immutable Data Types
 
@@ -82,7 +84,8 @@ Standalone detector for CHOCH transitions.
   broken_level_price: float
   broken_level_source_index: int
   point_3_source_index: int
-  point_3_identified_at: datetime
+  point_3_identified_bar_index: int
+  point_3_identified_at: Optional[datetime]
   c1_candle_index: int
   c1_chronological_pos: int
   c1_open_time: datetime
@@ -104,12 +107,14 @@ Standalone detector for CHOCH transitions.
   confirmation_time: Optional[datetime]  # c2.close_time
   point_3_source_index: int
   point_3_open_time: datetime
-  point_3_identified_at: datetime
-  zones: Tuple[ChochZone, ...]
+  point_3_identified_bar_index: int
+  point_3_identified_at: Optional[datetime]
+  zones: Tuple[ChochZone, ...]           # Exactly 3 zones required
   new_direction: Direction
   restart_reference_candle_index: int
   restart_reference_open_time: datetime
   first_eligible_pullback_pos: int       # c2_chronological_pos + 1
+  event_id: str                          # Stable unique event identifier
   ```
 - **`CoordinatorSnapshot`**:
   ```python
@@ -123,44 +128,31 @@ Standalone detector for CHOCH transitions.
 
 ---
 
-## 3. Adjacency, Timing & Strict Inequality Rules
+## 3. Lifecycle, Event Lifetime & Input Contract Guarantees
 
-1. **Chronological Positions vs. Source IDs**:
-   - Qualifying close adjacency is strictly enforced in chronological candle sequence positions ($c_2$ at position $k+1$ where $c_1$ is at $k$).
-   - Arithmetic on source IDs ($c_2.\text{index} == c_1.\text{index} + 1$) is never required, ensuring robustness across non-contiguous or external bar numbering.
-2. **Strict Inequality**:
-   - Bearish: $\text{close} < \text{last\_support}$. Exact equality $\text{close} == \text{last\_support}$ fails closed.
-   - Bullish: $\text{close} > \text{last\_resistance}$. Exact equality $\text{close} == \text{last\_resistance}$ fails closed.
-   - Wick crossing without closing break fails closed.
-3. **Candle Color Independence**:
-   - Closing prices govern qualification. Green candles can qualify for Bearish CHOCH; red candles can qualify for Bullish CHOCH.
-
----
-
-## 4. Lifecycle & History Across Direction Changes
-
-Upon CHOCH confirmation:
-1. **Unfinished Cycle Termination**: The prevailing MSM cycle ends immediately. Its tentative Point 3 is cleared.
-2. **History Preservation**: All prior confirmed swing points and confirmed pairs (`confirmed_pairs`) remain immutable in history. Subsequent new-direction pairs are appended (`pair_index = 2`, etc.).
-3. **Three Original-Candle Zones Established**:
-   - Bearish: SBR (from broken support candle), QML / A+ (from preceding confirmed high), Double Top (from Point 3).
-   - Bullish: RBS (from broken resistance candle), QML / A+ (from preceding confirmed low), Double Bottom (from Point 3).
-   - Zero-wick swing candles produce single horizontal price lines (`[price, price]`, `is_line=True`).
-4. **New Cycle Search Reference**:
-   - `search_start` in the new direction is set to Point 3's original candle position.
-5. **Post-Confirmation Pullback Boundary**:
-   - The forward scan boundary for the first pullback in the new direction is set strictly after the confirmation bar:
-     $$\text{position}(p_1) \ge \text{position}(c_2) + 1$$
-   - Candles formed prior to or at $c_2$ cannot be replayed or recycled as new-direction pullbacks.
-
----
-
-## 5. Unresolved Same-Close Path Behavior ($c_1 == p_2$)
-
-When the second pullback candle `p2` completes, Point 3 is identified. If that same candle also closes strictly beyond the broken level:
-- `ChochDetector` emits a diagnostic:
-  `ChochDiagnostic(diagnostic_type=ChochDiagnosticType.UNRESOLVED_SAME_CLOSE, is_unresolved=True)`
-- `CoordinatorSnapshot.is_unresolved` is set to `True`.
-- The engine does NOT count the close as $c_1$ and does NOT reject it as invalid; it isolates the path.
-- Downstream CHOCH confirmation is withheld, and direction switching is suspended without guessing.
-- All source-settled later-candle cases ($c_1 \ge p_2 + 1$) proceed with complete determinism.
+1. **Explicit Single-Transition Event Lifetime**:
+   - `ChochDetector.process_candle()` clears transient `_confirmed_choch = None` at the start of each candle evaluation.
+   - When a transition confirms, `confirmed_choch` is populated strictly for that transition candle.
+   - On direction reset (`reset_for_new_direction()`), `_confirmed_choch` is explicitly cleared. Subsequent candles in the new direction never expose or re-emit an old confirmation.
+2. **Chronological Identification Timing**:
+   - Timing relative to Point 3 identification compares UTC availability timestamps when known (`close_time < identified_time`).
+   - When availability timestamps are unknown, timing compares chronological stream positions (`chronological_pos < identified_bar_pos`), completely decoupled from source candle IDs (which may be arbitrary or decreasing).
+   - Unknown identification timestamps remain `None`; they are never fabricated from `candle_open_time`.
+3. **Full Prerequisite Binding for Candidates**:
+   - In-progress candidate state ($c_1$) is bound to complete prerequisite identity: structural direction, broken level source index, broken level price, Point 3 source index, Point 3 identified bar index, and Point 3 identified time.
+   - Any change in prerequisites invalidates the pending candidate (`PREREQUISITE_CHANGED`) before processing subsequent closes.
+4. **Completed-Candle Contract Enforcement**:
+   - Both `ChochDetector` and `MSMChochCoordinator` guard against forming and unconfirmed inputs.
+   - Forming candles cause zero state mutations, advance no counters, and cannot confirm candidates.
+   - Out-of-order or duplicate inputs fail closed with `ValueError` without corrupting state.
+5. **Transactional Batch & Replay Validation**:
+   - `process_candles` and `replay_candles` validate input integrity and configured start candle before resetting internal state. If validation fails, existing state is completely preserved.
+   - Missing restart reference candles raise `ValueError` and never silently fall back to position 0.
+6. **Unresolved State Isolation**:
+   - A candle simultaneously identifying Point 3 and closing beyond the level ($c_1 == p_2$) emits `UNRESOLVED_SAME_CLOSE` and sets `is_unresolved = True`.
+   - While unresolved, no subsequent candidate, confirmation, transition, or restart may be published.
+7. **Strict 3-Zone Provenance Requirement**:
+   - CHOCH confirmation requires provenance for all three original-candle zones (SBR/RBS, QML/A+, Double Top/Bottom).
+   - If any required source candle is missing, confirmation is withheld with `REQUIRED_ZONE_PROVENANCE_MISSING`. Partial 2-zone events are never published.
+8. **Cycle Restart & Structure Clearance**:
+   - In `restart_after_choch()`, old-direction confirmed pairs are preserved in history for audit, but active `last_support` and `last_resistance` are cleared to `None`. Old levels are never silently reused as newly established opposite-direction structure.

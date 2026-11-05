@@ -80,14 +80,18 @@ class MSMEngine:
     ) -> None:
         """Restarts the MSM state machine in the new direction following confirmed CHOCH.
 
-        Preserves confirmed pairs and completed candles history.
+        Preserves confirmed pairs and completed candles history for audit trail.
         Terminates the previous unfinished cycle (clearing tentative_point).
+        Explicitly clears last_support and last_resistance so old-direction structure
+        is not silently reused as newly established opposite-direction structure.
         Sets search_start_pos to the original Point 3 candle position.
         Restricts next pullback search to strictly after the confirmation candle.
         """
         self._direction = new_direction
         self._state = EngineState.SEARCHING_PULLBACK
         self._tentative_point = None
+        self._last_support = None
+        self._last_resistance = None
         self._search_start_pos = restart_reference_pos
         self._next_eligible_pullback_pos = first_eligible_pullback_pos
         self._pullback_scan_pos = first_eligible_pullback_pos

@@ -43,6 +43,11 @@ class ChochDiagnosticType(str, Enum):
     NON_CONSECUTIVE_REJECTED = "NON_CONSECUTIVE_REJECTED"
     SECOND_CLOSE_FAILED = "SECOND_CLOSE_FAILED"
     CONTINUATION_RESET = "CONTINUATION_RESET"
+    PREREQUISITE_CHANGED = "PREREQUISITE_CHANGED"
+    FORMING_CANDLE_REJECTED = "FORMING_CANDLE_REJECTED"
+    OUT_OF_ORDER_OR_DUPLICATE = "OUT_OF_ORDER_OR_DUPLICATE"
+    BLOCKED_BY_UNRESOLVED_STATE = "BLOCKED_BY_UNRESOLVED_STATE"
+    REQUIRED_ZONE_PROVENANCE_MISSING = "REQUIRED_ZONE_PROVENANCE_MISSING"
 
 
 @dataclass(frozen=True)
@@ -115,7 +120,8 @@ class ChochCandidate:
     broken_level_price: float
     broken_level_source_index: int
     point_3_source_index: int
-    point_3_identified_at: datetime
+    point_3_identified_bar_index: int
+    point_3_identified_at: Optional[datetime]
     c1_candle_index: int
     c1_chronological_pos: int
     c1_open_time: datetime
@@ -123,8 +129,9 @@ class ChochCandidate:
     close_count: int = 1
 
     def __post_init__(self) -> None:
-        norm_p3 = validate_and_normalize_timestamp(self.point_3_identified_at, "point_3_identified_at")
-        object.__setattr__(self, "point_3_identified_at", norm_p3)
+        if self.point_3_identified_at is not None:
+            norm_p3 = validate_and_normalize_timestamp(self.point_3_identified_at, "point_3_identified_at")
+            object.__setattr__(self, "point_3_identified_at", norm_p3)
         norm_c1 = validate_and_normalize_timestamp(self.c1_open_time, "c1_open_time")
         object.__setattr__(self, "c1_open_time", norm_c1)
 
@@ -145,18 +152,24 @@ class ConfirmedChoch:
     confirmation_time: Optional[datetime]    # Knowledge/availability time (c2.close_time)
     point_3_source_index: int
     point_3_open_time: datetime
-    point_3_identified_at: datetime
+    point_3_identified_bar_index: int
+    point_3_identified_at: Optional[datetime]
     zones: Tuple[ChochZone, ...]
     new_direction: Direction
     restart_reference_candle_index: int
     restart_reference_open_time: datetime
     first_eligible_pullback_pos: int         # c2_chronological_pos + 1
+    event_id: str = ""
 
     def __post_init__(self) -> None:
         if self.c2_chronological_pos != self.c1_chronological_pos + 1:
             raise ValueError(
                 f"CHOCH qualifying closes must be strictly consecutive in chronological positions: "
                 f"c1_pos={self.c1_chronological_pos}, c2_pos={self.c2_chronological_pos}"
+            )
+        if len(self.zones) != 3:
+            raise ValueError(
+                f"ConfirmedChoch must contain exactly 3 zones (SBR/RBS, QML/A+, Double Top/Bottom), got {len(self.zones)}"
             )
         norm_c1 = validate_and_normalize_timestamp(self.c1_open_time, "c1_open_time")
         object.__setattr__(self, "c1_open_time", norm_c1)
@@ -167,10 +180,14 @@ class ConfirmedChoch:
             object.__setattr__(self, "confirmation_time", norm_conf)
         norm_p3_open = validate_and_normalize_timestamp(self.point_3_open_time, "point_3_open_time")
         object.__setattr__(self, "point_3_open_time", norm_p3_open)
-        norm_p3_id = validate_and_normalize_timestamp(self.point_3_identified_at, "point_3_identified_at")
-        object.__setattr__(self, "point_3_identified_at", norm_p3_id)
+        if self.point_3_identified_at is not None:
+            norm_p3_id = validate_and_normalize_timestamp(self.point_3_identified_at, "point_3_identified_at")
+            object.__setattr__(self, "point_3_identified_at", norm_p3_id)
         norm_restart = validate_and_normalize_timestamp(self.restart_reference_open_time, "restart_reference_open_time")
         object.__setattr__(self, "restart_reference_open_time", norm_restart)
+        if not self.event_id:
+            eid = f"CHOCH-{self.choch_type.value}-{self.c1_candle_index}-{self.c2_candle_index}"
+            object.__setattr__(self, "event_id", eid)
 
 
 @dataclass(frozen=True)

@@ -11,6 +11,7 @@ zero MT5 dependencies, zero Plotly/Dash UI code, and zero mutable external state
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
 from .choch_types import (
@@ -37,6 +38,7 @@ class ChochDetector:
         self._is_unresolved: bool = False
         self._last_processed_pos: int = -1
         self._last_processed_index: int = -1
+        self._last_processed_open_time: Optional[datetime] = None
 
     @property
     def direction(self) -> Direction:
@@ -58,10 +60,19 @@ class ChochDetector:
     def is_unresolved(self) -> bool:
         return self._is_unresolved
 
+    @property
+    def last_processed_pos(self) -> int:
+        return self._last_processed_pos
+
+    @property
+    def last_processed_index(self) -> int:
+        return self._last_processed_index
+
     def reset_for_new_direction(self, new_direction: Direction) -> None:
-        """Resets pending candidate state when switching structural direction."""
+        """Resets pending candidate and confirmed event state when switching structural direction."""
         self._direction = new_direction
         self._candidate = None
+        self._confirmed_choch = None
         self._is_unresolved = False
 
     def process_candle(
@@ -75,49 +86,148 @@ class ChochDetector:
         candle_lookup: Dict[int, StrategyCandle],
         confirmed_high: Optional[SwingPoint] = None,
         confirmed_low: Optional[SwingPoint] = None,
+        identified_bar_pos: Optional[int] = None,
+        candle_positions: Optional[Dict[int, int]] = None,
     ) -> ChochSnapshot:
         """Evaluates a single completed candle for Change of Character transitions."""
+        # Clear transient single-transition event output so previous confirmation is not re-emitted
+        self._confirmed_choch = None
+
+        if not isinstance(candle, StrategyCandle):
+            raise TypeError(f"process_candle requires StrategyCandle instance, got {type(candle).__name__}")
+
+        # Guard: direct calls must be restricted to confirmed completed candles
+        if candle.is_forming or candle.bar_status != "CONFIRMED_COMPLETED":
+            self._diagnostics.append(
+                ChochDiagnostic(
+                    diagnostic_type=ChochDiagnosticType.FORMING_CANDLE_REJECTED,
+                    candle_index=candle.index,
+                    chronological_pos=chronological_pos,
+                    candle_open_time=candle.open_time,
+                    message="Forming or unconfirmed candle cannot advance CHOCH state or confirm candidates.",
+                )
+            )
+            return self.get_snapshot()
+
+        # Chronological ordering and uniqueness validation before state mutation
+        if self._last_processed_pos >= 0:
+            if chronological_pos <= self._last_processed_pos:
+                raise ValueError(
+                    f"Out of order or duplicate chronological position: {chronological_pos} <= {self._last_processed_pos}"
+                )
+            if self._last_processed_open_time is not None and candle.open_time <= self._last_processed_open_time:
+                raise ValueError(
+                    f"Non-chronological candle open_time: {candle.open_time} <= {self._last_processed_open_time}"
+                )
+
+        # Unresolved guard: no dependent candidate, confirmation, or restart may occur while unresolved
+        if self._is_unresolved:
+            self._diagnostics.append(
+                ChochDiagnostic(
+                    diagnostic_type=ChochDiagnosticType.BLOCKED_BY_UNRESOLVED_STATE,
+                    candle_index=candle.index,
+                    chronological_pos=chronological_pos,
+                    candle_open_time=candle.open_time,
+                    message="CHOCH evaluation blocked pending reconciliation of unresolved same-close event.",
+                    is_unresolved=True,
+                )
+            )
+            self._last_processed_pos = chronological_pos
+            self._last_processed_index = candle.index
+            self._last_processed_open_time = candle.open_time
+            return self.get_snapshot()
+
+        # Commit input coordinates after validation
         self._last_processed_pos = chronological_pos
         self._last_processed_index = candle.index
+        self._last_processed_open_time = candle.open_time
 
-        # If direction changed externally, reset candidate state
+        # If direction changed externally, reset candidate state and confirmed event
         if msm_direction != self._direction:
             self.reset_for_new_direction(msm_direction)
 
-        # Check for cycle continuation break: if active candidate exists but tentative Point 3 was confirmed or lost
+        # Check prerequisite binding for existing candidate
         if self._candidate is not None:
-            if tentative_point is None or tentative_point.candle_index != self._candidate.point_3_source_index:
+            if not self._is_candidate_valid_for_prerequisites(
+                candidate=self._candidate,
+                current_direction=msm_direction,
+                broken_level=last_support if msm_direction == Direction.UPWARD else last_resistance,
+                tentative_p3=tentative_point,
+            ):
                 self._diagnostics.append(
                     ChochDiagnostic(
-                        diagnostic_type=ChochDiagnosticType.CONTINUATION_RESET,
+                        diagnostic_type=ChochDiagnosticType.PREREQUISITE_CHANGED,
                         candle_index=candle.index,
                         chronological_pos=chronological_pos,
                         candle_open_time=candle.open_time,
-                        message="Tentative Point 3 lost or confirmed via continuation; in-progress CHOCH sequence reset.",
+                        message="Prerequisite level, Point 3 identity, or cycle changed; in-progress CHOCH sequence reset.",
                     )
                 )
                 self._candidate = None
 
         if msm_direction == Direction.UPWARD:
             self._evaluate_upward(
-                candle,
-                chronological_pos,
-                last_support,
-                tentative_point,
-                candle_lookup,
-                confirmed_high,
+                candle=candle,
+                chronological_pos=chronological_pos,
+                last_support=last_support,
+                tentative_point=tentative_point,
+                candle_lookup=candle_lookup,
+                confirmed_high=confirmed_high,
+                identified_bar_pos=identified_bar_pos,
+                candle_positions=candle_positions,
             )
         else:
             self._evaluate_downward(
-                candle,
-                chronological_pos,
-                last_resistance,
-                tentative_point,
-                candle_lookup,
-                confirmed_low,
+                candle=candle,
+                chronological_pos=chronological_pos,
+                last_resistance=last_resistance,
+                tentative_point=tentative_point,
+                candle_lookup=candle_lookup,
+                confirmed_low=confirmed_low,
+                identified_bar_pos=identified_bar_pos,
+                candle_positions=candle_positions,
             )
 
         return self.get_snapshot()
+
+    def _is_candidate_valid_for_prerequisites(
+        self,
+        candidate: ChochCandidate,
+        current_direction: Direction,
+        broken_level: Optional[SwingPoint],
+        tentative_p3: Optional[SwingPoint],
+    ) -> bool:
+        """Verifies that an active candidate remains fully bound to its prerequisite identity."""
+        if candidate.direction != current_direction:
+            return False
+        if broken_level is None:
+            return False
+        if broken_level.candle_index != candidate.broken_level_source_index:
+            return False
+        if broken_level.price != candidate.broken_level_price:
+            return False
+        if tentative_p3 is None:
+            return False
+        if tentative_p3.candle_index != candidate.point_3_source_index:
+            return False
+        if tentative_p3.identified_bar_index != candidate.point_3_identified_bar_index:
+            return False
+        if tentative_p3.identified_time != candidate.point_3_identified_at:
+            return False
+        return True
+
+    def _resolve_identification_pos(
+        self,
+        tentative_point: SwingPoint,
+        identified_bar_pos: Optional[int],
+        candle_positions: Optional[Dict[int, int]],
+    ) -> Optional[int]:
+        """Resolves Point 3 identification bar to its chronological position."""
+        if identified_bar_pos is not None:
+            return identified_bar_pos
+        if candle_positions is not None:
+            return candle_positions.get(tentative_point.identified_bar_index)
+        return None
 
     def _evaluate_upward(
         self,
@@ -127,6 +237,8 @@ class ChochDetector:
         tentative_point: Optional[SwingPoint],
         candle_lookup: Dict[int, StrategyCandle],
         confirmed_high: Optional[SwingPoint],
+        identified_bar_pos: Optional[int],
+        candle_positions: Optional[Dict[int, int]],
     ) -> None:
         if last_support is None:
             return
@@ -147,14 +259,29 @@ class ChochDetector:
                 )
             return
 
-        # Timing relative to Point 3 identification
+        # Timing relative to Point 3 identification: strictly chronological, never arbitrary IDs
         p3_id_time = tentative_point.identified_time
+        id_pos = self._resolve_identification_pos(tentative_point, identified_bar_pos, candle_positions)
+
         if p3_id_time is not None and candle.close_time is not None:
             is_strictly_before = candle.close_time < p3_id_time
             is_same_close = candle.close_time == p3_id_time
+        elif id_pos is not None:
+            is_strictly_before = chronological_pos < id_pos
+            is_same_close = chronological_pos == id_pos
         else:
-            is_strictly_before = candle.index < tentative_point.identified_bar_index
-            is_same_close = candle.index == tentative_point.identified_bar_index
+            # Cannot establish chronological relation without availability time or position lookup
+            if candle.close < support_price:
+                self._diagnostics.append(
+                    ChochDiagnostic(
+                        diagnostic_type=ChochDiagnosticType.CLOSES_BEFORE_POINT_3_IDENTIFICATION,
+                        candle_index=candle.index,
+                        chronological_pos=chronological_pos,
+                        candle_open_time=candle.open_time,
+                        message="Point 3 identification timing cannot be established; fails closed.",
+                    )
+                )
+            return
 
         if is_strictly_before:
             if candle.close < support_price:
@@ -185,8 +312,7 @@ class ChochDetector:
                 )
             return
 
-        # Source-settled later-candle path: candle.index > p3_id_bar
-        # If candidate is active and this candle fails to close strictly below support:
+        # Source-settled later-candle path: candle completed strictly after Point 3 identification
         if candle.close >= support_price:
             if self._candidate is not None:
                 self._diagnostics.append(
@@ -225,13 +351,13 @@ class ChochDetector:
         # Qualifying close below support: candle.close < support_price
         if self._candidate is None:
             # First qualifying close (c1)
-            p3_time = tentative_point.identified_time if tentative_point.identified_time else tentative_point.candle_open_time
             self._candidate = ChochCandidate(
                 direction=Direction.UPWARD,
                 broken_level_price=support_price,
                 broken_level_source_index=last_support.candle_index,
                 point_3_source_index=tentative_point.candle_index,
-                point_3_identified_at=p3_time,
+                point_3_identified_bar_index=tentative_point.identified_bar_index,
+                point_3_identified_at=tentative_point.identified_time,
                 c1_candle_index=candle.index,
                 c1_chronological_pos=chronological_pos,
                 c1_open_time=candle.open_time,
@@ -241,21 +367,29 @@ class ChochDetector:
         else:
             # Candidate active; check if immediately consecutive in chronological positions
             if chronological_pos == self._candidate.c1_chronological_pos + 1:
-                # Confirmed Bearish CHOCH!
-                p3_candle = candle_lookup[tentative_point.candle_index]
-                support_candle = candle_lookup[last_support.candle_index]
-                high_candle = candle_lookup[confirmed_high.candle_index] if confirmed_high else None
+                # Validate that all 3 required source candles exist before confirming event
+                support_candle = candle_lookup.get(last_support.candle_index)
+                p3_candle = candle_lookup.get(tentative_point.candle_index)
+                high_candle = candle_lookup.get(confirmed_high.candle_index) if confirmed_high else None
 
-                # Build 3 zones
+                if support_candle is None or p3_candle is None or confirmed_high is None or high_candle is None:
+                    self._diagnostics.append(
+                        ChochDiagnostic(
+                            diagnostic_type=ChochDiagnosticType.REQUIRED_ZONE_PROVENANCE_MISSING,
+                            candle_index=candle.index,
+                            chronological_pos=chronological_pos,
+                            candle_open_time=candle.open_time,
+                            message="Missing required candle provenance for 3 zones (SBR, QML, Double Top); confirmation withheld.",
+                        )
+                    )
+                    return
+
+                # Build exactly 3 zones
                 sbr_zone = ChochZone.from_candle(ChochZoneType.SBR, support_candle, is_high_side=False)
+                qml_zone = ChochZone.from_candle(ChochZoneType.QML_A_PLUS, high_candle, is_high_side=True)
                 double_top_zone = ChochZone.from_candle(ChochZoneType.DOUBLE_TOP, p3_candle, is_high_side=True)
-                if high_candle is not None:
-                    qml_zone = ChochZone.from_candle(ChochZoneType.QML_A_PLUS, high_candle, is_high_side=True)
-                    zones = (sbr_zone, qml_zone, double_top_zone)
-                else:
-                    zones = (sbr_zone, double_top_zone)
+                zones = (sbr_zone, qml_zone, double_top_zone)
 
-                p3_time = tentative_point.identified_time if tentative_point.identified_time else tentative_point.candle_open_time
                 self._confirmed_choch = ConfirmedChoch(
                     choch_type=ChochType.BEARISH_CHOCH,
                     broken_level_type="LAST_SUPPORT",
@@ -270,7 +404,8 @@ class ChochDetector:
                     confirmation_time=candle.close_time,
                     point_3_source_index=tentative_point.candle_index,
                     point_3_open_time=p3_candle.open_time,
-                    point_3_identified_at=p3_time,
+                    point_3_identified_bar_index=tentative_point.identified_bar_index,
+                    point_3_identified_at=tentative_point.identified_time,
                     zones=zones,
                     new_direction=Direction.DOWNWARD,
                     restart_reference_candle_index=tentative_point.candle_index,
@@ -289,13 +424,13 @@ class ChochDetector:
                         message=f"Qualifying close at pos {chronological_pos} not adjacent to c1 at pos {self._candidate.c1_chronological_pos}.",
                     )
                 )
-                p3_time = tentative_point.identified_time if tentative_point.identified_time else tentative_point.candle_open_time
                 self._candidate = ChochCandidate(
                     direction=Direction.UPWARD,
                     broken_level_price=support_price,
                     broken_level_source_index=last_support.candle_index,
                     point_3_source_index=tentative_point.candle_index,
-                    point_3_identified_at=p3_time,
+                    point_3_identified_bar_index=tentative_point.identified_bar_index,
+                    point_3_identified_at=tentative_point.identified_time,
                     c1_candle_index=candle.index,
                     c1_chronological_pos=chronological_pos,
                     c1_open_time=candle.open_time,
@@ -311,6 +446,8 @@ class ChochDetector:
         tentative_point: Optional[SwingPoint],
         candle_lookup: Dict[int, StrategyCandle],
         confirmed_low: Optional[SwingPoint],
+        identified_bar_pos: Optional[int],
+        candle_positions: Optional[Dict[int, int]],
     ) -> None:
         if last_resistance is None:
             return
@@ -331,14 +468,29 @@ class ChochDetector:
                 )
             return
 
-        # Timing relative to Point 3 identification
+        # Timing relative to Point 3 identification: strictly chronological, never arbitrary IDs
         p3_id_time = tentative_point.identified_time
+        id_pos = self._resolve_identification_pos(tentative_point, identified_bar_pos, candle_positions)
+
         if p3_id_time is not None and candle.close_time is not None:
             is_strictly_before = candle.close_time < p3_id_time
             is_same_close = candle.close_time == p3_id_time
+        elif id_pos is not None:
+            is_strictly_before = chronological_pos < id_pos
+            is_same_close = chronological_pos == id_pos
         else:
-            is_strictly_before = candle.index < tentative_point.identified_bar_index
-            is_same_close = candle.index == tentative_point.identified_bar_index
+            # Cannot establish chronological relation without availability time or position lookup
+            if candle.close > resistance_price:
+                self._diagnostics.append(
+                    ChochDiagnostic(
+                        diagnostic_type=ChochDiagnosticType.CLOSES_BEFORE_POINT_3_IDENTIFICATION,
+                        candle_index=candle.index,
+                        chronological_pos=chronological_pos,
+                        candle_open_time=candle.open_time,
+                        message="Point 3 identification timing cannot be established; fails closed.",
+                    )
+                )
+            return
 
         if is_strictly_before:
             if candle.close > resistance_price:
@@ -369,8 +521,7 @@ class ChochDetector:
                 )
             return
 
-        # Source-settled later-candle path: candle.index > p3_id_bar
-        # If candidate is active and this candle fails to close strictly above resistance:
+        # Source-settled later-candle path: candle completed strictly after Point 3 identification
         if candle.close <= resistance_price:
             if self._candidate is not None:
                 self._diagnostics.append(
@@ -409,13 +560,13 @@ class ChochDetector:
         # Qualifying close above resistance: candle.close > resistance_price
         if self._candidate is None:
             # First qualifying close (c1)
-            p3_time = tentative_point.identified_time if tentative_point.identified_time else tentative_point.candle_open_time
             self._candidate = ChochCandidate(
                 direction=Direction.DOWNWARD,
                 broken_level_price=resistance_price,
                 broken_level_source_index=last_resistance.candle_index,
                 point_3_source_index=tentative_point.candle_index,
-                point_3_identified_at=p3_time,
+                point_3_identified_bar_index=tentative_point.identified_bar_index,
+                point_3_identified_at=tentative_point.identified_time,
                 c1_candle_index=candle.index,
                 c1_chronological_pos=chronological_pos,
                 c1_open_time=candle.open_time,
@@ -425,21 +576,29 @@ class ChochDetector:
         else:
             # Candidate active; check if immediately consecutive in chronological positions
             if chronological_pos == self._candidate.c1_chronological_pos + 1:
-                # Confirmed Bullish CHOCH!
-                p3_candle = candle_lookup[tentative_point.candle_index]
-                res_candle = candle_lookup[last_resistance.candle_index]
-                low_candle = candle_lookup[confirmed_low.candle_index] if confirmed_low else None
+                # Validate that all 3 required source candles exist before confirming event
+                resistance_candle = candle_lookup.get(last_resistance.candle_index)
+                p3_candle = candle_lookup.get(tentative_point.candle_index)
+                low_candle = candle_lookup.get(confirmed_low.candle_index) if confirmed_low else None
 
-                # Build 3 zones
-                rbs_zone = ChochZone.from_candle(ChochZoneType.RBS, res_candle, is_high_side=True)
+                if resistance_candle is None or p3_candle is None or confirmed_low is None or low_candle is None:
+                    self._diagnostics.append(
+                        ChochDiagnostic(
+                            diagnostic_type=ChochDiagnosticType.REQUIRED_ZONE_PROVENANCE_MISSING,
+                            candle_index=candle.index,
+                            chronological_pos=chronological_pos,
+                            candle_open_time=candle.open_time,
+                            message="Missing required candle provenance for 3 zones (RBS, QML, Double Bottom); confirmation withheld.",
+                        )
+                    )
+                    return
+
+                # Build exactly 3 zones
+                rbs_zone = ChochZone.from_candle(ChochZoneType.RBS, resistance_candle, is_high_side=True)
+                qml_zone = ChochZone.from_candle(ChochZoneType.QML_A_PLUS, low_candle, is_high_side=False)
                 double_bottom_zone = ChochZone.from_candle(ChochZoneType.DOUBLE_BOTTOM, p3_candle, is_high_side=False)
-                if low_candle is not None:
-                    qml_zone = ChochZone.from_candle(ChochZoneType.QML_A_PLUS, low_candle, is_high_side=False)
-                    zones = (rbs_zone, qml_zone, double_bottom_zone)
-                else:
-                    zones = (rbs_zone, double_bottom_zone)
+                zones = (rbs_zone, qml_zone, double_bottom_zone)
 
-                p3_time = tentative_point.identified_time if tentative_point.identified_time else tentative_point.candle_open_time
                 self._confirmed_choch = ConfirmedChoch(
                     choch_type=ChochType.BULLISH_CHOCH,
                     broken_level_type="LAST_RESISTANCE",
@@ -454,7 +613,8 @@ class ChochDetector:
                     confirmation_time=candle.close_time,
                     point_3_source_index=tentative_point.candle_index,
                     point_3_open_time=p3_candle.open_time,
-                    point_3_identified_at=p3_time,
+                    point_3_identified_bar_index=tentative_point.identified_bar_index,
+                    point_3_identified_at=tentative_point.identified_time,
                     zones=zones,
                     new_direction=Direction.UPWARD,
                     restart_reference_candle_index=tentative_point.candle_index,
@@ -473,13 +633,13 @@ class ChochDetector:
                         message=f"Qualifying close at pos {chronological_pos} not adjacent to c1 at pos {self._candidate.c1_chronological_pos}.",
                     )
                 )
-                p3_time = tentative_point.identified_time if tentative_point.identified_time else tentative_point.candle_open_time
                 self._candidate = ChochCandidate(
                     direction=Direction.DOWNWARD,
                     broken_level_price=resistance_price,
                     broken_level_source_index=last_resistance.candle_index,
                     point_3_source_index=tentative_point.candle_index,
-                    point_3_identified_at=p3_time,
+                    point_3_identified_bar_index=tentative_point.identified_bar_index,
+                    point_3_identified_at=tentative_point.identified_time,
                     c1_candle_index=candle.index,
                     c1_chronological_pos=chronological_pos,
                     c1_open_time=candle.open_time,
@@ -488,7 +648,7 @@ class ChochDetector:
                 )
 
     def get_snapshot(self) -> ChochSnapshot:
-        """Returns an immutable snapshot of detector state."""
+        """Returns an immutable snapshot of current detector state."""
         return ChochSnapshot(
             active_direction=self._direction,
             last_processed_pos=self._last_processed_pos,

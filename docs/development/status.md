@@ -51,15 +51,15 @@ Last Updated: 2026-11-05 (MSM Dashboard Milestone Accepted — Transition to CHO
 
 ---
 
-## 4. Current Task: Pure Offline CHOCH Strategy Engine Implementation
-- **Active Branch**: `feature/choch-engine` (branched from `7d5e3aedeff3548b2cf35fa41833f6948ad8d82f`)
+## 4. Current Task: Pure Offline CHOCH Strategy Engine Implementation & Lifecycle Hardening
+- **Active Branch**: `feature/choch-engine`
 - **Objective**: Implement pure domain types, settled CHOCH detector, same-close unresolved diagnostic handling, and MSM + CHOCH coordinator with cycle restart in `src/aladeen/strategy/`.
 - **Scope Boundary**: Pure offline strategy logic. **Strictly zero UI, zero MT5 dependencies, zero ISS, zero TJL, zero zone activations, zero trade entry signals, zero automated trading, and zero merging to `main`**.
-- **Completed Deliverables**:
-  1. `src/aladeen/strategy/choch_types.py`: Immutable domain models, value objects, and enums (`ChochType`, `ChochZoneType`, `ChochZone`, `ChochCandidate`, `ConfirmedChoch`, `ChochDiagnostic`, `ChochSnapshot`).
-  2. `src/aladeen/strategy/choch_detector.py`: Pure sequential CHOCH detector enforcing strict closing price comparisons, chronological position adjacency ($k$ and $k+1$), equality/wick/non-consecutive rejection, Point 3 retention, and continuation reset.
-  3. `src/aladeen/strategy/coordinator.py`: `MSMChochCoordinator` linking `MSMEngine` and `ChochDetector` without duplicating MSM transitions; handles cycle termination, history preservation, 3-zone creation, direction inversion, restart reference at Point 3, and forward scan boundary restriction ($p_1 \ge c_2 + 1$).
-  4. `src/aladeen/strategy/engine.py`: Added `restart_after_choch()` to `MSMEngine` preserving confirmed pairs history while cleanly restarting search start and scan pointers in the new direction.
-  5. `tests/test_choch_engine.py`: 14 comprehensive execution tests verifying Bearish CHOCH at candle 9, Bullish equality at candle 8 and confirmation at candle 10, negative rejections, color independence, zero-width lines, arbitrary source IDs, batch/sequential parity, unresolved same-close diagnostic, and genuine new-direction MSM pair completion.
-  6. `docs/strategy/choch-engine.md`: Comprehensive public API and architecture documentation.
-- **Current Status**: Complete and verified across 231 tests (0 failures). Ready for HANDOFF-020 review.
+- **Completed Deliverables (HANDOFF-021 Corrections R20.1 - R20.7)**:
+  1. `src/aladeen/strategy/choch_types.py`: Immutable domain models and enums. Added `PREREQUISITE_CHANGED`, `FORMING_CANDLE_REJECTED`, `OUT_OF_ORDER_OR_DUPLICATE`, `BLOCKED_BY_UNRESOLVED_STATE`, `REQUIRED_ZONE_PROVENANCE_MISSING`. `ConfirmedChoch` strictly enforces exactly 3 zones and retains stable `event_id`. Unknown Point 3 identification time remains `None`.
+  2. `src/aladeen/strategy/choch_detector.py`: Single-transition event emission (`_confirmed_choch` cleared per candle and on restart); timing resolved strictly by chronological positions without arbitrary source ID comparisons; complete prerequisite identity binding; forming/unconfirmed guards before state mutation; strict chronological monotonicity validation; unresolved state blocks subsequent candidate/confirmation publication; exactly 3 zones required for confirmation (missing QML/Double Top/SBR withholds event).
+  3. `src/aladeen/strategy/coordinator.py`: Validates input and start candle before committing mutations; missing restart reference candle raises `ValueError`; unresolved state blocks dependent confirmations and restarts; added `replay_candles()` API facility for step-by-step verification.
+  4. `src/aladeen/strategy/engine.py`: `restart_after_choch()` preserves confirmed pairs history for audit, but explicitly clears `last_support` and `last_resistance` to `None` so old levels are not reused as new-direction structure.
+  5. `tests/test_choch_engine.py`: 27 comprehensive tests covering all 13 requested regression cases (two successive opposite-direction CHOCH events, no re-emission after restart, decreasing source IDs with unknown availability times, candidate prerequisite change invalidation, direct detector forming guards, out-of-order rejection, state preservation on rejected input, missing start candle with earlier candles, missing restart reference, unresolved path blocks dependent events, missing QML withholds event, and batch/sequential/replay prefix consistency).
+  6. `docs/strategy/choch-engine.md`: Comprehensive documentation matching actual lifecycle, event lifetime, and input contracts.
+- **Current Status**: Complete and verified across 244 offline tests (0 failures). Ready for HANDOFF-021 review.
