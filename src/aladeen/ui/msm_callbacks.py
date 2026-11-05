@@ -1,11 +1,12 @@
 """Focused MSM Coordinator and Dash Callbacks Module.
 
 Implements the coherent market-data snapshot consumer architecture:
+- Zero consumer-side fallback fetching (R12.1).
 - Starting candle dropdown options extracted from the shared market snapshot.
 - MSM Configuration application, unapplied edit tracking, and fail-closed validation.
 - Causal provenance inspection table rendering (with revision ID and exact 1-based labels).
-- Context isolation across symbol / timeframe / data source transitions.
-- Refresh recomputation using applied configuration (preserving unapplied draft edits).
+- Active request-generation and current-context publication guards (R12.3).
+- Accurate classification of calculation vs. window-shift diagnostics (R12.4).
 """
 
 from __future__ import annotations
@@ -19,8 +20,7 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 from aladeen.data.fixtures import DEMO_SYMBOL, SUPPORTED_TIMEFRAMES, load_fixture
-from aladeen.data.market_snapshot import MarketDataSnapshot, fetch_market_snapshot
-from aladeen.data.mt5_adapter import MT5ConnectionState, get_mt5_adapter
+from aladeen.data.market_snapshot import MarketDataSnapshot
 from aladeen.strategy.service import (
     MSMContext,
     MSMServiceResult,
@@ -35,11 +35,7 @@ from aladeen.strategy.types import Direction, MSMSnapshot
 def get_completed_candle_options(snapshot_or_df: Any) -> list[dict]:
     """Extract list of completed candle options from *snapshot_or_df*.
 
-    Rules & Invariants (R10.1 & Item 4):
-    -------------------------------------
-    - Uses the exact shared completion predicate `is_candle_completed()`.
-    - Fail-closed: surfaces invalid completion evidence immediately instead of skipping silently.
-    - Excludes forming / unconfirmed candles.
+    Zero fallback fetching: if snapshot_or_df is None, returns empty list.
     """
     if snapshot_or_df is None:
         return []
@@ -82,26 +78,12 @@ def get_completed_candle_options(snapshot_or_df: Any) -> list[dict]:
 def process_msm_dropdown_update(
     snapshot_or_df: Any = None,
     current_value: str | None = None,
-    *,
-    data_source: str = "demo",
-    symbol: str | None = None,
-    timeframe: str = "H4",
-    candle_count: int = 100,
-    store_data: dict | None = None,
-    adapter: Any = None,
-    **kwargs: Any,
 ) -> tuple[list[dict], str | None]:
     """Pure coordinator function for updating starting candle dropdown options.
 
-    Extracts completed candles and preserves current_value if still present in options.
+    R12.1: Zero fallback fetching: consumers never fetch independently.
     """
-    if snapshot_or_df is None and data_source:
-        is_conn = store_data.get("state") != MT5ConnectionState.DISCONNECTED.value if store_data else False
-        snap, _ = fetch_market_snapshot(data_source, symbol, timeframe, candle_count, is_conn, adapter)
-        options = get_completed_candle_options(snap)
-    else:
-        options = get_completed_candle_options(snapshot_or_df)
-
+    options = get_completed_candle_options(snapshot_or_df)
     valid_values = [o["value"] for o in options]
     new_value: Optional[str] = current_value if current_value and current_value in valid_values else None
     return options, new_value
@@ -112,15 +94,7 @@ def render_msm_inspection_table(
     context: MSMContext,
     revision_id: str = "",
 ) -> html.Div:
-    """Generate the HTML inspection table for an applied MSM snapshot.
-
-    Rules & Invariants (R10.3, R10.4):
-    -----------------------------------
-    - Pair labels use pair_index directly: H1, L1, Pair #1 (R10.3).
-    - Explicitly renders last support / resistance summary values (R10.4).
-    - Availability timestamps remain 'Unknown' where not established.
-    - Displays coherent snapshot revision ID.
-    """
+    """Generate the HTML inspection table for an applied MSM snapshot."""
     table_header = html.Thead(
         html.Tr(
             style={"background": "#1e1e30", "color": "#a0a0b8", "fontSize": "12px", "textAlign": "left"},
@@ -239,11 +213,43 @@ def evaluate_msm_for_snapshot(
     applied_data: Optional[Dict[str, Any]],
     draft_direction: Optional[str] = None,
     draft_start_candle: Optional[str] = None,
+    current_context: Optional[Dict[str, Any]] = None,
+    active_request_token: Optional[str] = None,
 ) -> Tuple[Optional[MSMServiceResult], str, Dict[str, str], Any]:
     """Evaluates applied MSM configuration against the coherent market data snapshot.
 
-    Returns (msm_result, edit_status_text, edit_status_style, inspection_panel_children).
+    Rules & Invariants (R12.3, R12.4):
+    -----------------------------------
+    - R12.3: Rejects snapshot if its request_token does not match active_request_token.
+    - R12.3: Rejects snapshot if it does not match current_context.
+    - R12.4: Accurately classifies insufficient history vs unconfirmed start vs malformed input vs engine failure.
     """
+    # 0. R12.3 Active Request and Current Context Publication Guards
+    if active_request_token and snapshot.request_token:
+        if snapshot.request_token != active_request_token:
+            logger.warning(
+                f"Suppressing stale snapshot in MSM evaluation: snapshot token {snapshot.request_token} "
+                f"!= active request token {active_request_token}"
+            )
+            return None, "Stale request response suppressed.", {"marginTop": "10px", "fontSize": "12px", "color": "#888"}, dash.no_update
+
+    if current_context:
+        cur_source = current_context.get("data_source")
+        cur_sym = current_context.get("symbol")
+        cur_tf = current_context.get("timeframe")
+        if (
+            (cur_source and snapshot.data_source != cur_source)
+            or (cur_sym and snapshot.symbol != cur_sym)
+            or (cur_tf and snapshot.timeframe != cur_tf)
+        ):
+            status_text = f"Context changed. Select direction and starting candle for {cur_sym} ({cur_tf}), then click 'Apply / Calculate MSM'."
+            status_style = {"marginTop": "10px", "fontSize": "12px", "color": "#ffd54f"}
+            panel = html.P(
+                f"Context changed: No MSM applied for {cur_sym} ({cur_tf}). Select parameters and click 'Apply / Calculate MSM'.",
+                style={"color": "#888", "fontSize": "13px", "margin": "8px 0"},
+            )
+            return None, status_text, status_style, panel
+
     # 1. MSM Disabled or not applied
     if not applied_data or not applied_data.get("enabled", False):
         status_text = "MSM is disabled. Check 'Enable MSM Overlay', choose an initial direction and starting candle, and click 'Apply / Calculate MSM'."
@@ -264,8 +270,12 @@ def evaluate_msm_for_snapshot(
         )
         return None, status_text, status_style, panel
 
-    # 3. Context compatibility check (symbol / timeframe / source)
-    if not is_context_compatible(applied_data, snapshot.data_source, snapshot.symbol, snapshot.timeframe):
+    # 3. Context compatibility vs malformed payload check (R12.4)
+    app_source = applied_data.get("data_source") if isinstance(applied_data, dict) else getattr(applied_data, "data_source", None)
+    app_sym = applied_data.get("symbol") if isinstance(applied_data, dict) else getattr(applied_data, "symbol", None)
+    app_tf = applied_data.get("timeframe") if isinstance(applied_data, dict) else getattr(applied_data, "timeframe", None)
+
+    if (app_source != snapshot.data_source) or (app_sym != snapshot.symbol) or (app_tf != snapshot.timeframe):
         status_text = f"Context changed. Select direction and starting candle for {snapshot.symbol} ({snapshot.timeframe}), then click 'Apply / Calculate MSM'."
         status_style = {"marginTop": "10px", "fontSize": "12px", "color": "#ffd54f"}
         panel = html.P(
@@ -274,19 +284,23 @@ def evaluate_msm_for_snapshot(
         )
         return None, status_text, status_style, panel
 
-    # 4. Parse applied context and compute MSM
+    # 4. Parse applied context and validate payload strictly
     try:
-        ctx = MSMContext.from_dict(applied_data)
+        if isinstance(applied_data, dict):
+            ctx = MSMContext.from_dict(applied_data)
+        elif isinstance(applied_data, MSMContext):
+            ctx = applied_data
+        else:
+            raise TypeError(f"applied_data must be dict or MSMContext, got {type(applied_data).__name__}")
         df = snapshot.to_dataframe()
-        res = calculate_msm(df, ctx)
     except Exception as e:
-        status_text = f"❌ MSM Calculation Error: {e} (rev: {snapshot.revision_id})"
+        status_text = f"❌ MSM Context/Data Error: {e} (rev: {snapshot.revision_id})"
         status_style = {"marginTop": "10px", "fontSize": "12px", "color": "#ff5252", "fontWeight": "bold"}
-        panel = html.Div(f"Calculation failed: {e}", style={"color": "#ff5252"})
+        panel = html.Div(f"Data validation failed: {e}", style={"color": "#ff5252"})
         return None, status_text, status_style, panel
 
-    # 5. Check if starting candle missing from history window
-    if not res.is_valid or res.snapshot is None:
+    # 5. R12.4: Accurately distinguish genuinely missing start vs unconfirmed start vs calculation error
+    if ctx.start_candle_time not in df.index:
         status_text = (
             f"⚠️ Insufficient history: Applied starting candle ({ctx.start_candle_time.strftime('%Y-%m-%d %H:%M UTC')}) "
             f"is no longer in window ({snapshot.candle_count} bars, rev: {snapshot.revision_id}). Select a new start candle and Apply."
@@ -297,6 +311,33 @@ def evaluate_msm_for_snapshot(
             f"is no longer in the loaded window ({snapshot.candle_count} bars). Suppressing successful markings.",
             style={"color": "#ff9800", "padding": "8px 0"},
         )
+        return None, status_text, status_style, panel
+
+    # Start candle is present: check if unconfirmed
+    start_pos = df.index.get_loc(ctx.start_candle_time)
+    start_row = df.loc[ctx.start_candle_time]
+    if not is_candle_completed(start_pos, start_row):
+        status_text = (
+            f"⚠️ Unconfirmed starting candle: Starting candle ({ctx.start_candle_time.strftime('%Y-%m-%d %H:%M UTC')}) "
+            f"is unconfirmed or forming. Select a completed candle and Apply."
+        )
+        status_style = {"marginTop": "10px", "fontSize": "12px", "color": "#ff9800", "fontWeight": "bold"}
+        panel = html.Div(status_text, style={"color": "#ff9800", "padding": "8px 0"})
+        return None, status_text, status_style, panel
+
+    # Execute MSM calculation
+    try:
+        res = calculate_msm(df, ctx)
+    except Exception as e:
+        status_text = f"❌ MSM Engine Calculation Error: {e} (rev: {snapshot.revision_id})"
+        status_style = {"marginTop": "10px", "fontSize": "12px", "color": "#ff5252", "fontWeight": "bold"}
+        panel = html.Div(f"MSM calculation failed: {e}", style={"color": "#ff5252"})
+        return None, status_text, status_style, panel
+
+    if not res.is_valid or res.snapshot is None:
+        status_text = f"❌ MSM Engine Calculation Error: {res.error} (rev: {snapshot.revision_id})"
+        status_style = {"marginTop": "10px", "fontSize": "12px", "color": "#ff5252", "fontWeight": "bold"}
+        panel = html.Div(f"MSM engine error: {res.error}", style={"color": "#ff5252"})
         return None, status_text, status_style, panel
 
     # 6. Success: check unapplied draft edits
@@ -329,37 +370,16 @@ def process_msm_controls_update(
     enable_toggle_val: list[str],
     direction_val: str | None,
     start_candle_val: str | None,
-    *args: Any,
-    market_snapshot_data: dict | None = None,
-    applied_data: dict | None = None,
-    data_source: str = "demo",
-    symbol: str | None = None,
-    timeframe: str = "H4",
-    candle_count: int = 100,
-    store_data: dict | None = None,
-    adapter: Any = None,
-    **kwargs: Any,
+    market_snapshot_data: dict | MarketDataSnapshot | None,
+    applied_data: dict | None,
+    current_context: dict | None = None,
+    active_request_token: str | None = None,
 ) -> tuple[dict | None, str, dict, Any]:
-    """Pure coordinator function for MSM controls, application, and unapplied edit detection."""
-    # Unpack positional arguments flexibly for unit tests and callbacks
-    if args:
-        if isinstance(args[0], str):
-            data_source = args[0]
-            if len(args) > 1:
-                symbol = args[1]
-            if len(args) > 2:
-                timeframe = args[2]
-            if len(args) > 3:
-                candle_count = args[3]
-            if len(args) > 4:
-                store_data = args[4]
-            if len(args) > 5:
-                applied_data = args[5]
-        else:
-            market_snapshot_data = args[0]
-            if len(args) > 1:
-                applied_data = args[1]
+    """Pure coordinator function for MSM controls, application, and unapplied edit detection.
 
+    R12.1: Zero consumer-side fallback fetching.
+    R12.3: Active request-generation and current-context publication guards.
+    """
     is_enabled = "enabled" in enable_toggle_val if enable_toggle_val else False
 
     # 1. Handle MSM Disabled
@@ -376,27 +396,31 @@ def process_msm_controls_update(
             panel,
         )
 
-    # Reconstruct or fetch coherent snapshot
-    snapshot: MarketDataSnapshot
-    if market_snapshot_data is not None:
-        try:
-            snapshot = MarketDataSnapshot.from_dict(market_snapshot_data)
-        except Exception:
-            snapshot = MarketDataSnapshot(
-                revision_id="rev-unknown",
-                data_source="unknown",
-                symbol="",
-                timeframe="",
-                candle_count=0,
-                timestamp_utc="",
-                fetch_status="DATA_ERROR",
-                error_message="Invalid market data payload.",
-            )
-    else:
-        is_conn = store_data.get("state") != MT5ConnectionState.DISCONNECTED.value if store_data else False
-        snapshot, _ = fetch_market_snapshot(data_source, symbol, timeframe, candle_count, is_conn, adapter)
+    # 2. Check market snapshot presence (R12.1: zero fallback fetching)
+    if market_snapshot_data is None:
+        status_style = {"marginTop": "10px", "fontSize": "12px", "color": "#888"}
+        panel = html.P(
+            "Data pending/unavailable. Waiting for market data snapshot...",
+            style={"color": "#888", "fontSize": "13px", "margin": "8px 0"},
+        )
+        return (
+            applied_data,
+            "Market data pending/unavailable. Waiting for market data snapshot...",
+            status_style,
+            panel,
+        )
 
-    # 2. Context change or new market data update triggered
+    try:
+        if isinstance(market_snapshot_data, MarketDataSnapshot):
+            snapshot = market_snapshot_data
+        else:
+            snapshot = MarketDataSnapshot.from_dict(market_snapshot_data)
+    except Exception as e:
+        status_style = {"marginTop": "10px", "fontSize": "12px", "color": "#ff5252"}
+        panel = html.Div(f"Invalid market data snapshot payload: {e}", style={"color": "#ff5252"})
+        return (None, f"❌ Data Error: {e}", status_style, panel)
+
+    # 3. Context change or new market data update triggered
     market_triggers = {
         "market-data-store",
         "timeframe-selector",
@@ -412,11 +436,13 @@ def process_msm_controls_update(
             applied_data=applied_data,
             draft_direction=direction_val,
             draft_start_candle=start_candle_val,
+            current_context=current_context,
+            active_request_token=active_request_token,
         )
         new_applied = applied_data if is_context_compatible(applied_data, snapshot.data_source, snapshot.symbol, snapshot.timeframe) else None
         return new_applied, status_text, status_style, panel
 
-    # 3. Detect unapplied edits without silently recalculating
+    # 4. Detect unapplied edits without silently recalculating
     if triggered_id in {"msm-direction-selector", "msm-start-candle-dropdown"}:
         if applied_data and applied_data.get("enabled", False):
             dir_diff = applied_data.get("direction") != direction_val
@@ -430,8 +456,25 @@ def process_msm_controls_update(
                     dash.no_update,
                 )
 
-    # 4. Handle Apply button click
+    # 5. Handle Apply button click
     if triggered_id == "msm-apply-btn":
+        # R12.3: Context check on Apply: cannot apply to a superseded context
+        if current_context:
+            cur_source = current_context.get("data_source")
+            cur_sym = current_context.get("symbol")
+            cur_tf = current_context.get("timeframe")
+            if (
+                (cur_source and snapshot.data_source != cur_source)
+                or (cur_sym and snapshot.symbol != cur_sym)
+                or (cur_tf and snapshot.timeframe != cur_tf)
+            ):
+                status_style = {"marginTop": "10px", "fontSize": "12px", "color": "#ff5252", "fontWeight": "bold"}
+                panel = html.Div(
+                    f"Cannot apply to superseded context. Pending context change to {cur_sym} ({cur_tf}).",
+                    style={"color": "#ff5252"},
+                )
+                return (applied_data, f"❌ Error: Cannot apply to superseded context ({cur_sym} {cur_tf}).", status_style, panel)
+
         # R10.2: Direction must be explicitly selected
         if not direction_val or direction_val not in {"UPWARD", "DOWNWARD"}:
             status_style = {"marginTop": "10px", "fontSize": "12px", "color": "#ff5252", "fontWeight": "bold"}
@@ -516,6 +559,7 @@ def register_msm_callbacks(app: Dash, adapter: Any = None) -> tuple[Any, Any]:
         Input("msm-start-candle-dropdown", "value"),
         Input("market-data-store", "data"),
         State("msm-applied-store", "data"),
+        State("active-request-store", "data"),
     )
     def handle_msm_controls(
         apply_clicks: int,
@@ -524,9 +568,13 @@ def register_msm_callbacks(app: Dash, adapter: Any = None) -> tuple[Any, Any]:
         start_candle_val: str | None,
         market_snapshot_data: dict | None,
         applied_data: dict | None,
+        active_req_data: dict | None = None,
     ) -> tuple[dict | None, str, dict, Any]:
         ctx = callback_context
         triggered_id = ctx.triggered[0]["prop_id"].split(".")[0] if ctx.triggered else ""
+
+        active_token = active_req_data.get("token") if active_req_data else None
+        active_ctx = active_req_data.get("context") if active_req_data else None
 
         return process_msm_controls_update(
             triggered_id=triggered_id,
@@ -535,6 +583,8 @@ def register_msm_callbacks(app: Dash, adapter: Any = None) -> tuple[Any, Any]:
             start_candle_val=start_candle_val,
             market_snapshot_data=market_snapshot_data,
             applied_data=applied_data,
+            current_context=active_ctx,
+            active_request_token=active_token,
         )
 
     return update_msm_dropdown_options, handle_msm_controls

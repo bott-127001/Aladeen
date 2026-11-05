@@ -1,21 +1,30 @@
 """Unified Market Data Snapshot for Aladeen / TopG.
 
-Implements the single-fetch architecture required by Perplexity review:
+Implements the single-fetch architecture with strict snapshot boundary validation:
 - Single fetch/load path per market-data event.
-- Context-tagged with revision ID, data source, symbol, timeframe, timestamp.
-- Strict fail-closed completion validation (surfacing invalid evidence immediately).
-- Shared across chart rendering, starting-candle dropdown options, and MSM inspection.
+- Immutable MarketCandleRecord with lossless preservation of close_time and source IDs.
+- Strict pre-coercion type and contract validation (rejects bool/str/inf/NaN).
+- Deep immutability and mutation isolation across to_dict() and from_dict().
+- Context and request-generation tracking (request_token) for stale response suppression.
 """
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+import math
 import time
 from typing import Any, Dict, List, Optional, Tuple
+import numpy as np
 import pandas as pd
 
-from aladeen.data.contract import CandleValidationError
+from aladeen.data.contract import (
+    BarStatus,
+    CandleValidationError,
+    validate_candle_data,
+)
+from aladeen.strategy.types import VALID_BAR_STATUSES
 from aladeen.data.fixtures import DEMO_SYMBOL, SUPPORTED_TIMEFRAMES, load_fixture
 from aladeen.data.mt5_adapter import (
     MT5ConnectionError,
@@ -26,6 +35,107 @@ from aladeen.data.mt5_adapter import (
     get_mt5_adapter,
 )
 from aladeen.strategy.service import validate_candle_completion
+
+
+@dataclass(frozen=True)
+class MarketCandleRecord:
+    """Immutable candle record preserving full market evidence and provenance losslessly."""
+    time: str
+    open: float
+    high: float
+    low: float
+    close: float
+    is_forming: bool
+    bar_status: str
+    index: Optional[int] = None
+    close_time: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        # Pre-coercion strict validation (R12.2)
+        # 1. Price fields must not be bool, must be finite, strictly positive
+        for field_name in ("open", "high", "low", "close"):
+            val = getattr(self, field_name)
+            if isinstance(val, bool):
+                raise TypeError(f"Candle {field_name} must not be boolean, got bool: {val}")
+            if not isinstance(val, (int, float, np.integer, np.floating)):
+                raise TypeError(f"Candle {field_name} must be numeric, got {type(val).__name__}")
+            if not math.isfinite(float(val)):
+                raise ValueError(f"Candle {field_name} must be finite, got: {val}")
+            if float(val) <= 0.0:
+                raise ValueError(f"Candle {field_name} must be strictly positive, got: {val}")
+
+        # 2. OHLC consistency check
+        o, h, l, c = float(self.open), float(self.high), float(self.low), float(self.close)
+        if h < max(o, c):
+            raise ValueError(f"Candle high ({h}) cannot be less than max(open, close) ({max(o, c)})")
+        if l > min(o, c):
+            raise ValueError(f"Candle low ({l}) cannot be greater than min(open, close) ({min(o, c)})")
+
+        # 3. Completion evidence validation
+        if isinstance(self.is_forming, (bool, np.bool_)):
+            object.__setattr__(self, "is_forming", bool(self.is_forming))
+        else:
+            raise TypeError(f"Candle is_forming must be bool, got {type(self.is_forming).__name__}")
+
+        if not isinstance(self.bar_status, str):
+            raise TypeError(f"Candle bar_status must be str, got {type(self.bar_status).__name__}")
+        if self.bar_status not in VALID_BAR_STATUSES:
+            raise ValueError(f"Unknown bar_status '{self.bar_status}'. Must be one of {sorted(VALID_BAR_STATUSES)}")
+
+        if self.is_forming and self.bar_status == "CONFIRMED_COMPLETED":
+            raise ValueError("Contradictory completion evidence: is_forming=True cannot have bar_status='CONFIRMED_COMPLETED'")
+        if not self.is_forming and self.bar_status in {"UNCONFIRMED_LATEST", "FORMING"}:
+            raise ValueError(f"Contradictory completion evidence: is_forming=False cannot have bar_status='{self.bar_status}'")
+
+        # 4. Explicit index validation (must not be bool or float)
+        if self.index is not None:
+            if isinstance(self.index, bool):
+                raise TypeError(f"Candle index must not be boolean, got bool: {self.index}")
+            if not isinstance(self.index, (int, np.integer)):
+                raise TypeError(f"Candle index must be integer, got {type(self.index).__name__}")
+            object.__setattr__(self, "index", int(self.index))
+
+        # 5. Timestamp validation
+        if not isinstance(self.time, str) or not self.time:
+            raise TypeError(f"Candle time must be non-empty ISO string, got {type(self.time).__name__}")
+
+        if self.close_time is not None:
+            if not isinstance(self.close_time, str) or not self.close_time:
+                raise TypeError(f"Candle close_time must be ISO string if provided, got {type(self.close_time).__name__}")
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize candle record to plain primitive dictionary."""
+        d: Dict[str, Any] = {
+            "time": self.time,
+            "open": float(self.open),
+            "high": float(self.high),
+            "low": float(self.low),
+            "close": float(self.close),
+            "is_forming": self.is_forming,
+            "bar_status": self.bar_status,
+        }
+        if self.index is not None:
+            d["index"] = self.index
+        if self.close_time is not None:
+            d["close_time"] = self.close_time
+        return d
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> MarketCandleRecord:
+        """Construct and strictly validate MarketCandleRecord from dict."""
+        if not isinstance(data, dict):
+            raise TypeError(f"Candle record must be dict, got {type(data).__name__}")
+        return cls(
+            time=data.get("time"),  # type: ignore[arg-type]
+            open=data.get("open"),  # type: ignore[arg-type]
+            high=data.get("high"),  # type: ignore[arg-type]
+            low=data.get("low"),  # type: ignore[arg-type]
+            close=data.get("close"),  # type: ignore[arg-type]
+            is_forming=data.get("is_forming"),  # type: ignore[arg-type]
+            bar_status=data.get("bar_status"),  # type: ignore[arg-type]
+            index=data.get("index"),
+            close_time=data.get("close_time"),
+        )
 
 
 @dataclass(frozen=True)
@@ -40,7 +150,27 @@ class MarketDataSnapshot:
     fetch_status: str  # "SUCCESS", "DISCONNECTED", "NO_SYMBOL", "CONNECTION_ERROR", "DATA_ERROR", "VALIDATION_ERROR"
     error_message: Optional[str] = None
     broker_connected: bool = False
-    candles_data: Tuple[Dict[str, Any], ...] = field(default_factory=tuple)
+    request_token: Optional[str] = None
+    candles_data: Tuple[MarketCandleRecord, ...] = field(default_factory=tuple)
+
+    def __post_init__(self) -> None:
+        # Strict validation of top-level snapshot fields (R12.2)
+        if not isinstance(self.revision_id, str):
+            raise TypeError(f"revision_id must be str, got {type(self.revision_id).__name__}")
+        if not isinstance(self.data_source, str):
+            raise TypeError(f"data_source must be str, got {type(self.data_source).__name__}")
+        if not isinstance(self.symbol, str):
+            raise TypeError(f"symbol must be str, got {type(self.symbol).__name__}")
+        if not isinstance(self.timeframe, str):
+            raise TypeError(f"timeframe must be str, got {type(self.timeframe).__name__}")
+        if isinstance(self.candle_count, bool) or not isinstance(self.candle_count, (int, np.integer)):
+            raise TypeError(f"candle_count must be integer, got {type(self.candle_count).__name__}")
+        if not isinstance(self.timestamp_utc, str):
+            raise TypeError(f"timestamp_utc must be str, got {type(self.timestamp_utc).__name__}")
+        if not isinstance(self.fetch_status, str):
+            raise TypeError(f"fetch_status must be str, got {type(self.fetch_status).__name__}")
+        if not isinstance(self.broker_connected, bool):
+            raise TypeError(f"broker_connected must be bool, got {type(self.broker_connected).__name__}")
 
     @property
     def is_valid(self) -> bool:
@@ -48,7 +178,7 @@ class MarketDataSnapshot:
         return self.fetch_status == "SUCCESS" and len(self.candles_data) > 0
 
     def to_dict(self) -> Dict[str, Any]:
-        """Serialize snapshot to dictionary for Dash dcc.Store."""
+        """Serialize snapshot to dictionary with defensive deep copy (R12.2)."""
         return {
             "revision_id": self.revision_id,
             "data_source": self.data_source,
@@ -59,25 +189,41 @@ class MarketDataSnapshot:
             "fetch_status": self.fetch_status,
             "error_message": self.error_message,
             "broker_connected": self.broker_connected,
-            "candles_data": list(self.candles_data),
+            "request_token": self.request_token,
+            "candles_data": [copy.deepcopy(c.to_dict()) for c in self.candles_data],
         }
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> MarketDataSnapshot:
-        """Construct MarketDataSnapshot from dictionary."""
+        """Construct MarketDataSnapshot with strict deserialization validation (R12.2)."""
         if not isinstance(data, dict):
-            raise TypeError(f"data must be dict, got {type(data).__name__}")
+            raise TypeError(f"Snapshot data must be dict, got {type(data).__name__}")
+
+        raw_candles = data.get("candles_data", [])
+        if not isinstance(raw_candles, (list, tuple)):
+            raise TypeError(f"candles_data must be list or tuple, got {type(raw_candles).__name__}")
+
+        parsed_candles = []
+        for i, item in enumerate(raw_candles):
+            if isinstance(item, MarketCandleRecord):
+                parsed_candles.append(item)
+            elif isinstance(item, dict):
+                parsed_candles.append(MarketCandleRecord.from_dict(item))
+            else:
+                raise TypeError(f"Candle record at position {i} must be dict or MarketCandleRecord, got {type(item).__name__}")
+
         return cls(
-            revision_id=str(data.get("revision_id", "")),
-            data_source=str(data.get("data_source", "demo")),
-            symbol=str(data.get("symbol", "")),
-            timeframe=str(data.get("timeframe", "H4")),
-            candle_count=int(data.get("candle_count", 0)),
-            timestamp_utc=str(data.get("timestamp_utc", "")),
-            fetch_status=str(data.get("fetch_status", "DISCONNECTED")),
+            revision_id=data.get("revision_id", ""),
+            data_source=data.get("data_source", "demo"),
+            symbol=data.get("symbol", ""),
+            timeframe=data.get("timeframe", "H4"),
+            candle_count=data.get("candle_count", 0),
+            timestamp_utc=data.get("timestamp_utc", ""),
+            fetch_status=data.get("fetch_status", "DISCONNECTED"),
             error_message=data.get("error_message"),
-            broker_connected=bool(data.get("broker_connected", False)),
-            candles_data=tuple(data.get("candles_data", [])),
+            broker_connected=data.get("broker_connected", False),
+            request_token=data.get("request_token"),
+            candles_data=tuple(parsed_candles),
         )
 
     def to_dataframe(self) -> pd.DataFrame:
@@ -87,7 +233,8 @@ class MarketDataSnapshot:
             empty.index = pd.DatetimeIndex([], tz="UTC")
             return empty
 
-        df = pd.DataFrame(list(self.candles_data))
+        rows = [c.to_dict() for c in self.candles_data]
+        df = pd.DataFrame(rows)
         df["time"] = pd.to_datetime(df["time"], utc=True)
         df = df.set_index("time")
         return df
@@ -110,6 +257,7 @@ def fetch_market_snapshot(
     is_connected: bool,
     adapter: Any = None,
     current_state: str | None = None,
+    request_token: str | None = None,
 ) -> Tuple[MarketDataSnapshot, Optional[dict]]:
     """Single unified fetch/load path per market-data update.
 
@@ -117,7 +265,7 @@ def fetch_market_snapshot(
     --------
     Tuple[MarketDataSnapshot, Optional[dict]]
         The coherent market data snapshot, and an optional loss_trigger dict
-        if a connection loss occurred during fetch.
+        if a connection loss or state change occurred during fetch.
     """
     now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     rev_id = _generate_revision_id()
@@ -138,6 +286,7 @@ def fetch_market_snapshot(
                 timestamp_utc=now_utc,
                 fetch_status="DATA_ERROR",
                 error_message=f"Timeframe '{timeframe}' is not available in demo mode. Supported: {', '.join(SUPPORTED_TIMEFRAMES)}.",
+                request_token=request_token,
             ), None
 
         df = load_fixture(DEMO_SYMBOL, timeframe)
@@ -151,13 +300,54 @@ def fetch_market_snapshot(
                 timestamp_utc=now_utc,
                 fetch_status="DATA_ERROR",
                 error_message=f"No demo data available for {DEMO_SYMBOL} on {timeframe}.",
+                request_token=request_token,
             ), None
 
-        # Fail-closed completion validation (R10.1 & item 4)
-        records = []
+        # Verify full candle contract before proceeding (R12.2)
+        try:
+            validate_candle_data(df)
+        except Exception as e:
+            return MarketDataSnapshot(
+                revision_id=rev_id,
+                data_source="demo",
+                symbol=active_sym,
+                timeframe=timeframe,
+                candle_count=0,
+                timestamp_utc=now_utc,
+                fetch_status="VALIDATION_ERROR",
+                error_message=f"Candle data contract violation: {e}",
+                request_token=request_token,
+            ), None
+
+        # Fail-closed completion validation & lossless preservation (R12.2)
+        records: List[MarketCandleRecord] = []
         for row_pos, (ts, row) in enumerate(df.iterrows()):
             try:
                 is_forming, bar_status = validate_candle_completion(row_pos, row)
+                close_time_val = None
+                if "close_time" in row and pd.notna(row["close_time"]):
+                    ct = row["close_time"]
+                    close_time_val = ct.isoformat() if hasattr(ct, "isoformat") else str(ct)
+
+                idx_val = None
+                if "index" in row and pd.notna(row["index"]):
+                    idx_raw = row["index"]
+                    if isinstance(idx_raw, bool):
+                        raise TypeError(f"Explicit index at row {row_pos} must not be boolean")
+                    idx_val = int(idx_raw)
+
+                rec = MarketCandleRecord(
+                    time=ts.isoformat(),
+                    open=row["open"],
+                    high=row["high"],
+                    low=row["low"],
+                    close=row["close"],
+                    is_forming=is_forming,
+                    bar_status=bar_status,
+                    index=idx_val,
+                    close_time=close_time_val,
+                )
+                records.append(rec)
             except Exception as e:
                 return MarketDataSnapshot(
                     revision_id=rev_id,
@@ -167,21 +357,9 @@ def fetch_market_snapshot(
                     candle_count=0,
                     timestamp_utc=now_utc,
                     fetch_status="VALIDATION_ERROR",
-                    error_message=f"Completion validation failed at row {row_pos}: {e}",
+                    error_message=f"Candle validation failed at row {row_pos}: {e}",
+                    request_token=request_token,
                 ), None
-
-            rec = {
-                "time": ts.isoformat(),
-                "open": float(row["open"]),
-                "high": float(row["high"]),
-                "low": float(row["low"]),
-                "close": float(row["close"]),
-                "is_forming": is_forming,
-                "bar_status": bar_status,
-            }
-            if "index" in row and pd.notna(row["index"]):
-                rec["index"] = int(row["index"])
-            records.append(rec)
 
         return MarketDataSnapshot(
             revision_id=rev_id,
@@ -193,6 +371,7 @@ def fetch_market_snapshot(
             fetch_status="SUCCESS",
             error_message=None,
             broker_connected=False,
+            request_token=request_token,
             candles_data=tuple(records),
         ), None
 
@@ -207,6 +386,7 @@ def fetch_market_snapshot(
             timestamp_utc=now_utc,
             fetch_status="DISCONNECTED",
             error_message="MT5 terminal is not connected. Click '⚡ Connect MT5' to load data.",
+            request_token=request_token,
         ), None
 
     if not symbol:
@@ -219,17 +399,59 @@ def fetch_market_snapshot(
             timestamp_utc=now_utc,
             fetch_status="NO_SYMBOL",
             error_message="No symbol selected. Please select a valid symbol from MT5 MarketWatch.",
+            request_token=request_token,
         ), None
 
     try:
         df = adapter.fetch_candles(symbol, timeframe, count=candle_count)
         broker_conn = adapter.is_broker_connected()
 
-        # Fail-closed completion validation (R10.1 & item 4)
+        # Verify full candle contract before proceeding (R12.2)
+        try:
+            validate_candle_data(df)
+        except Exception as e:
+            return MarketDataSnapshot(
+                revision_id=rev_id,
+                data_source="mt5",
+                symbol=symbol,
+                timeframe=timeframe,
+                candle_count=0,
+                timestamp_utc=now_utc,
+                fetch_status="VALIDATION_ERROR",
+                error_message=f"Candle data contract violation: {e}",
+                broker_connected=broker_conn,
+                request_token=request_token,
+            ), None
+
+        # Fail-closed completion validation & lossless preservation (R12.2)
         records = []
         for row_pos, (ts, row) in enumerate(df.iterrows()):
             try:
                 is_forming, bar_status = validate_candle_completion(row_pos, row)
+                close_time_val = None
+                if "close_time" in row and pd.notna(row["close_time"]):
+                    ct = row["close_time"]
+                    close_time_val = ct.isoformat() if hasattr(ct, "isoformat") else str(ct)
+
+                idx_val = None
+                if "index" in row and pd.notna(row["index"]):
+                    idx_raw = row["index"]
+                    if isinstance(idx_raw, bool):
+                        raise TypeError(f"Explicit index at row {row_pos} must not be boolean")
+                    idx_val = int(idx_raw)
+
+                rec = MarketCandleRecord(
+                    time=ts.isoformat(),
+                    open=row["open"],
+                    high=row["high"],
+                    low=row["low"],
+                    close=row["close"],
+                    is_forming=is_forming,
+                    bar_status=bar_status,
+                    index=idx_val,
+                    close_time=close_time_val,
+                )
+                records.append(rec)
             except Exception as e:
                 return MarketDataSnapshot(
                     revision_id=rev_id,
@@ -239,22 +461,10 @@ def fetch_market_snapshot(
                     candle_count=0,
                     timestamp_utc=now_utc,
                     fetch_status="VALIDATION_ERROR",
-                    error_message=f"Completion validation failed at row {row_pos}: {e}",
+                    error_message=f"Candle validation failed at row {row_pos}: {e}",
                     broker_connected=broker_conn,
+                    request_token=request_token,
                 ), None
-
-            rec = {
-                "time": ts.isoformat(),
-                "open": float(row["open"]),
-                "high": float(row["high"]),
-                "low": float(row["low"]),
-                "close": float(row["close"]),
-                "is_forming": is_forming,
-                "bar_status": bar_status,
-            }
-            if "index" in row and pd.notna(row["index"]):
-                rec["index"] = int(row["index"])
-            records.append(rec)
 
         # Detect broker state change or disconnection
         new_state = adapter.get_connection_state().value
@@ -277,6 +487,7 @@ def fetch_market_snapshot(
             fetch_status="SUCCESS",
             error_message=None,
             broker_connected=broker_conn,
+            request_token=request_token,
             candles_data=tuple(records),
         ), loss_trigger
 
@@ -293,6 +504,7 @@ def fetch_market_snapshot(
             fetch_status="CONNECTION_ERROR",
             error_message=f"Connection Lost: {e}",
             broker_connected=False,
+            request_token=request_token,
         ), loss_trigger
 
     except MT5SymbolError as e:
@@ -306,6 +518,7 @@ def fetch_market_snapshot(
             fetch_status="DATA_ERROR",
             error_message=f"Symbol Error: {e}",
             broker_connected=False,
+            request_token=request_token,
         ), None
 
     except MT5DataError as e:
@@ -319,6 +532,7 @@ def fetch_market_snapshot(
             fetch_status="DATA_ERROR",
             error_message=f"Fetch Failed: {e}",
             broker_connected=False,
+            request_token=request_token,
         ), None
 
     except CandleValidationError as e:
@@ -332,6 +546,7 @@ def fetch_market_snapshot(
             fetch_status="VALIDATION_ERROR",
             error_message=f"Data Contract Violation: {e}",
             broker_connected=False,
+            request_token=request_token,
         ), None
 
     except Exception as e:
@@ -345,4 +560,5 @@ def fetch_market_snapshot(
             fetch_status="DATA_ERROR",
             error_message=f"Unexpected Error: {e}",
             broker_connected=False,
+            request_token=request_token,
         ), None

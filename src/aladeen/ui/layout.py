@@ -43,6 +43,10 @@ from aladeen.strategy.service import (
 )
 from aladeen.strategy.types import Direction, MSMSnapshot
 from aladeen.ui.chart import create_candlestick_chart, create_empty_chart
+from aladeen.ui.market_coordinator import (
+    generate_chart_and_status_from_snapshot,
+    register_market_coordinator_callbacks,
+)
 from aladeen.ui.msm_callbacks import (
     get_completed_candle_options,
     register_msm_callbacks,
@@ -431,6 +435,14 @@ def build_layout() -> html.Div:
                 data=None,
             ),
             dcc.Store(
+                id="active-request-store",
+                data={
+                    "token": "req-0",
+                    "counter": 0,
+                    "context": {"data_source": "demo", "symbol": DEMO_SYMBOL, "timeframe": "H4", "candle_count": 100},
+                },
+            ),
+            dcc.Store(
                 id="msm-applied-store",
                 data=None,
             ),
@@ -613,91 +625,7 @@ def process_connection_and_banner(
     }
 
 
-def generate_chart_and_status_from_snapshot(
-    market_snapshot_data: dict | MarketDataSnapshot | None,
-    msm_applied: dict | None = None,
-) -> tuple[go.Figure, str]:
-    """Pure chart and status renderer consuming a serialized or MarketDataSnapshot object."""
-    if not market_snapshot_data:
-        msg = "No market data loaded."
-        return create_empty_chart(msg, title="No Data"), f"⚠️ {msg}"
 
-    if isinstance(market_snapshot_data, MarketDataSnapshot):
-        snapshot = market_snapshot_data
-    else:
-        snapshot = MarketDataSnapshot.from_dict(market_snapshot_data)
-
-    if snapshot.fetch_status != "SUCCESS":
-        status_msg = snapshot.error_message or snapshot.fetch_status
-        if snapshot.fetch_status == "DISCONNECTED":
-            msg = "MT5 terminal is not connected. Click '⚡ Connect MT5' above."
-            fig = create_empty_chart(msg, title="MT5 Terminal: Disconnected")
-            status = "🔴 MT5 Disconnected. Please connect to terminal."
-        elif snapshot.fetch_status == "NO_SYMBOL":
-            msg = "No symbol selected. Please select a valid symbol from MT5 MarketWatch."
-            fig = create_empty_chart(msg, title="MT5: Select Symbol")
-            status = "⚠️ No symbol selected."
-        elif snapshot.fetch_status == "CONNECTION_ERROR":
-            msg = f"Connection Lost: {status_msg}"
-            fig = create_empty_chart(msg, title="MT5: Connection Lost")
-            status = f"❌ {msg}"
-        elif snapshot.fetch_status == "VALIDATION_ERROR":
-            msg = f"Data Contract Violation: {status_msg}"
-            fig = create_empty_chart(msg, title="MT5: Malformed Data Received")
-            status = f"❌ {msg}"
-        else:
-            msg = f"Data Fetch Error: {status_msg}"
-            fig = create_empty_chart(
-                msg,
-                title=f"MT5: Fetch Failed ({snapshot.symbol} {snapshot.timeframe})"
-                if snapshot.data_source == "mt5"
-                else f"Demo: {DEMO_SYMBOL} ({snapshot.timeframe}) — Unsupported",
-            )
-            status = f"❌ {msg}" if snapshot.data_source == "mt5" else f"⚠️ Demo: {msg}"
-        return fig, status
-
-    df = snapshot.to_dataframe()
-
-    # Check MSM overlay
-    msm_res: Optional[MSMServiceResult] = None
-    msm_status_suffix = ""
-    if msm_applied and msm_applied.get("enabled", False):
-        if is_context_compatible(msm_applied, snapshot.data_source, snapshot.symbol, snapshot.timeframe):
-            try:
-                ctx = MSMContext.from_dict(msm_applied)
-                msm_res = calculate_msm(df, ctx)
-                if msm_res.is_valid and msm_res.snapshot is not None:
-                    msm_status_suffix = f" | 📐 MSM: {msm_res.snapshot.trend_status} ({len(msm_res.snapshot.confirmed_pairs)} pairs)"
-                else:
-                    msm_status_suffix = f" | ⚠️ MSM Error: {msm_res.error}"
-            except Exception as e:
-                msm_status_suffix = f" | ❌ MSM Exception: {e}"
-
-    fig = create_candlestick_chart(
-        df,
-        symbol=snapshot.symbol,
-        timeframe=snapshot.timeframe,
-        data_source=snapshot.data_source,
-        is_demo=(snapshot.data_source == "demo"),
-        is_stale=False,
-        last_fetch_time=snapshot.timestamp_utc,
-        candle_count=len(df),
-        msm_result=msm_res,
-    )
-
-    if snapshot.data_source == "demo":
-        status = (
-            f"Source: Demo | Symbol: {snapshot.symbol} | TF: {snapshot.timeframe} | "
-            f"Count: {len(df)} candles | Last Fetch: {snapshot.timestamp_utc}{msm_status_suffix}"
-        )
-    else:
-        broker_note = " (Broker Connected)" if snapshot.broker_connected else " (Broker Offline - Cached)"
-        status = (
-            f"Source: MT5 Terminal{broker_note} | Symbol: {snapshot.symbol} | TF: {snapshot.timeframe} | "
-            f"Count: {len(df)} candles | Last Fetch: {snapshot.timestamp_utc}{msm_status_suffix}"
-        )
-
-    return fig, status
 
 
 def generate_chart_and_status_with_trigger(
@@ -876,53 +804,8 @@ def register_callbacks(app: Dash, adapter: Any = None) -> tuple[Any, Any]:
             res["alert_style"],
         )
 
-    # Callback 2a: Unified Market Data Fetch Coordinator (Single-fetch path)
-    @app.callback(
-        Output("market-data-store", "data"),
-        Output("connection-loss-trigger", "data"),
-        Input("data-source-selector", "value"),
-        Input("symbol-selector", "value"),
-        Input("timeframe-selector", "value"),
-        Input("candle-count-selector", "value"),
-        Input("refresh-btn", "n_clicks"),
-        Input("mt5-connection-store", "data"),
-    )
-    def update_market_data(
-        data_source: str,
-        symbol: str | None,
-        timeframe: str,
-        candle_count: int,
-        _n_clicks: int,
-        store_data: dict | None,
-    ) -> tuple[dict, Any]:
-        if not store_data:
-            store_data = {}
-        is_connected = store_data.get("state", "DISCONNECTED") != MT5ConnectionState.DISCONNECTED.value
-        current_state = store_data.get("state", "DISCONNECTED")
-        snapshot, loss_trigger = fetch_market_snapshot(
-            data_source=data_source,
-            symbol=symbol,
-            timeframe=timeframe,
-            candle_count=candle_count,
-            is_connected=is_connected,
-            adapter=adapter,
-            current_state=current_state,
-        )
-        trigger_output = loss_trigger if loss_trigger is not None else dash.no_update
-        return snapshot.to_dict(), trigger_output
-
-    # Callback 2b: Main Chart & Status Area Renderer (from shared market-data snapshot)
-    @app.callback(
-        Output("main-chart", "figure"),
-        Output("status-area", "children"),
-        Input("market-data-store", "data"),
-        Input("msm-applied-store", "data"),
-    )
-    def render_chart_from_snapshot(
-        market_snapshot_data: dict | None,
-        msm_applied: dict | None = None,
-    ) -> tuple[go.Figure, str]:
-        return generate_chart_and_status_from_snapshot(market_snapshot_data, msm_applied=msm_applied)
+    # Register market data coordinator callbacks (single-fetch coordinator + chart renderer)
+    update_market_data, render_chart_from_snapshot = register_market_coordinator_callbacks(app, adapter=adapter)
 
     def update_chart(
         data_source: str = "demo",
@@ -934,7 +817,7 @@ def register_callbacks(app: Dash, adapter: Any = None) -> tuple[Any, Any]:
         msm_applied: dict | None = None,
     ) -> tuple[go.Figure, str, Any]:
         """Compatibility wrapper invoking update_market_data and render_chart_from_snapshot."""
-        snap_dict, trigger = update_market_data(
+        snap_dict, trigger, _ = update_market_data(
             data_source=data_source,
             symbol=symbol,
             timeframe=timeframe,

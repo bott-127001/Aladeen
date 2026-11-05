@@ -24,7 +24,7 @@ import dash
 
 from aladeen.data.contract import BarStatus
 from aladeen.data.fixtures import DEMO_SYMBOL, load_fixture
-from aladeen.data.market_snapshot import MarketDataSnapshot, fetch_market_snapshot
+from aladeen.data.market_snapshot import MarketCandleRecord, MarketDataSnapshot, fetch_market_snapshot
 from aladeen.data.mt5_adapter import MT5ConnectionError, MT5ConnectionState
 from aladeen.strategy.service import (
     MSMContext,
@@ -262,12 +262,9 @@ class TestDropdownStartCandleFiltering:
 
     def test_dropdown_update_pure_helper_leaves_initial_value_none(self) -> None:
         """R10.2: Dropdown options helper preserves existing value if valid, but defaults to None (no silent auto-select)."""
+        snap, _ = fetch_market_snapshot("demo", DEMO_SYMBOL, "H4", 100, False)
         options, selected = process_msm_dropdown_update(
-            data_source="demo",
-            symbol=DEMO_SYMBOL,
-            timeframe="H4",
-            candle_count=100,
-            store_data=None,
+            snapshot_or_df=snap,
             current_value=None,
         )
         assert len(options) > 0
@@ -437,17 +434,15 @@ class TestCoordinatorFlowAndRegressions:
 
     def test_apply_without_direction_or_start_rejected(self) -> None:
         """Review requirement: Apply without direction or start is rejected."""
+        snap, _ = fetch_market_snapshot("demo", DEMO_SYMBOL, "H4", 100, False)
+
         # 1. Neither direction nor start
         applied, status, style, panel = process_msm_controls_update(
             triggered_id="msm-apply-btn",
             enable_toggle_val=["enabled"],
             direction_val=None,
             start_candle_val=None,
-            data_source="demo",
-            symbol=DEMO_SYMBOL,
-            timeframe="H4",
-            candle_count=100,
-            store_data=None,
+            market_snapshot_data=snap,
             applied_data=None,
         )
         assert applied is None
@@ -459,11 +454,7 @@ class TestCoordinatorFlowAndRegressions:
             enable_toggle_val=["enabled"],
             direction_val="UPWARD",
             start_candle_val=None,
-            data_source="demo",
-            symbol=DEMO_SYMBOL,
-            timeframe="H4",
-            candle_count=100,
-            store_data=None,
+            market_snapshot_data=snap,
             applied_data=None,
         )
         assert applied is None
@@ -471,8 +462,8 @@ class TestCoordinatorFlowAndRegressions:
 
     def test_edit_direction_or_start_without_apply_preserves_applied_state(self) -> None:
         """Review requirement: Edit direction/start without Apply: previous applied configuration remains clearly identified; no silent recalculation using edits."""
-        df = load_fixture(DEMO_SYMBOL, "H4")
-        start_iso = df.index[0].isoformat()
+        snap, _ = fetch_market_snapshot("demo", DEMO_SYMBOL, "H4", 100, False)
+        start_iso = snap.candles_data[0].time
 
         applied_data = {
             "data_source": "demo",
@@ -490,11 +481,7 @@ class TestCoordinatorFlowAndRegressions:
             enable_toggle_val=["enabled"],
             direction_val="DOWNWARD",
             start_candle_val=start_iso,
-            data_source="demo",
-            symbol=DEMO_SYMBOL,
-            timeframe="H4",
-            candle_count=100,
-            store_data=None,
+            market_snapshot_data=snap,
             applied_data=applied_data,
         )
 
@@ -573,16 +560,13 @@ class TestCoordinatorFlowAndRegressions:
         }
 
         # Context changes: timeframe switched to D1
+        snap_d1, _ = fetch_market_snapshot("demo", DEMO_SYMBOL, "D1", 100, False)
         applied_out, status, style, panel = process_msm_controls_update(
             triggered_id="timeframe-selector",
             enable_toggle_val=["enabled"],
             direction_val="UPWARD",
             start_candle_val=start_iso,
-            data_source="demo",
-            symbol=DEMO_SYMBOL,
-            timeframe="D1",
-            candle_count=100,
-            store_data=None,
+            market_snapshot_data=snap_d1,
             applied_data=applied_data,
         )
 
@@ -592,6 +576,7 @@ class TestCoordinatorFlowAndRegressions:
 
     def test_overlay_disable_and_reenable_preserves_state_integrity(self) -> None:
         """Review requirement: Overlay enable/disable: no strategy-state corruption."""
+        snap, _ = fetch_market_snapshot("demo", DEMO_SYMBOL, "H4", 100, False)
         applied_data = {
             "data_source": "demo",
             "symbol": DEMO_SYMBOL,
@@ -608,13 +593,13 @@ class TestCoordinatorFlowAndRegressions:
             enable_toggle_val=[],
             direction_val="UPWARD",
             start_candle_val="2026-10-01T00:00:00+00:00",
-            data_source="demo",
-            symbol=DEMO_SYMBOL,
-            timeframe="H4",
-            candle_count=100,
-            store_data=None,
+            market_snapshot_data=snap,
             applied_data=applied_data,
         )
+
+        assert applied_out is None
+        assert "MSM is disabled" in status
+        assert "currently disabled" in panel.children
 
         assert applied_out is None
         assert "MSM is disabled" in status
@@ -820,7 +805,7 @@ class TestUnifiedMarketDataSnapshotSynchronization:
     def test_chart_dropdown_and_inspection_share_exact_same_revision_id(self) -> None:
         """Scenario 7: Chart, dropdown, and inspection share the exact same snapshot revision ID."""
         snap, _ = fetch_market_snapshot("demo", DEMO_SYMBOL, "H4", 100, False)
-        start_iso = snap.candles_data[0]["time"]
+        start_iso = snap.candles_data[0].time
         applied_data = {
             "data_source": "demo",
             "symbol": DEMO_SYMBOL,
@@ -884,4 +869,274 @@ class TestUnifiedMarketDataSnapshotSynchronization:
 
         # Call count remains exactly 1! Zero duplicate independent fetches!
         assert mock_adapter.fetch_candles.call_count == 1
+
+
+class TestHandoff013PublicationAndBoundaryRegressions:
+    """Verifies the 8 required regression specifications from HANDOFF-012 review (R12.1-R12.4)."""
+
+    def test_missing_snapshot_causes_zero_consumer_fetches(self) -> None:
+        """Regression 1: Missing snapshot causes zero consumer fetches."""
+        mock_adapter = MagicMock()
+
+        # 1. Dropdown update with None snapshot
+        options, selected = process_msm_dropdown_update(
+            snapshot_or_df=None,
+            current_value=None,
+        )
+        assert options == []
+        assert selected is None
+        mock_adapter.fetch_candles.assert_not_called()
+
+        # 2. Controls update with None snapshot
+        applied_out, status, style, panel = process_msm_controls_update(
+            triggered_id="market-data-store",
+            enable_toggle_val=["enabled"],
+            direction_val="UPWARD",
+            start_candle_val="2026-10-01T00:00:00+00:00",
+            market_snapshot_data=None,
+            applied_data=None,
+        )
+        assert applied_out is None
+        assert "pending/unavailable" in status
+        mock_adapter.fetch_candles.assert_not_called()
+
+    def test_snapshot_roundtrip_preserves_close_time_and_source_ids(self) -> None:
+        """Regression 2: Snapshot round-trip preserves supplied close_time and source IDs."""
+        times = pd.date_range("2026-10-01", periods=3, freq="4h", tz="UTC")
+        close_times = pd.date_range("2026-10-01 04:00:00", periods=3, freq="4h", tz="UTC")
+        df_custom = pd.DataFrame(
+            {
+                "open": [1.1, 1.2, 1.3],
+                "high": [1.15, 1.25, 1.35],
+                "low": [1.05, 1.15, 1.25],
+                "close": [1.12, 1.22, 1.32],
+                "is_forming": [False, False, False],
+                "bar_status": ["CONFIRMED_COMPLETED"] * 3,
+                "index": [101, 102, 103],
+                "close_time": [ct.isoformat() for ct in close_times],
+            },
+            index=times,
+        )
+
+        mock_adapter = MagicMock()
+        mock_adapter.is_connected.return_value = True
+        mock_adapter.is_broker_connected.return_value = True
+        mock_adapter.get_connection_state.return_value = MT5ConnectionState.CONNECTED_TO_BROKER
+        mock_adapter.fetch_candles.return_value = df_custom
+
+        snap, _ = fetch_market_snapshot("mt5", "EURUSD", "H4", 3, True, adapter=mock_adapter)
+        assert snap.candles_data[0].index == 101
+        assert snap.candles_data[0].close_time == close_times[0].isoformat()
+
+        # Serialize to dict and deserialize back
+        serialized = snap.to_dict()
+        assert serialized["candles_data"][0]["index"] == 101
+        assert serialized["candles_data"][0]["close_time"] == close_times[0].isoformat()
+
+        deserialized = MarketDataSnapshot.from_dict(serialized)
+        assert deserialized.candles_data[0].index == 101
+        assert deserialized.candles_data[0].close_time == close_times[0].isoformat()
+
+        df_out = deserialized.to_dataframe()
+        assert df_out["index"].iloc[0] == 101
+        assert df_out["close_time"].iloc[0] == close_times[0].isoformat()
+
+    def test_boolean_and_string_ohlc_and_invalid_ids_rejected_before_coercion(self) -> None:
+        """Regression 3: Boolean/string OHLC and fractional/boolean IDs are rejected before coercion."""
+        # Boolean open rejected
+        with pytest.raises(TypeError, match="must not be boolean"):
+            MarketCandleRecord(
+                time="2026-10-01T00:00:00+00:00",
+                open=True,  # type: ignore[arg-type]
+                high=1.2,
+                low=1.0,
+                close=1.1,
+                is_forming=False,
+                bar_status="CONFIRMED_COMPLETED",
+            )
+
+        # String high rejected
+        with pytest.raises(TypeError, match="must be numeric"):
+            MarketCandleRecord(
+                time="2026-10-01T00:00:00+00:00",
+                open=1.1,
+                high="1.2",  # type: ignore[arg-type]
+                low=1.0,
+                close=1.1,
+                is_forming=False,
+                bar_status="CONFIRMED_COMPLETED",
+            )
+
+        # Boolean index rejected
+        with pytest.raises(TypeError, match="must not be boolean"):
+            MarketCandleRecord(
+                time="2026-10-01T00:00:00+00:00",
+                open=1.1,
+                high=1.2,
+                low=1.0,
+                close=1.1,
+                is_forming=False,
+                bar_status="CONFIRMED_COMPLETED",
+                index=True,  # type: ignore[arg-type]
+            )
+
+        # Float/fractional index rejected
+        with pytest.raises(TypeError, match="must be integer"):
+            MarketCandleRecord(
+                time="2026-10-01T00:00:00+00:00",
+                open=1.1,
+                high=1.2,
+                low=1.0,
+                close=1.1,
+                is_forming=False,
+                bar_status="CONFIRMED_COMPLETED",
+                index=10.5,  # type: ignore[arg-type]
+            )
+
+        # NaN/inf open rejected
+        with pytest.raises(ValueError, match="must be finite"):
+            MarketCandleRecord(
+                time="2026-10-01T00:00:00+00:00",
+                open=float("nan"),
+                high=1.2,
+                low=1.0,
+                close=1.1,
+                is_forming=False,
+                bar_status="CONFIRMED_COMPLETED",
+            )
+
+    def test_mutation_isolation_cannot_mutate_existing_snapshot(self) -> None:
+        """Regression 4: Mutating an input/output payload cannot mutate an existing snapshot."""
+        snap, _ = fetch_market_snapshot("demo", DEMO_SYMBOL, "H4", 10, False)
+        orig_open = snap.candles_data[0].open
+        orig_count = len(snap.candles_data)
+
+        # Mutate dictionary returned by to_dict()
+        d = snap.to_dict()
+        d["candles_data"][0]["open"] = 9999.99
+        d["candles_data"].append({"time": "2030-01-01T00:00:00+00:00"})
+
+        # Existing snapshot must remain completely unaffected
+        assert snap.candles_data[0].open == orig_open
+        assert len(snap.candles_data) == orig_count
+
+        # Mutating input dictionary after deserialization cannot mutate snapshot
+        input_dict = snap.to_dict()
+        snap2 = MarketDataSnapshot.from_dict(input_dict)
+        input_dict["candles_data"][0]["close"] = -999.0
+        assert snap2.candles_data[0].close != -999.0
+
+    def test_older_different_context_request_completing_last_is_suppressed(self) -> None:
+        """Regression 5: Older different-context request completing last is suppressed."""
+        # Arriving snapshot belongs to older H4 request (req-1)
+        snap_old, _ = fetch_market_snapshot("demo", DEMO_SYMBOL, "H4", 10, False, request_token="req-1")
+
+        # Current UI context is D1 under active token req-2
+        current_context = {"data_source": "demo", "symbol": DEMO_SYMBOL, "timeframe": "D1"}
+        active_token = "req-2"
+
+        # 1. Chart renderer suppresses mismatched context snapshot
+        fig, status = generate_chart_and_status_from_snapshot(
+            market_snapshot_data=snap_old,
+            current_context=current_context,
+            active_request_token=active_token,
+        )
+        assert fig is dash.no_update
+        assert status is dash.no_update
+
+        # 2. MSM evaluation detects context mismatch and refuses to publish
+        res, status_text, _, panel = evaluate_msm_for_snapshot(
+            snapshot=snap_old,
+            applied_data=None,
+            current_context=current_context,
+            active_request_token=active_token,
+        )
+        assert res is None
+        assert "suppressed" in status_text or "Context changed" in status_text
+
+    def test_older_same_context_refresh_completing_last_is_suppressed(self) -> None:
+        """Regression 6: Older same-context Refresh completing last is suppressed."""
+        # Arriving snapshot is an older delayed refresh (req-3)
+        snap_delayed, _ = fetch_market_snapshot("demo", DEMO_SYMBOL, "H4", 10, False, request_token="req-3")
+
+        # Current active request is req-4
+        active_token = "req-4"
+        current_context = {"data_source": "demo", "symbol": DEMO_SYMBOL, "timeframe": "H4"}
+
+        # Chart renderer suppresses old token response
+        fig, status = generate_chart_and_status_from_snapshot(
+            market_snapshot_data=snap_delayed,
+            current_context=current_context,
+            active_request_token=active_token,
+        )
+        assert fig is dash.no_update
+        assert status is dash.no_update
+
+        # MSM evaluation suppresses old token response
+        res, status_text, _, panel = evaluate_msm_for_snapshot(
+            snapshot=snap_delayed,
+            applied_data=None,
+            current_context=current_context,
+            active_request_token=active_token,
+        )
+        assert res is None
+        assert "suppressed" in status_text
+
+    def test_apply_while_context_change_pending_rejects_old_snapshot(self) -> None:
+        """Regression 7: Apply while a context change is pending cannot apply the old snapshot."""
+        # Snapshot in memory is for EURUSD
+        snap_eur, _ = fetch_market_snapshot("demo", "EURUSD", "H4", 10, False)
+
+        # User has selected GBPUSD in dropdown (pending context change)
+        pending_context = {"data_source": "demo", "symbol": "GBPUSD", "timeframe": "H4"}
+
+        applied_out, status, style, panel = process_msm_controls_update(
+            triggered_id="msm-apply-btn",
+            enable_toggle_val=["enabled"],
+            direction_val="UPWARD",
+            start_candle_val="2026-10-01T00:00:00+00:00",
+            market_snapshot_data=snap_eur,
+            applied_data=None,
+            current_context=pending_context,
+        )
+
+        assert applied_out is None
+        assert "Error: Cannot apply to superseded context" in status
+        assert "Pending context change to GBPUSD" in panel.children
+
+    def test_missing_start_and_malformed_input_produce_different_diagnostics(self) -> None:
+        """Regression 8: Missing start and malformed input produce different diagnostics."""
+        snap, _ = fetch_market_snapshot("demo", DEMO_SYMBOL, "H4", 20, False)
+        start_time_valid = snap.candles_data[0].time
+
+        # Diagnostic A: Genuinely missing start time
+        missing_context = {
+            "data_source": "demo",
+            "symbol": DEMO_SYMBOL,
+            "timeframe": "H4",
+            "start_candle_time": "2015-01-01T00:00:00+00:00",
+            "direction": "UPWARD",
+            "rule_version": "1.0",
+            "enabled": True,
+        }
+        res_a, status_a, _, panel_a = evaluate_msm_for_snapshot(snap, missing_context)
+        assert res_a is None
+        assert "⚠️ Insufficient history" in status_a
+        assert "is no longer in window" in status_a
+
+        # Diagnostic B: Malformed context payload (e.g. non-numeric direction / bad version)
+        malformed_context = {
+            "data_source": "demo",
+            "symbol": DEMO_SYMBOL,
+            "timeframe": "H4",
+            "start_candle_time": start_time_valid,
+            "direction": "INVALID_DIR",
+            "rule_version": "99.9",
+            "enabled": True,
+        }
+        res_b, status_b, _, panel_b = evaluate_msm_for_snapshot(snap, malformed_context)
+        assert res_b is None
+        assert "❌ MSM Context/Data Error" in status_b
+        assert "Insufficient history" not in status_b
+
 
