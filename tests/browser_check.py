@@ -32,6 +32,11 @@ def main():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         page = browser.new_page()
+
+        console_errors = []
+        page.on("console", lambda msg: console_errors.append(msg.text) if msg.type == "error" else None)
+        page.on("pageerror", lambda exc: console_errors.append(str(exc)))
+
         page.goto("http://127.0.0.1:8056")
         page.wait_for_selector("#source-banner")
         print("1. Initial page loaded.")
@@ -138,8 +143,14 @@ def main():
         assert "Connected" in badge_text or "Terminal Ready" in badge_text
         assert "MT5 CONNECTED" in banner_text or "MT5 TERMINAL READY" in banner_text
 
+        # Verify no console or dependency errors occurred
+        print(f"8. Browser Console Errors Count: {len(console_errors)}")
+        if console_errors:
+            print("   Console errors found:", console_errors)
+        assert len(console_errors) == 0, f"Unexpected browser console errors: {console_errors}"
+
         browser.close()
-        print("\nALL BROWSER FLOW STEPS PASSED SUCCESSFULLY!")
+        print("\nALL BROWSER FLOW STEPS PASSED SUCCESSFULLY (0 console errors, converged cleanly)!")
 
 
 if __name__ == "__main__":

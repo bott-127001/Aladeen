@@ -697,9 +697,10 @@ def process_dashboard_update(
 # ---------------------------------------------------------------------------
 
 
-def register_callbacks(app: Dash) -> None:
+def register_callbacks(app: Dash, adapter: Any = None) -> tuple[Any, Any]:
     """Register all Dash callbacks on *app*."""
-    adapter = get_mt5_adapter()
+    if adapter is None:
+        adapter = get_mt5_adapter()
 
     # Callback 1: Connection & Source & Symbol Options
     @app.callback(
@@ -727,9 +728,14 @@ def register_callbacks(app: Dash) -> None:
         loss_trigger: dict | None,
         store_data: dict,
         current_symbol: str | None,
+        triggered_id: str | None = None,
     ) -> tuple:
-        ctx = callback_context
-        triggered_id = ctx.triggered[0]["prop_id"].split(".")[0] if ctx.triggered else ""
+        if triggered_id is None:
+            ctx = callback_context
+            triggered_id = ctx.triggered[0]["prop_id"].split(".")[0] if ctx.triggered else ""
+        if not triggered_id and loss_trigger is not None:
+            triggered_id = "connection-loss-trigger"
+
         logger.debug(f"handle_connection triggered={triggered_id}, source={data_source}")
 
         res = process_connection_and_banner(
@@ -793,3 +799,5 @@ def register_callbacks(app: Dash) -> None:
         )
         trigger_output = loss_trigger if loss_trigger is not None else dash.no_update
         return fig, status, trigger_output
+
+    return handle_connection_and_options, update_chart

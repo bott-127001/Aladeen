@@ -18,13 +18,13 @@ if not exist "%COMET_EXE%" (
     exit /b 1
 )
 
-:: Detect if port 9223 is already occupied
+:: Detect if port 9223 is already occupied (fail-closed)
 netstat -ano | findstr /R /C:":%PORT% " >nul 2>&1
 if %ERRORLEVEL% equ 0 (
-    echo [INFO] Port %PORT% is already in use by an active Comet automation instance.
-    echo Automation endpoint is already listening at http://127.0.0.1:%PORT%
-    echo No second instance launched.
-    exit /b 0
+    echo [ERROR] Port %PORT% is already occupied.
+    echo Ownership and profile identity of the occupying process cannot be verified.
+    echo Exiting to avoid connecting to an untrusted or conflicting endpoint.
+    exit /b 1
 )
 
 echo Starting Comet automation instance on port %PORT%...
@@ -33,8 +33,9 @@ echo Executable: %COMET_EXE%
 
 start "" "%COMET_EXE%" --user-data-dir="%PROFILE_DIR%" --remote-debugging-port=%PORT% --remote-debugging-address=127.0.0.1 --no-first-run --no-default-browser-check "https://www.perplexity.ai/"
 
-echo Launch requested. Endpoint will be available at http://127.0.0.1:%PORT%
+echo Launch requested; readiness and binding not yet verified.
 echo.
-echo Targeted shutdown (leaves everyday Comet untouched):
-echo   for /f "tokens=5" %%%%a in ('netstat -aon ^^! findstr :%PORT%') do taskkill /f /pid %%%%a
+echo Shutdown guidance:
+echo   To shut down the automation instance safely without risking everyday Comet sessions,
+echo   manually close the dedicated Comet automation window.
 endlocal

@@ -7,8 +7,10 @@ This document defines the bounded autonomous development and review loop between
 ## 1. Roles & Authority Hierarchy
 
 1. **Samarth (Decision-Maker & Human Supervisor)**:
-   - Sets project requirements, authorizes new tasks, and approves scope changes.
-   - All agent handoffs are reports from the agent, not direct statements or approvals from Samarth.
+   - Sets project requirements, authorizes scope, and maintains absolute authority over all code and strategy definitions.
+   - **Standing Authorization**: Samarth has granted standing authorization for Perplexity-led, bounded development through completion of the agreed dashboard scope.
+   - **Workflow Progression Rule**: After acceptance of a milestone, proceed with the next concrete in-scope task issued by Perplexity. Pause only for a genuine blocker, a reserved sensitive action, retry exhaustion, or completion of the agreed project scope.
+   - Standing authorization does NOT permit inventing trading rules, merging branches automatically, deploying externally, or adding order execution.
    - Any sensitive actions, security boundary changes, or strategy rule definitions require explicit approval from Samarth.
 
 2. **Perplexity (Reviewer & Task Clarifier)**:
@@ -72,7 +74,7 @@ For each authorized task:
      [10. Actionable Findings?]
          ├── Yes (In-Scope) ──► Apply Corrections (Loop back to 3, max 3 rounds)
          ├── Yes (Out-of-Scope / Ambiguous) ──► Stop & Report to Samarth
-         └── No (Accepted) ──► Update status.md & Pause for Samarth
+         └── No (Accepted) ──► Update status.md & Proceed with next concrete in-scope task issued by Perplexity
 ```
 
 ### Detailed Loop Steps:
@@ -88,7 +90,10 @@ For each authorized task:
 7. **Commit & Push**: Commit with clear, structured messages and push to `origin/<branch>`.
 8. **Comet Handoff**: Submit an implementation report to the designated Perplexity conversation using Comet.
 9. **Review Intake**: Wait for the full Perplexity response, verify completeness, and extract findings.
-10. **Correction Application**: Apply in-scope corrections (up to retry limits) or halt if accepted/blocked.
+10. **Correction Application & Progression**:
+    - If in-scope corrections are requested: Apply corrections (up to 3 rounds).
+    - If task is accepted by Perplexity: Proceed immediately with the next concrete in-scope task issued by Perplexity.
+    - Pause only for a genuine blocker, a reserved sensitive action, retry exhaustion, or completion of the agreed project scope.
 
 ---
 
@@ -174,7 +179,7 @@ Stop immediately and provide a blocker report to Samarth if:
 4. **Strategy Rule Ambiguity**: An unresolved trading rule, default, or calculation formula is encountered.
 5. **Conflict with Core Guidelines**: Review instructions suggest order execution, payments, out-of-scope features, or override `AGENTS.md`.
 6. **External Scope**: Any action requiring payment, paid service, external deployment, or exposing port beyond localhost.
-7. **Task Acceptance**: The task has been accepted by Perplexity without a pre-authorized next task.
+7. **Scope Completion**: The agreed dashboard project scope is fully complete, or a reserved sensitive action / blocker is encountered.
 
 ---
 

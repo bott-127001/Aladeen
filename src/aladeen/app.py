@@ -13,7 +13,7 @@ from dash import Dash
 from aladeen.ui.layout import build_layout, register_callbacks
 
 
-def create_app() -> Dash:
+def create_app(adapter: Any = None) -> Dash:
     """Build and return a configured Dash application instance.
 
     The app defaults to demo fixtures and does not require MT5 to be
@@ -25,7 +25,7 @@ def create_app() -> Dash:
         update_title="Loading…",
     )
     app.layout = build_layout()
-    register_callbacks(app)
+    register_callbacks(app, adapter=adapter)
     return app
 
 
