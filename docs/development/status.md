@@ -224,3 +224,13 @@ Last Updated: 2026-11-05 (MSM Dashboard Milestone Accepted — Transition to CHO
   - `pytest tests/test_iss_dashboard_integration.py`: 15 passed in 1.15s.
   - `python tests/test_iss_browser_controlled.py`: All 9 scenarios passed.
   - Full offline suite (`pytest -m "not slow" -k "not browser"`): 330 passed, 1 deselected in 4.56s.
+
+### ISS Milestone Acceptance Checkpoint (Accepted in HANDOFF-035 Review)
+- **Status**: Formally ACCEPTED by Perplexity on 2026-11-05 for the bounded ISS dashboard scope.
+- **Acceptance Scope & Evidence Boundaries**:
+  1. Complete-state candle-driven integration verified across Scenarios 1–6 in Chromium browser with 0 console and 0 page errors.
+  2. Isolated lifecycle tests (private-state mutation, scoped prerequisite withholding, injected presentation snapshots) are explicitly disclaimed as isolated tests—not complete-state candle-driven evidence.
+  3. Non-reachability of `OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY` in complete-state integration applies under the proven pullback inequalities ($C_2 < L_1 \le C_1$ for upward, $C_2 > H_1 \ge C_1$ for downward) with active Point 3 and complete provenance. The source-defined branch remains preserved in the codebase as a documented strategy limitation.
+  4. CHOCH timing / identification-close question (`c1 == p2`) remains contained and unresolved.
+  5. Missing-provenance execution is documented as blocked/unresolved and remains explicitly unsupported for authoritative integrated progression until a dedicated production guard is execution-tested.
+- **Transition**: Proceed to TJL requirements and lifecycle acceptance on branch `requirements/tjl-acceptance` (strictly no activation, taps, or trade execution).
