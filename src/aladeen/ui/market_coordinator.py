@@ -2,10 +2,12 @@
 
 Houses the single fetch coordinator, active request-generation tracking,
 and chart rendering callbacks separated cleanly from layout definition.
+Implements separated request issuance, fetch coordination, and publication guards (R13.1).
 """
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import logging
 from typing import Any, Dict, Optional, Tuple
 import dash
@@ -14,10 +16,91 @@ import plotly.graph_objects as go
 
 logger = logging.getLogger(__name__)
 
+from aladeen.data.fixtures import DEMO_SYMBOL
 from aladeen.data.market_snapshot import MarketDataSnapshot, fetch_market_snapshot
 from aladeen.data.mt5_adapter import MT5ConnectionState, get_mt5_adapter
 from aladeen.strategy.service import MSMContext, calculate_msm, is_context_compatible
 from aladeen.ui.chart import create_candlestick_chart, create_empty_chart
+
+
+def issue_market_data_request(
+    data_source: str,
+    symbol: str | None,
+    timeframe: str,
+    candle_count: int,
+    store_data: dict | None = None,
+    current_active_req: dict | None = None,
+) -> dict:
+    """Issue a unique market data request identity and context prior to fetching (R13.1).
+
+    Publishes a monotonic request token ('req-1', 'req-2', ...) and exact requested context.
+    Does NOT perform fetching.
+    """
+    prev_counter = current_active_req.get("counter", 0) if current_active_req else 0
+    new_counter = prev_counter + 1
+    new_token = f"req-{new_counter}"
+    active_sym = symbol or (DEMO_SYMBOL if data_source == "demo" else "")
+    return {
+        "token": new_token,
+        "counter": new_counter,
+        "context": {
+            "data_source": data_source,
+            "symbol": active_sym,
+            "timeframe": timeframe,
+            "candle_count": candle_count,
+        },
+        "status": "pending",
+        "issued_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def fetch_market_data_for_request(
+    active_req_data: dict | None,
+    store_data: dict | None = None,
+    adapter: Any = None,
+) -> tuple[dict, Any]:
+    """Execute market data fetch for an issued request (R13.1).
+
+    A fetch response NEVER writes to active-request-store.
+    """
+    if not active_req_data:
+        return dash.no_update, dash.no_update
+
+    if not store_data:
+        store_data = {}
+    is_connected = store_data.get("state", "DISCONNECTED") != MT5ConnectionState.DISCONNECTED.value
+    current_state = store_data.get("state", "DISCONNECTED")
+
+    req_token = active_req_data.get("token")
+    ctx = active_req_data.get("context", {})
+    data_source = ctx.get("data_source", "demo")
+    symbol = ctx.get("symbol")
+    timeframe = ctx.get("timeframe", "H4")
+    candle_count = ctx.get("candle_count", 100)
+
+    snapshot, loss_trigger = fetch_market_snapshot(
+        data_source=data_source,
+        symbol=symbol,
+        timeframe=timeframe,
+        candle_count=candle_count,
+        is_connected=is_connected,
+        adapter=adapter,
+        current_state=current_state,
+        request_token=req_token,
+    )
+    trigger_output = loss_trigger if loss_trigger is not None else dash.no_update
+    return snapshot.to_dict(), trigger_output
+
+
+def _get_triggered_id() -> str:
+    """Safely obtain triggered component ID without throwing outside Dash callback."""
+    try:
+        from dash import callback_context
+        if callback_context and callback_context.triggered:
+            return callback_context.triggered[0]["prop_id"].split(".")[0]
+    except Exception:
+        pass
+    return ""
 
 
 def generate_chart_and_status_from_snapshot(
@@ -25,34 +108,82 @@ def generate_chart_and_status_from_snapshot(
     msm_applied: dict | None = None,
     current_context: dict | None = None,
     active_request_token: str | None = None,
+    active_req_data: dict | None = None,
+    triggered_id: str | None = None,
 ) -> tuple[go.Figure, str]:
-    """Pure chart and status renderer consuming a serialized or MarketDataSnapshot object.
+    """Pure chart and status renderer consuming snapshot and active request state.
 
-    Enforces active request-token and current-context publication guards (R12.3).
+    Enforces active request-token and current-context publication guards (R12.3, R13.1):
+    - While a new request is pending, immediately clears or marks previous chart as stale.
+    - Stale responses completing out-of-order are strictly suppressed with dash.no_update.
     """
-    if not market_snapshot_data:
+    if triggered_id is None:
+        triggered_id = _get_triggered_id()
+
+    if active_req_data:
+        active_token = active_req_data.get("token")
+        active_ctx = active_req_data.get("context", {})
+    else:
+        active_token = active_request_token
+        active_ctx = current_context or {}
+
+    req_sym = active_ctx.get("symbol", "")
+    req_tf = active_ctx.get("timeframe", "")
+    req_src = active_ctx.get("data_source", "demo")
+
+    if not active_req_data and not market_snapshot_data:
         msg = "No market data loaded."
         return create_empty_chart(msg, title="No Data"), f"⚠️ {msg}"
+
+    if not market_snapshot_data:
+        msg = f"Fetching market data for {req_sym} ({req_tf})..."
+        return create_empty_chart(msg, title="Loading..."), f"⏳ {msg} [{active_token}]"
 
     if isinstance(market_snapshot_data, MarketDataSnapshot):
         snapshot = market_snapshot_data
     else:
         snapshot = MarketDataSnapshot.from_dict(market_snapshot_data)
 
-    # R12.3: Stale response publication guard against active request token
-    if active_request_token and snapshot.request_token:
-        if snapshot.request_token != active_request_token:
+    # R13.1: Stale response guard and Pending context transition handling
+    if active_token and snapshot.request_token != active_token:
+        if triggered_id == "active-request-store":
+            # Active request changed: new fetch is pending!
+            # Immediately clear or mark previous chart as stale (R13.1)
+            ctx_changed = (
+                (req_src and snapshot.data_source != req_src)
+                or (req_sym and snapshot.symbol != req_sym)
+                or (req_tf and snapshot.timeframe != req_tf)
+            )
+            if ctx_changed:
+                msg = f"Loading {req_sym} ({req_tf})... (Previous context is stale)"
+                return create_empty_chart(msg, title="Loading..."), f"⏳ Pending update for {req_sym} ({req_tf}) [{active_token}]... (Previous data is stale)"
+            else:
+                # Same-context refresh is pending: mark existing chart as stale
+                df = snapshot.to_dataframe()
+                fig = create_candlestick_chart(
+                    df,
+                    symbol=snapshot.symbol,
+                    timeframe=snapshot.timeframe,
+                    data_source=snapshot.data_source,
+                    is_demo=(snapshot.data_source == "demo"),
+                    is_stale=True,
+                    last_fetch_time=snapshot.timestamp_utc,
+                    candle_count=len(df),
+                )
+                return fig, f"⏳ Refreshing {req_sym} ({req_tf}) [{active_token}]... (Current data is stale)"
+        else:
+            # An older fetch completed or direct call with mismatched token: suppress!
             logger.warning(
-                f"Suppressing stale snapshot render: snapshot token {snapshot.request_token} "
-                f"does not match active request token {active_request_token}"
+                f"Suppressing stale snapshot render: snapshot token '{snapshot.request_token}' "
+                f"does not match active request token '{active_token}'"
             )
             return dash.no_update, dash.no_update
 
     # R12.3: Context guard against current UI selection
-    if current_context:
-        cur_source = current_context.get("data_source")
-        cur_sym = current_context.get("symbol")
-        cur_tf = current_context.get("timeframe")
+    if active_ctx:
+        cur_source = active_ctx.get("data_source")
+        cur_sym = active_ctx.get("symbol")
+        cur_tf = active_ctx.get("timeframe")
         if (
             (cur_source and snapshot.data_source != cur_source)
             or (cur_sym and snapshot.symbol != cur_sym)
@@ -137,15 +268,13 @@ def generate_chart_and_status_from_snapshot(
     return fig, status
 
 
-def register_market_coordinator_callbacks(app: Dash, adapter: Any = None) -> tuple[Any, Any]:
-    """Register market data fetch coordinator and chart rendering callbacks on *app*."""
+def register_market_coordinator_callbacks(app: Dash, adapter: Any = None) -> tuple[Any, Any, Any]:
+    """Register market data request issuance, fetch coordinator, and chart rendering callbacks (R13.1)."""
     if adapter is None:
         adapter = get_mt5_adapter()
 
-    # Callback 2a: Unified Market Data Fetch Coordinator (Single-fetch path with generation token)
+    # Callback 2a: Request Issuance (Monotonic token generation before fetching) (R13.1)
     @app.callback(
-        Output("market-data-store", "data"),
-        Output("connection-loss-trigger", "data"),
         Output("active-request-store", "data"),
         Input("data-source-selector", "value"),
         Input("symbol-selector", "value"),
@@ -155,69 +284,60 @@ def register_market_coordinator_callbacks(app: Dash, adapter: Any = None) -> tup
         Input("mt5-connection-store", "data"),
         State("active-request-store", "data"),
     )
-    def update_market_data(
+    def on_request_issued(
         data_source: str,
         symbol: str | None,
         timeframe: str,
         candle_count: int,
         _n_clicks: int,
         store_data: dict | None,
-        active_req_data: dict | None = None,
-    ) -> tuple[dict, Any, dict]:
-        if not store_data:
-            store_data = {}
-        is_connected = store_data.get("state", "DISCONNECTED") != MT5ConnectionState.DISCONNECTED.value
-        current_state = store_data.get("state", "DISCONNECTED")
-
-        # R12.3: Increment request generation counter
-        prev_token_id = active_req_data.get("counter", 0) if active_req_data else 0
-        new_token_id = prev_token_id + 1
-        req_token = f"req-{new_token_id}"
-
-        new_active_store = {
-            "token": req_token,
-            "counter": new_token_id,
-            "context": {
-                "data_source": data_source,
-                "symbol": symbol,
-                "timeframe": timeframe,
-                "candle_count": candle_count,
-            },
-        }
-
-        snapshot, loss_trigger = fetch_market_snapshot(
+        current_active_req: dict | None = None,
+    ) -> dict:
+        return issue_market_data_request(
             data_source=data_source,
             symbol=symbol,
             timeframe=timeframe,
             candle_count=candle_count,
-            is_connected=is_connected,
-            adapter=adapter,
-            current_state=current_state,
-            request_token=req_token,
+            store_data=store_data,
+            current_active_req=current_active_req,
         )
-        trigger_output = loss_trigger if loss_trigger is not None else dash.no_update
-        return snapshot.to_dict(), trigger_output, new_active_store
 
-    # Callback 2b: Main Chart & Status Area Renderer (from shared snapshot with publication guard)
+    # Callback 2b: Market Data Fetch (Executes from issued active request, NEVER writes active-request-store) (R13.1)
+    @app.callback(
+        Output("market-data-store", "data"),
+        Output("connection-loss-trigger", "data"),
+        Input("active-request-store", "data"),
+        State("mt5-connection-store", "data"),
+    )
+    def on_active_request_fetch(
+        active_req_data: dict | None,
+        store_data: dict | None,
+    ) -> tuple[dict, Any]:
+        return fetch_market_data_for_request(
+            active_req_data=active_req_data,
+            store_data=store_data,
+            adapter=adapter,
+        )
+
+    # Callback 2c: Main Chart & Status Area Renderer (Observes active-request-store as Input) (R13.1)
     @app.callback(
         Output("main-chart", "figure"),
         Output("status-area", "children"),
         Input("market-data-store", "data"),
+        Input("active-request-store", "data"),
         Input("msm-applied-store", "data"),
-        State("active-request-store", "data"),
     )
     def render_chart_from_snapshot(
         market_snapshot_data: dict | None,
-        msm_applied: dict | None = None,
         active_req_data: dict | None = None,
+        msm_applied: dict | None = None,
     ) -> tuple[go.Figure, str]:
-        active_token = active_req_data.get("token") if active_req_data else None
-        active_ctx = active_req_data.get("context") if active_req_data else None
+        triggered_id = _get_triggered_id()
         return generate_chart_and_status_from_snapshot(
             market_snapshot_data=market_snapshot_data,
             msm_applied=msm_applied,
-            current_context=active_ctx,
-            active_request_token=active_token,
+            active_req_data=active_req_data,
+            triggered_id=triggered_id,
         )
 
-    return update_market_data, render_chart_from_snapshot
+    return on_request_issued, on_active_request_fetch, render_chart_from_snapshot

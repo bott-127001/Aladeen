@@ -1140,3 +1140,395 @@ class TestHandoff013PublicationAndBoundaryRegressions:
         assert "Insufficient history" not in status_b
 
 
+def _make_contract_candles(n: int = 15) -> pd.DataFrame:
+    """Helper to generate contract-compliant candles with forming flag and completion evidence."""
+    times = pd.date_range("2026-10-01", periods=n, freq="4h", tz="UTC")
+    df = pd.DataFrame(
+        {
+            "open": [1.100 + i * 0.001 for i in range(n)],
+            "high": [1.105 + i * 0.001 for i in range(n)],
+            "low": [1.095 + i * 0.001 for i in range(n)],
+            "close": [1.102 + i * 0.001 for i in range(n)],
+            "is_forming": [False] * (n - 1) + [True],
+            "bar_status": [BarStatus.CONFIRMED_COMPLETED.value] * (n - 1) + [BarStatus.UNCONFIRMED_LATEST.value],
+        },
+        index=times,
+    )
+    return df
+
+
+class TestHandoff014ControlledRequestFlowAndBoundaryRegressions:
+    """Rigorous verification of R13.1–R13.3 with real request flow and controlled concurrency barriers."""
+
+    def test_real_request_flow_different_contexts_with_concurrency_barriers(self) -> None:
+        """Requirement R13.1 (Flow 1): Real request flow across different contexts with controlled barriers.
+
+        1. Start request A (EURUSD H4) and block its mocked fetch.
+        2. Issue newer request B (EURUSD D1) before A completes.
+        3. Complete B and verify it becomes current.
+        4. Complete A last.
+        5. Assert active request, chart, dropdown, applied configuration, and inspection do not revert to A.
+        """
+        import threading
+        from aladeen.ui.market_coordinator import issue_market_data_request, fetch_market_data_for_request, generate_chart_and_status_from_snapshot
+        from aladeen.ui.msm_callbacks import process_msm_dropdown_update
+
+        # Setup mock adapter with deterministic concurrency barriers
+        mock_adapter = MagicMock()
+        mock_adapter.is_broker_connected.return_value = True
+        mock_adapter.get_connection_state.return_value = MT5ConnectionState.CONNECTED_TO_BROKER
+
+        fetch_a_started = threading.Event()
+        fetch_a_block = threading.Event()
+
+        h4_df = _make_contract_candles(15)
+        d1_df = _make_contract_candles(15)
+
+        def mock_fetch_candles(symbol, timeframe, count):
+            if timeframe == "H4":
+                fetch_a_started.set()
+                fetch_a_block.wait(timeout=5.0)
+                return h4_df
+            return d1_df
+
+        mock_adapter.fetch_candles.side_effect = mock_fetch_candles
+        store_data = {"state": "CONNECTED_TO_BROKER"}
+
+        # 1. Start request A (EURUSD H4, token req-1) and block its fetch
+        req_a = issue_market_data_request("mt5", "EURUSD", "H4", 15, store_data, current_active_req=None)
+        assert req_a["token"] == "req-1"
+        assert req_a["context"]["timeframe"] == "H4"
+
+        thread_a_result = {}
+
+        def run_fetch_a():
+            snap_a, trig_a = fetch_market_data_for_request(req_a, store_data, adapter=mock_adapter)
+            thread_a_result["snap"] = snap_a
+            thread_a_result["trig"] = trig_a
+
+        thread_a = threading.Thread(target=run_fetch_a)
+        thread_a.start()
+
+        # Wait until Fetch A has actually entered the blocked adapter call
+        assert fetch_a_started.wait(timeout=2.0)
+
+        # 2. Issue newer request B (EURUSD D1, token req-2) before A completes
+        req_b = issue_market_data_request("mt5", "EURUSD", "D1", 15, store_data, current_active_req=req_a)
+        assert req_b["token"] == "req-2"
+        assert req_b["context"]["timeframe"] == "D1"
+
+        # Verify: while B is pending, consumer endpoints observe pending state and fail-closed
+        opts_pending, val_pending = process_msm_dropdown_update(
+            snapshot_or_df=None,
+            active_req_data=req_b,
+            triggered_id="active-request-store",
+        )
+        assert opts_pending == []
+        assert val_pending is None
+
+        # Apply cannot use previous snapshot during pending state
+        applied_pending, status_pending, _, _ = process_msm_controls_update(
+            triggered_id="msm-apply-btn",
+            enable_toggle_val=["enabled"],
+            direction_val="UPWARD",
+            start_candle_val="2026-10-01T00:00:00+00:00",
+            market_snapshot_data=None,
+            applied_data=None,
+            active_req_data=req_b,
+        )
+        assert "Cannot apply MSM while a market data request is pending" in status_pending
+
+        # 3. Complete B and verify it becomes current
+        snap_b_dict, trig_b = fetch_market_data_for_request(req_b, store_data, adapter=mock_adapter)
+        assert snap_b_dict["request_token"] == "req-2"
+        assert snap_b_dict["timeframe"] == "D1"
+
+        fig_b, status_b = generate_chart_and_status_from_snapshot(
+            market_snapshot_data=snap_b_dict,
+            active_req_data=req_b,
+            triggered_id="market-data-store",
+        )
+        assert fig_b is not dash.no_update
+        assert "TF: D1" in status_b
+
+        opts_b, _ = process_msm_dropdown_update(
+            snapshot_or_df=snap_b_dict,
+            active_req_data=req_b,
+            triggered_id="market-data-store",
+        )
+        assert len(opts_b) > 0
+        valid_b_start = opts_b[0]["value"]
+
+        applied_b, status_b_msm, _, panel_b = process_msm_controls_update(
+            triggered_id="msm-apply-btn",
+            enable_toggle_val=["enabled"],
+            direction_val="UPWARD",
+            start_candle_val=valid_b_start,
+            market_snapshot_data=snap_b_dict,
+            applied_data=None,
+            active_req_data=req_b,
+        )
+        assert applied_b is not None
+        assert applied_b["timeframe"] == "D1"
+        assert "🟢 Applied: UPWARD" in status_b_msm
+
+        # 4. Now unblock A so it completes LAST
+        fetch_a_block.set()
+        thread_a.join(timeout=2.0)
+        assert not thread_a.is_alive()
+        snap_a_dict = thread_a_result["snap"]
+        assert snap_a_dict["request_token"] == "req-1"
+
+        # 5. Assert: Arriving delayed A does NOT revert active request, chart, dropdown, or applied config
+        fig_a, status_a = generate_chart_and_status_from_snapshot(
+            market_snapshot_data=snap_a_dict,
+            active_req_data=req_b,
+            triggered_id="market-data-store",
+        )
+        assert fig_a is dash.no_update
+        assert status_a is dash.no_update
+
+        opts_a, _ = process_msm_dropdown_update(
+            snapshot_or_df=snap_a_dict,
+            active_req_data=req_b,
+            triggered_id="market-data-store",
+        )
+        assert opts_a is dash.no_update
+
+        applied_after_a, status_after_a, _, panel_after_a = process_msm_controls_update(
+            triggered_id="market-data-store",
+            enable_toggle_val=["enabled"],
+            direction_val="UPWARD",
+            start_candle_val=valid_b_start,
+            market_snapshot_data=snap_a_dict,
+            applied_data=applied_b,
+            active_req_data=req_b,
+        )
+        assert applied_after_a is dash.no_update
+        assert status_after_a is dash.no_update
+        assert panel_after_a is dash.no_update
+
+    def test_real_request_flow_two_refreshes_same_context_with_concurrency_barriers(self) -> None:
+        """Requirement R13.1 (Flow 2): Real request flow for two Refreshes of the same context.
+
+        1. Start Refresh A (EURUSD H4) and block its mocked fetch.
+        2. Issue newer Refresh B (EURUSD H4) before A completes.
+        3. Complete B and verify it becomes current.
+        4. Complete A last.
+        5. Assert chart, dropdown, and MSM do not revert to A.
+        """
+        import threading
+        from aladeen.ui.market_coordinator import issue_market_data_request, fetch_market_data_for_request, generate_chart_and_status_from_snapshot
+        from aladeen.ui.msm_callbacks import process_msm_dropdown_update
+
+        mock_adapter = MagicMock()
+        mock_adapter.is_broker_connected.return_value = True
+        mock_adapter.get_connection_state.return_value = MT5ConnectionState.CONNECTED_TO_BROKER
+
+        fetch_a_started = threading.Event()
+        fetch_a_block = threading.Event()
+
+        # Both return H4 candles
+        candles_a = _make_contract_candles(15)
+        candles_b = _make_contract_candles(15)
+        # Give candle_b slightly different prices while keeping high >= max(open, close)
+        candles_b["high"] = candles_b["high"] + 0.10
+        candles_b["close"] = candles_b["close"] + 0.05
+
+        call_count = 0
+
+        def mock_fetch(symbol, timeframe, count):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                fetch_a_started.set()
+                fetch_a_block.wait(timeout=5.0)
+                return candles_a
+            return candles_b
+
+        mock_adapter.fetch_candles.side_effect = mock_fetch
+        store_data = {"state": "CONNECTED_TO_BROKER"}
+
+        # 1. Issue Refresh A (req-1)
+        req_a = issue_market_data_request("mt5", "EURUSD", "H4", 15, store_data, current_active_req=None)
+        assert req_a["token"] == "req-1"
+
+        thread_a_res = {}
+
+        def fetch_a():
+            snap, trig = fetch_market_data_for_request(req_a, store_data, adapter=mock_adapter)
+            thread_a_res["snap"] = snap
+
+        t = threading.Thread(target=fetch_a)
+        t.start()
+        assert fetch_a_started.wait(timeout=2.0)
+
+        # 2. Issue Refresh B (req-2) while A is blocked
+        req_b = issue_market_data_request("mt5", "EURUSD", "H4", 15, store_data, current_active_req=req_a)
+        assert req_b["token"] == "req-2"
+
+        # 3. Complete B
+        snap_b_dict, _ = fetch_market_data_for_request(req_b, store_data, adapter=mock_adapter)
+        assert snap_b_dict["request_token"] == "req-2"
+
+        fig_b, status_b = generate_chart_and_status_from_snapshot(
+            market_snapshot_data=snap_b_dict,
+            active_req_data=req_b,
+            triggered_id="market-data-store",
+        )
+        assert fig_b is not dash.no_update
+        assert "Count: 15 candles" in status_b
+
+        # 4. Release A and let it finish last
+        fetch_a_block.set()
+        t.join(timeout=2.0)
+        snap_a_dict = thread_a_res["snap"]
+        assert snap_a_dict["request_token"] == "req-1"
+
+        # 5. Arriving delayed A is suppressed
+        fig_a, status_a = generate_chart_and_status_from_snapshot(
+            market_snapshot_data=snap_a_dict,
+            active_req_data=req_b,
+            triggered_id="market-data-store",
+        )
+        assert fig_a is dash.no_update
+        assert status_a is dash.no_update
+
+    def test_fractional_and_boolean_ids_rejected_through_actual_fetch_path(self) -> None:
+        """Requirement R13.2: Fractional and boolean IDs rejected through fetch_market_snapshot with mocked adapter."""
+        mock_adapter = MagicMock()
+        mock_adapter.is_broker_connected.return_value = True
+        mock_adapter.get_connection_state.return_value = MT5ConnectionState.CONNECTED_TO_BROKER
+
+        # Case 1: Boolean index
+        df_bool = _make_contract_candles(5)
+        df_bool["index"] = [True, False, True, False, True]
+        mock_adapter.fetch_candles.return_value = df_bool
+
+        snap_bool, _ = fetch_market_snapshot("mt5", "EURUSD", "H4", 5, True, adapter=mock_adapter)
+        assert snap_bool.fetch_status == "VALIDATION_ERROR"
+        assert "must not be boolean" in (snap_bool.error_message or "")
+
+        # Case 2: Fractional float index (e.g. 1.5)
+        df_float = _make_contract_candles(5)
+        df_float["index"] = [1.5, 2.5, 3.5, 4.5, 5.5]
+        mock_adapter.fetch_candles.return_value = df_float
+
+        snap_float, _ = fetch_market_snapshot("mt5", "EURUSD", "H4", 5, True, adapter=mock_adapter)
+        assert snap_float.fetch_status == "VALIDATION_ERROR"
+        assert "must be integer type" in (snap_float.error_message or "")
+
+        # Case 3: String index
+        df_str = _make_contract_candles(5)
+        df_str["index"] = ["1", "2", "3", "4", "5"]
+        mock_adapter.fetch_candles.return_value = df_str
+
+        snap_str, _ = fetch_market_snapshot("mt5", "EURUSD", "H4", 5, True, adapter=mock_adapter)
+        assert snap_str.fetch_status == "VALIDATION_ERROR"
+        assert "must be integer type" in (snap_str.error_message or "")
+
+    def test_from_dict_strictly_validates_complete_snapshot(self) -> None:
+        """Requirement R13.3: Deserialization strictly validates complete snapshot invariants."""
+        # Baseline valid snapshot dict
+        snap_valid, _ = fetch_market_snapshot("demo", DEMO_SYMBOL, "H4", 10, False)
+        valid_dict = snap_valid.to_dict()
+
+        # 1. Reject naive timestamps in candle records
+        naive_dict = snap_valid.to_dict()
+        naive_dict["candles_data"][0]["time"] = "2026-10-01 00:00:00"  # naive, no tz
+        with pytest.raises((ValueError, TypeError)):
+            MarketDataSnapshot.from_dict(naive_dict)
+
+        # 2. Reject close_time earlier than open time
+        bad_close_dict = snap_valid.to_dict()
+        bad_close_dict["candles_data"][0]["close_time"] = "2020-01-01T00:00:00+00:00"
+        with pytest.raises(ValueError, match="cannot be earlier than open time"):
+            MarketDataSnapshot.from_dict(bad_close_dict)
+
+        # 3. Reject unsupported fetch_status vocabulary
+        bad_status_dict = snap_valid.to_dict()
+        bad_status_dict["fetch_status"] = "CUSTOM_UNKNOWN_STATUS"
+        with pytest.raises(ValueError, match="fetch_status must be one of"):
+            MarketDataSnapshot.from_dict(bad_status_dict)
+
+        # 4. Reject candle count mismatch in successful snapshot
+        mismatch_dict = snap_valid.to_dict()
+        mismatch_dict["candle_count"] = 999  # header claims 999, actually 10
+        with pytest.raises(ValueError, match="Candle count mismatch in successful snapshot"):
+            MarketDataSnapshot.from_dict(mismatch_dict)
+
+        # 5. Reject successful snapshot with candle_count == 0
+        zero_dict = snap_valid.to_dict()
+        zero_dict["candle_count"] = 0
+        zero_dict["candles_data"] = []
+        with pytest.raises(ValueError, match="Successful snapshot must contain at least 1 candle record"):
+            MarketDataSnapshot.from_dict(zero_dict)
+
+        # 6. Reject successful snapshot with error_message
+        err_in_success_dict = snap_valid.to_dict()
+        err_in_success_dict["error_message"] = "Unexpected error string in success payload"
+        with pytest.raises(ValueError, match="Successful snapshot must not have an error_message"):
+            MarketDataSnapshot.from_dict(err_in_success_dict)
+
+        # 7. Reject non-monotonic source IDs (index)
+        non_mono_dict = snap_valid.to_dict()
+        for i, c in enumerate(non_mono_dict["candles_data"]):
+            c["index"] = 100 - i  # decreasing order!
+        with pytest.raises(ValueError, match="Candle source IDs must be strictly monotonically increasing"):
+            MarketDataSnapshot.from_dict(non_mono_dict)
+
+        # 8. Reject failed snapshot with leftover candles
+        failed_with_candles = {
+            "revision_id": "rev-test",
+            "data_source": "demo",
+            "symbol": "EURUSD",
+            "timeframe": "H4",
+            "candle_count": 5,
+            "timestamp_utc": "2026-10-01 00:00:00 UTC",
+            "fetch_status": "DATA_ERROR",
+            "error_message": "Some data error",
+            "broker_connected": False,
+            "candles_data": snap_valid.to_dict()["candles_data"][:5],
+        }
+        with pytest.raises(ValueError, match="Failed snapshot .* must have candle_count=0"):
+            MarketDataSnapshot.from_dict(failed_with_candles)
+
+        # 9. Reject failed snapshot without error message
+        failed_no_err = {
+            "revision_id": "rev-test",
+            "data_source": "demo",
+            "symbol": "EURUSD",
+            "timeframe": "H4",
+            "candle_count": 0,
+            "timestamp_utc": "2026-10-01 00:00:00 UTC",
+            "fetch_status": "DATA_ERROR",
+            "error_message": "",
+            "broker_connected": False,
+            "candles_data": [],
+        }
+        with pytest.raises(ValueError, match="Failed snapshot .* must have a non-empty error_message"):
+            MarketDataSnapshot.from_dict(failed_no_err)
+
+    def test_missing_and_invalid_tokens_cannot_bypass_guards(self) -> None:
+        """Requirement R13.1: Missing and invalid tokens cannot bypass publication guards."""
+        from aladeen.ui.market_coordinator import generate_chart_and_status_from_snapshot
+
+        # Active request is req-5
+        active_req = {
+            "token": "req-5",
+            "counter": 5,
+            "context": {"data_source": "demo", "symbol": DEMO_SYMBOL, "timeframe": "H4"},
+        }
+
+        # Snapshot has no request_token (e.g. legacy/tampered payload)
+        snap_no_token, _ = fetch_market_snapshot("demo", DEMO_SYMBOL, "H4", 10, False, request_token=None)
+
+        fig, status = generate_chart_and_status_from_snapshot(
+            market_snapshot_data=snap_no_token,
+            active_req_data=active_req,
+            triggered_id="market-data-store",
+        )
+        assert fig is dash.no_update
+        assert status is dash.no_update
+
+

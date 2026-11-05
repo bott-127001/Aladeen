@@ -78,11 +78,30 @@ def get_completed_candle_options(snapshot_or_df: Any) -> list[dict]:
 def process_msm_dropdown_update(
     snapshot_or_df: Any = None,
     current_value: str | None = None,
+    active_req_data: dict | None = None,
+    triggered_id: str | None = None,
 ) -> tuple[list[dict], str | None]:
     """Pure coordinator function for updating starting candle dropdown options.
 
     R12.1: Zero fallback fetching: consumers never fetch independently.
+    R13.1: Observes active-request-store as Input; suppresses stale responses; clears options while pending.
     """
+    if active_req_data:
+        active_token = active_req_data.get("token")
+        snap_token = None
+        if isinstance(snapshot_or_df, MarketDataSnapshot):
+            snap_token = snapshot_or_df.request_token
+        elif isinstance(snapshot_or_df, dict):
+            snap_token = snapshot_or_df.get("request_token")
+
+        if active_token and snap_token != active_token:
+            if triggered_id == "market-data-store":
+                # Stale response: suppress update
+                return dash.no_update, dash.no_update
+            else:
+                # Active request pending: clear options
+                return [], None
+
     options = get_completed_candle_options(snapshot_or_df)
     valid_values = [o["value"] for o in options]
     new_value: Optional[str] = current_value if current_value and current_value in valid_values else None
@@ -374,12 +393,20 @@ def process_msm_controls_update(
     applied_data: dict | None,
     current_context: dict | None = None,
     active_request_token: str | None = None,
+    active_req_data: dict | None = None,
 ) -> tuple[dict | None, str, dict, Any]:
     """Pure coordinator function for MSM controls, application, and unapplied edit detection.
 
     R12.1: Zero consumer-side fallback fetching.
-    R12.3: Active request-generation and current-context publication guards.
+    R12.3, R13.1: Active request-generation and current-context publication guards.
     """
+    if active_req_data:
+        active_token = active_req_data.get("token")
+        active_ctx = active_req_data.get("context", {})
+    else:
+        active_token = active_request_token
+        active_ctx = current_context or {}
+
     is_enabled = "enabled" in enable_toggle_val if enable_toggle_val else False
 
     # 1. Handle MSM Disabled
@@ -395,6 +422,21 @@ def process_msm_controls_update(
             status_style,
             panel,
         )
+
+    # R13.1: Apply cannot use old or missing snapshot while a market data request is pending
+    if triggered_id == "msm-apply-btn" and active_token:
+        snap_token = None
+        if isinstance(market_snapshot_data, MarketDataSnapshot):
+            snap_token = market_snapshot_data.request_token
+        elif isinstance(market_snapshot_data, dict):
+            snap_token = market_snapshot_data.get("request_token")
+        if snap_token != active_token:
+            status_style = {"marginTop": "10px", "fontSize": "12px", "color": "#ff5252", "fontWeight": "bold"}
+            panel = html.Div(
+                f"Cannot apply MSM: Market data request ({active_token}) is pending. Please wait for current data to load.",
+                style={"color": "#ff5252"},
+            )
+            return (applied_data, "❌ Error: Cannot apply MSM while a market data request is pending.", status_style, panel)
 
     # 2. Check market snapshot presence (R12.1: zero fallback fetching)
     if market_snapshot_data is None:
@@ -420,9 +462,32 @@ def process_msm_controls_update(
         panel = html.Div(f"Invalid market data snapshot payload: {e}", style={"color": "#ff5252"})
         return (None, f"❌ Data Error: {e}", status_style, panel)
 
+    # R13.1: Stale response guard and Pending request handling
+    if active_token and snapshot.request_token != active_token:
+        if triggered_id == "market-data-store":
+            # Stale response completing last: suppress update
+            return dash.no_update, dash.no_update, dash.no_update, dash.no_update
+        elif triggered_id == "msm-apply-btn":
+            # Apply cannot use previous snapshot during pending state (R13.1)
+            status_style = {"marginTop": "10px", "fontSize": "12px", "color": "#ff5252", "fontWeight": "bold"}
+            panel = html.Div(
+                f"Cannot apply MSM: Market data request ({active_token}) is pending. Please wait for current data to load.",
+                style={"color": "#ff5252"},
+            )
+            return (applied_data, "❌ Error: Cannot apply MSM while a market data request is pending.", status_style, panel)
+        else:
+            # Active request pending: mark previous inspection as stale
+            status_style = {"marginTop": "10px", "fontSize": "12px", "color": "#ffd54f", "fontWeight": "bold"}
+            panel = html.Div(
+                f"⏳ Market data request pending ({active_token}). Inspection paused.",
+                style={"color": "#ffd54f", "padding": "8px 0"},
+            )
+            return (applied_data, f"⏳ Pending request {active_token}... (Previous inspection is stale)", status_style, panel)
+
     # 3. Context change or new market data update triggered
     market_triggers = {
         "market-data-store",
+        "active-request-store",
         "timeframe-selector",
         "symbol-selector",
         "data-source-selector",
@@ -436,8 +501,8 @@ def process_msm_controls_update(
             applied_data=applied_data,
             draft_direction=direction_val,
             draft_start_candle=start_candle_val,
-            current_context=current_context,
-            active_request_token=active_request_token,
+            current_context=active_ctx,
+            active_request_token=active_token,
         )
         new_applied = applied_data if is_context_compatible(applied_data, snapshot.data_source, snapshot.symbol, snapshot.timeframe) else None
         return new_applied, status_text, status_style, panel
@@ -459,10 +524,10 @@ def process_msm_controls_update(
     # 5. Handle Apply button click
     if triggered_id == "msm-apply-btn":
         # R12.3: Context check on Apply: cannot apply to a superseded context
-        if current_context:
-            cur_source = current_context.get("data_source")
-            cur_sym = current_context.get("symbol")
-            cur_tf = current_context.get("timeframe")
+        if active_ctx:
+            cur_source = active_ctx.get("data_source")
+            cur_sym = active_ctx.get("symbol")
+            cur_tf = active_ctx.get("timeframe")
             if (
                 (cur_source and snapshot.data_source != cur_source)
                 or (cur_sym and snapshot.symbol != cur_sym)
@@ -532,20 +597,39 @@ def process_msm_controls_update(
     )
 
 
+def _get_triggered_id() -> str:
+    """Safely obtain triggered component ID without throwing outside Dash callback."""
+    try:
+        from dash import callback_context
+        if callback_context and callback_context.triggered:
+            return callback_context.triggered[0]["prop_id"].split(".")[0]
+    except Exception:
+        pass
+    return ""
+
+
 def register_msm_callbacks(app: Dash, adapter: Any = None) -> tuple[Any, Any]:
-    """Register MSM-specific callbacks on *app*."""
+    """Register MSM-specific callbacks on *app* (observing active-request-store as Input, R13.1)."""
     # Callback 3: Update Starting Candle Dropdown Options from shared market-data snapshot
     @app.callback(
         Output("msm-start-candle-dropdown", "options"),
         Output("msm-start-candle-dropdown", "value"),
         Input("market-data-store", "data"),
+        Input("active-request-store", "data"),
         State("msm-start-candle-dropdown", "value"),
     )
     def update_msm_dropdown_options(
         market_snapshot_data: dict | None,
+        active_req_data: dict | None,
         current_value: str | None,
     ) -> tuple[list[dict], str | None]:
-        return process_msm_dropdown_update(market_snapshot_data, current_value)
+        triggered_id = _get_triggered_id()
+        return process_msm_dropdown_update(
+            snapshot_or_df=market_snapshot_data,
+            current_value=current_value,
+            active_req_data=active_req_data,
+            triggered_id=triggered_id,
+        )
 
     # Callback 4: Handle MSM Controls, Application, and Inspection Panel
     @app.callback(
@@ -558,8 +642,8 @@ def register_msm_callbacks(app: Dash, adapter: Any = None) -> tuple[Any, Any]:
         Input("msm-direction-selector", "value"),
         Input("msm-start-candle-dropdown", "value"),
         Input("market-data-store", "data"),
+        Input("active-request-store", "data"),
         State("msm-applied-store", "data"),
-        State("active-request-store", "data"),
     )
     def handle_msm_controls(
         apply_clicks: int,
@@ -567,14 +651,10 @@ def register_msm_callbacks(app: Dash, adapter: Any = None) -> tuple[Any, Any]:
         direction_val: str | None,
         start_candle_val: str | None,
         market_snapshot_data: dict | None,
+        active_req_data: dict | None,
         applied_data: dict | None,
-        active_req_data: dict | None = None,
     ) -> tuple[dict | None, str, dict, Any]:
-        ctx = callback_context
-        triggered_id = ctx.triggered[0]["prop_id"].split(".")[0] if ctx.triggered else ""
-
-        active_token = active_req_data.get("token") if active_req_data else None
-        active_ctx = active_req_data.get("context") if active_req_data else None
+        triggered_id = _get_triggered_id()
 
         return process_msm_controls_update(
             triggered_id=triggered_id,
@@ -583,8 +663,7 @@ def register_msm_callbacks(app: Dash, adapter: Any = None) -> tuple[Any, Any]:
             start_candle_val=start_candle_val,
             market_snapshot_data=market_snapshot_data,
             applied_data=applied_data,
-            current_context=active_ctx,
-            active_request_token=active_token,
+            active_req_data=active_req_data,
         )
 
     return update_msm_dropdown_options, handle_msm_controls

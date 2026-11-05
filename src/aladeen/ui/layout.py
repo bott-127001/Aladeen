@@ -804,8 +804,8 @@ def register_callbacks(app: Dash, adapter: Any = None) -> tuple[Any, Any]:
             res["alert_style"],
         )
 
-    # Register market data coordinator callbacks (single-fetch coordinator + chart renderer)
-    update_market_data, render_chart_from_snapshot = register_market_coordinator_callbacks(app, adapter=adapter)
+    # Register market data coordinator callbacks (request issuance, fetch coordinator, chart renderer) (R13.1)
+    on_request_issued, on_active_request_fetch, render_chart_from_snapshot = register_market_coordinator_callbacks(app, adapter=adapter)
 
     def update_chart(
         data_source: str = "demo",
@@ -816,8 +816,8 @@ def register_callbacks(app: Dash, adapter: Any = None) -> tuple[Any, Any]:
         store_data: dict | None = None,
         msm_applied: dict | None = None,
     ) -> tuple[go.Figure, str, Any]:
-        """Compatibility wrapper invoking update_market_data and render_chart_from_snapshot."""
-        snap_dict, trigger, _ = update_market_data(
+        """Compatibility wrapper invoking request issuance, fetch, and rendering."""
+        req = on_request_issued(
             data_source=data_source,
             symbol=symbol,
             timeframe=timeframe,
@@ -825,7 +825,15 @@ def register_callbacks(app: Dash, adapter: Any = None) -> tuple[Any, Any]:
             _n_clicks=_n_clicks,
             store_data=store_data,
         )
-        fig, status = render_chart_from_snapshot(snap_dict, msm_applied=msm_applied)
+        snap_dict, trigger = on_active_request_fetch(
+            active_req_data=req,
+            store_data=store_data,
+        )
+        fig, status = render_chart_from_snapshot(
+            market_snapshot_data=snap_dict,
+            active_req_data=req,
+            msm_applied=msm_applied,
+        )
         return fig, status, trigger
 
     # Register MSM callbacks from focused module

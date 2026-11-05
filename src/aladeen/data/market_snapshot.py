@@ -87,21 +87,38 @@ class MarketCandleRecord:
         if not self.is_forming and self.bar_status in {"UNCONFIRMED_LATEST", "FORMING"}:
             raise ValueError(f"Contradictory completion evidence: is_forming=False cannot have bar_status='{self.bar_status}'")
 
-        # 4. Explicit index validation (must not be bool or float)
+# 4. Explicit index validation (must not be bool or float)
         if self.index is not None:
-            if isinstance(self.index, bool):
+            if isinstance(self.index, (bool, np.bool_)):
                 raise TypeError(f"Candle index must not be boolean, got bool: {self.index}")
             if not isinstance(self.index, (int, np.integer)):
-                raise TypeError(f"Candle index must be integer, got {type(self.index).__name__}")
+                raise TypeError(f"Candle index must be integer, got {type(self.index).__name__} ({self.index})")
             object.__setattr__(self, "index", int(self.index))
 
-        # 5. Timestamp validation
+        # 5. Timestamp validation: strict ISO format and timezone awareness (R13.3)
         if not isinstance(self.time, str) or not self.time:
             raise TypeError(f"Candle time must be non-empty ISO string, got {type(self.time).__name__}")
+        try:
+            parsed_time = datetime.fromisoformat(self.time)
+        except Exception as e:
+            raise ValueError(f"Candle time is not a valid ISO timestamp '{self.time}': {e}") from e
+
+        if parsed_time.tzinfo is None or parsed_time.tzinfo.utcoffset(parsed_time) is None:
+            raise ValueError(f"Candle time must be timezone-aware (UTC). Naive timestamp rejected: '{self.time}'")
 
         if self.close_time is not None:
             if not isinstance(self.close_time, str) or not self.close_time:
                 raise TypeError(f"Candle close_time must be ISO string if provided, got {type(self.close_time).__name__}")
+            try:
+                parsed_close = datetime.fromisoformat(self.close_time)
+            except Exception as e:
+                raise ValueError(f"Candle close_time is not a valid ISO timestamp '{self.close_time}': {e}") from e
+
+            if parsed_close.tzinfo is None or parsed_close.tzinfo.utcoffset(parsed_close) is None:
+                raise ValueError(f"Candle close_time must be timezone-aware (UTC). Naive timestamp rejected: '{self.close_time}'")
+
+            if parsed_close < parsed_time:
+                raise ValueError(f"Candle close_time ({self.close_time}) cannot be earlier than open time ({self.time})")
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize candle record to plain primitive dictionary."""
@@ -138,6 +155,16 @@ class MarketCandleRecord:
         )
 
 
+VALID_FETCH_STATUSES = frozenset({
+    "SUCCESS",
+    "DISCONNECTED",
+    "NO_SYMBOL",
+    "CONNECTION_ERROR",
+    "DATA_ERROR",
+    "VALIDATION_ERROR",
+})
+
+
 @dataclass(frozen=True)
 class MarketDataSnapshot:
     """Immutable context-tagged market-data snapshot shared across UI components."""
@@ -147,30 +174,63 @@ class MarketDataSnapshot:
     timeframe: str
     candle_count: int
     timestamp_utc: str
-    fetch_status: str  # "SUCCESS", "DISCONNECTED", "NO_SYMBOL", "CONNECTION_ERROR", "DATA_ERROR", "VALIDATION_ERROR"
+    fetch_status: str  # Must be one of VALID_FETCH_STATUSES
     error_message: Optional[str] = None
     broker_connected: bool = False
     request_token: Optional[str] = None
     candles_data: Tuple[MarketCandleRecord, ...] = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
-        # Strict validation of top-level snapshot fields (R12.2)
-        if not isinstance(self.revision_id, str):
-            raise TypeError(f"revision_id must be str, got {type(self.revision_id).__name__}")
-        if not isinstance(self.data_source, str):
-            raise TypeError(f"data_source must be str, got {type(self.data_source).__name__}")
+        # Strict validation of top-level snapshot fields (R12.2, R13.3)
+        if not isinstance(self.revision_id, str) or not self.revision_id.strip():
+            raise TypeError("revision_id must be a non-empty string")
+        if not isinstance(self.data_source, str) or self.data_source not in {"demo", "mt5"}:
+            raise ValueError(f"data_source must be 'demo' or 'mt5', got: {self.data_source}")
         if not isinstance(self.symbol, str):
             raise TypeError(f"symbol must be str, got {type(self.symbol).__name__}")
-        if not isinstance(self.timeframe, str):
-            raise TypeError(f"timeframe must be str, got {type(self.timeframe).__name__}")
-        if isinstance(self.candle_count, bool) or not isinstance(self.candle_count, (int, np.integer)):
+        if not isinstance(self.timeframe, str) or not self.timeframe.strip():
+            raise ValueError(f"timeframe must be non-empty string, got: {self.timeframe}")
+        if isinstance(self.candle_count, (bool, np.bool_)) or not isinstance(self.candle_count, (int, np.integer)):
             raise TypeError(f"candle_count must be integer, got {type(self.candle_count).__name__}")
-        if not isinstance(self.timestamp_utc, str):
-            raise TypeError(f"timestamp_utc must be str, got {type(self.timestamp_utc).__name__}")
-        if not isinstance(self.fetch_status, str):
-            raise TypeError(f"fetch_status must be str, got {type(self.fetch_status).__name__}")
+        if self.candle_count < 0:
+            raise ValueError(f"candle_count cannot be negative, got {self.candle_count}")
+        if not isinstance(self.timestamp_utc, str) or not self.timestamp_utc.strip():
+            raise TypeError(f"timestamp_utc must be non-empty string, got {type(self.timestamp_utc).__name__}")
+        if not isinstance(self.fetch_status, str) or self.fetch_status not in VALID_FETCH_STATUSES:
+            raise ValueError(f"fetch_status must be one of {sorted(VALID_FETCH_STATUSES)}, got: '{self.fetch_status}'")
         if not isinstance(self.broker_connected, bool):
             raise TypeError(f"broker_connected must be bool, got {type(self.broker_connected).__name__}")
+        if self.request_token is not None:
+            if not isinstance(self.request_token, str) or not self.request_token.strip():
+                raise TypeError(f"request_token must be non-empty str if present, got: {self.request_token}")
+
+        # Payload consistency validation (R13.3)
+        if self.fetch_status == "SUCCESS":
+            if not self.symbol.strip():
+                raise ValueError("Successful snapshot must have a non-empty symbol")
+            if self.candle_count != len(self.candles_data):
+                raise ValueError(
+                    f"Candle count mismatch in successful snapshot: header claims {self.candle_count}, "
+                    f"but contains {len(self.candles_data)} candle records"
+                )
+            if self.candle_count == 0:
+                raise ValueError("Successful snapshot must contain at least 1 candle record")
+            if self.error_message is not None:
+                raise ValueError("Successful snapshot must not have an error_message")
+
+            # Source ID (index) ordering and uniqueness validation
+            indices = [c.index for c in self.candles_data if c.index is not None]
+            if indices:
+                if len(indices) != len(self.candles_data):
+                    raise ValueError("Inconsistent source IDs: some candles have an index while others do not")
+                for i in range(len(indices) - 1):
+                    if indices[i] >= indices[i + 1]:
+                        raise ValueError(f"Candle source IDs must be strictly monotonically increasing: {indices[i]} >= {indices[i+1]}")
+        else:
+            if len(self.candles_data) > 0 or self.candle_count > 0:
+                raise ValueError(f"Failed snapshot ({self.fetch_status}) must have candle_count=0 and empty candles_data")
+            if not isinstance(self.error_message, str) or not self.error_message.strip():
+                raise ValueError(f"Failed snapshot ({self.fetch_status}) must have a non-empty error_message")
 
     @property
     def is_valid(self) -> bool:
@@ -195,7 +255,7 @@ class MarketDataSnapshot:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> MarketDataSnapshot:
-        """Construct MarketDataSnapshot with strict deserialization validation (R12.2)."""
+        """Construct MarketDataSnapshot with strict deserialization validation (R12.2, R13.3)."""
         if not isinstance(data, dict):
             raise TypeError(f"Snapshot data must be dict, got {type(data).__name__}")
 
@@ -212,7 +272,7 @@ class MarketDataSnapshot:
             else:
                 raise TypeError(f"Candle record at position {i} must be dict or MarketCandleRecord, got {type(item).__name__}")
 
-        return cls(
+        snap = cls(
             revision_id=data.get("revision_id", ""),
             data_source=data.get("data_source", "demo"),
             symbol=data.get("symbol", ""),
@@ -226,6 +286,13 @@ class MarketDataSnapshot:
             candles_data=tuple(parsed_candles),
         )
 
+        if snap.fetch_status == "SUCCESS":
+            # Shared contract validation on deserialized data (R13.3)
+            df = snap.to_dataframe()
+            validate_candle_data(df)
+
+        return snap
+
     def to_dataframe(self) -> pd.DataFrame:
         """Convert serialized candle records back to contract-compliant DataFrame."""
         if not self.candles_data:
@@ -235,7 +302,11 @@ class MarketDataSnapshot:
 
         rows = [c.to_dict() for c in self.candles_data]
         df = pd.DataFrame(rows)
-        df["time"] = pd.to_datetime(df["time"], utc=True)
+        # Parse timestamps without silently coercing naive strings (R13.3)
+        df["time"] = pd.to_datetime(df["time"])
+        if df["time"].dt.tz is None:
+            raise CandleValidationError("Candle timestamps must be timezone-aware. Naive timestamps rejected.")
+        df["time"] = df["time"].dt.tz_convert("UTC")
         df = df.set_index("time")
         return df
 
@@ -332,8 +403,10 @@ def fetch_market_snapshot(
                 idx_val = None
                 if "index" in row and pd.notna(row["index"]):
                     idx_raw = row["index"]
-                    if isinstance(idx_raw, bool):
-                        raise TypeError(f"Explicit index at row {row_pos} must not be boolean")
+                    if isinstance(idx_raw, (bool, np.bool_)):
+                        raise TypeError(f"Explicit index at row {row_pos} must not be boolean, got bool: {idx_raw}")
+                    if not isinstance(idx_raw, (int, np.integer)):
+                        raise TypeError(f"Explicit index at row {row_pos} must be integer type, got {type(idx_raw).__name__} ({idx_raw})")
                     idx_val = int(idx_raw)
 
                 rec = MarketCandleRecord(
@@ -436,8 +509,10 @@ def fetch_market_snapshot(
                 idx_val = None
                 if "index" in row and pd.notna(row["index"]):
                     idx_raw = row["index"]
-                    if isinstance(idx_raw, bool):
-                        raise TypeError(f"Explicit index at row {row_pos} must not be boolean")
+                    if isinstance(idx_raw, (bool, np.bool_)):
+                        raise TypeError(f"Explicit index at row {row_pos} must not be boolean, got bool: {idx_raw}")
+                    if not isinstance(idx_raw, (int, np.integer)):
+                        raise TypeError(f"Explicit index at row {row_pos} must be integer type, got {type(idx_raw).__name__} ({idx_raw})")
                     idx_val = int(idx_raw)
 
                 rec = MarketCandleRecord(
