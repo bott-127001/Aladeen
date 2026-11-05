@@ -8,6 +8,7 @@ All result structures and snapshots are strictly immutable (frozen dataclasses o
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -55,6 +56,54 @@ class StrategyCandle:
     is_forming: bool = False
     bar_status: str = "CONFIRMED_COMPLETED"
 
+    def __post_init__(self) -> None:
+        # Index validation
+        if not isinstance(self.index, int) or isinstance(self.index, bool):
+            raise TypeError(f"Candle index must be int, got {type(self.index).__name__}")
+
+        # Timestamp validation
+        if not isinstance(self.open_time, datetime):
+            raise TypeError(f"Candle open_time must be datetime, got {type(self.open_time).__name__}")
+        if self.open_time.tzinfo is None:
+            raise ValueError(f"Candle open_time must be timezone-aware (UTC), got naive: {self.open_time}")
+
+        if self.close_time is not None:
+            if not isinstance(self.close_time, datetime):
+                raise TypeError(f"Candle close_time must be datetime, got {type(self.close_time).__name__}")
+            if self.close_time.tzinfo is None:
+                raise ValueError(f"Candle close_time must be timezone-aware (UTC), got naive: {self.close_time}")
+            if self.close_time <= self.open_time:
+                raise ValueError(
+                    f"Candle close_time ({self.close_time}) must be strictly later than open_time ({self.open_time})"
+                )
+
+        # Numeric price validations: strictly reject bool, non-numeric, non-finite, and <= 0
+        prices = {"open": self.open, "high": self.high, "low": self.low, "close": self.close}
+        for name, val in prices.items():
+            if isinstance(val, bool) or not isinstance(val, (int, float)):
+                raise TypeError(f"Candle {name} price must be finite float, got {type(val).__name__} ({val})")
+            if not math.isfinite(val):
+                raise ValueError(f"Candle {name} price must be finite, got {val}")
+            if val <= 0:
+                raise ValueError(f"Candle {name} price must be positive, got {val}")
+
+        # OHLC geometry
+        if self.high < self.low:
+            raise ValueError(f"Candle high ({self.high}) cannot be less than low ({self.low})")
+        if self.high < self.upper_body_edge:
+            raise ValueError(f"Candle high ({self.high}) cannot be less than upper body edge ({self.upper_body_edge})")
+        if self.low > self.lower_body_edge:
+            raise ValueError(f"Candle low ({self.low}) cannot be greater than lower body edge ({self.lower_body_edge})")
+
+        # Completion evidence validation
+        if not isinstance(self.is_forming, bool):
+            raise TypeError(f"Candle is_forming must be bool, got {type(self.is_forming).__name__}")
+        if not isinstance(self.bar_status, str):
+            raise TypeError(f"Candle bar_status must be str, got {type(self.bar_status).__name__}")
+
+        if self.is_forming and self.bar_status == "CONFIRMED_COMPLETED":
+            raise ValueError("Contradictory completion evidence: is_forming=True cannot have bar_status='CONFIRMED_COMPLETED'")
+
     @property
     def upper_body_edge(self) -> float:
         """Whichever is higher, opening price or closing price."""
@@ -77,12 +126,24 @@ class StrategyCandle:
 
 @dataclass(frozen=True)
 class SwingPoint:
-    """An immutable swing level (tentative or confirmed)."""
+    """An immutable swing level retaining explicit identification and confirmation provenance."""
     price: float
-    candle_index: int
-    candle_open_time: datetime
-    event_bar_index: int
-    event_time: Optional[datetime] = None
+    candle_index: int                       # Source index of the candle containing the body edge
+    candle_open_time: datetime               # Open timestamp of the candle
+    identified_bar_index: int                # Source index of the bar that established the point
+    identified_time: Optional[datetime] = None  # Knowledge/availability time of identification
+    confirmed_bar_index: Optional[int] = None   # Source index of the break bar that confirmed it
+    confirmed_time: Optional[datetime] = None   # Knowledge/availability time of confirmation
+
+    @property
+    def event_bar_index(self) -> int:
+        """Returns confirmation bar index if confirmed, else identification bar index."""
+        return self.confirmed_bar_index if self.confirmed_bar_index is not None else self.identified_bar_index
+
+    @property
+    def event_time(self) -> Optional[datetime]:
+        """Returns confirmation time if confirmed, else identification time."""
+        return self.confirmed_time if self.confirmed_time is not None else self.identified_time
 
 
 @dataclass(frozen=True)
@@ -100,6 +161,20 @@ class MSMConfig:
     """Configuration for a Market Structure Marking run."""
     start_candle_time: datetime
     direction: Direction
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.start_candle_time, datetime):
+            raise TypeError(f"start_candle_time must be datetime, got {type(self.start_candle_time).__name__}")
+        if self.start_candle_time.tzinfo is None:
+            raise ValueError(f"start_candle_time must be timezone-aware (UTC), got naive: {self.start_candle_time}")
+
+        if isinstance(self.direction, str):
+            try:
+                object.__setattr__(self, "direction", Direction(self.direction))
+            except ValueError:
+                raise ValueError(f"Invalid direction '{self.direction}': must be Direction.UPWARD or Direction.DOWNWARD")
+        elif not isinstance(self.direction, Direction):
+            raise TypeError(f"direction must be Direction enum, got {type(self.direction).__name__}")
 
 
 @dataclass(frozen=True)

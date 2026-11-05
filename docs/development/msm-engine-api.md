@@ -1,6 +1,6 @@
 # Market Structure Marking (MSM) — Engine API & Specification
 
-Last Updated: 2026-11-05 (Milestone: Offline MSM Engine Baseline)
+Last Updated: 2026-11-05 (Milestone: Offline MSM Engine Baseline — Hardened)
 
 ---
 
@@ -18,146 +18,66 @@ The `aladeen.strategy` package provides a standalone, deterministic calculation 
 
 ---
 
-## 2. Public API Architecture
+## 2. Ingestion & Reset Semantics (R7.3)
 
-Located under `src/aladeen/strategy/`:
+The engine provides two clearly separated, distinct execution models:
 
-```
-src/aladeen/strategy/
-├── __init__.py       # Public package exports
-├── types.py          # Value objects, enums, immutable dataclasses
-├── validator.py      # Input adaptation & starting-candle validation
-└── engine.py         # Deterministic sequential state machine
-```
+1. **Batch Execution & Replay (`process_candles`, `replay`)**:
+   - **Contract**: Fresh-run operation.
+   - Calling `process_candles(data)` or `replay(data)` performs transactional validation on `data` upfront. If all records pass validation, the engine resets to a clean run identity and executes over `data`.
+   - Calling `process_candles` twice on the same engine never duplicates internal history.
+   - Processing an extended snapshot cleanly recalculates without duplicating prior rows.
+   - **Fail-Closed Transactional Boundary**: If any candle in the batch is malformed, an exception is raised immediately and the engine's prior state is untouched.
 
-### 2.1 Core Types & Value Objects (`types.py`)
-
-- **`Direction`** (`Enum`): `UPWARD`, `DOWNWARD`.
-- **`EngineState`** (`Enum`): `SEARCHING_PULLBACK`, `WAITING_FOR_BREAK`.
-- **`CandleColor`** (`Enum`): `GREEN` (`close > open`), `RED` (`close < open`), `FLAT` (`close == open`).
-- **`TrendStatus`** (`Enum`): Display-only diagnostic strings (`"Marking upward structure"`, `"Marking downward structure"`, `"Upward trend"`, `"Downward trend"`, `"Trend not confirmed"`).
-- **`StrategyCandle`** (`@dataclass(frozen=True)`):
-  - `index`: `int`
-  - `open_time`: `datetime` (UTC)
-  - `open`, `high`, `low`, `close`: `float` (finite positive numbers)
-  - `close_time`: `Optional[datetime]` (UTC availability/close timestamp)
-  - `is_forming`: `bool`
-  - `bar_status`: `str`
-  - `upper_body_edge`: `max(open, close)`
-  - `lower_body_edge`: `min(open, close)`
-  - `color`: `CandleColor`
-- **`SwingPoint`** (`@dataclass(frozen=True)`):
-  - `price`: `float`
-  - `candle_index`: `int`
-  - `candle_open_time`: `datetime`
-  - `event_bar_index`: `int` (bar index upon which this point was identified/confirmed)
-  - `event_time`: `Optional[datetime]` (knowledge/availability time)
-- **`ConfirmedPair`** (`@dataclass(frozen=True)`):
-  - `pair_index`: `int`
-  - `high`: `SwingPoint`
-  - `low`: `SwingPoint`
-  - `confirmation_bar_index`: `int`
-  - `confirmation_time`: `Optional[datetime]`
-- **`MSMConfig`** (`@dataclass(frozen=True)`):
-  - `start_candle_time`: `datetime` (UTC)
-  - `direction`: `Direction`
-- **`MSMSnapshot`** (`@dataclass(frozen=True)`):
-  - `state`: `EngineState`
-  - `direction`: `Direction`
-  - `search_start_index`: `int`
-  - `tentative_point`: `Optional[SwingPoint]`
-  - `confirmed_pairs`: `Tuple[ConfirmedPair, ...]`
-  - `trend_status`: `str`
-  - `last_processed_index`: `int`
-  - `last_support`: `Optional[SwingPoint]`
-  - `last_resistance`: `Optional[SwingPoint]`
-  - `next_eligible_pullback_index`: `int`
+2. **Incremental Sequential Ingestion (`process_candle`)**:
+   - **Contract**: Incremental forward streaming.
+   - Strictly enforces that incoming candle timestamps are monotonically increasing (`candle.open_time > last_completed.open_time`).
+   - Duplicate or out-of-order candles raise `ValueError`.
+   - Forming bars (`is_forming == True`) return the current completed state without mutating internal history.
 
 ---
 
-### 2.2 Engine Interface (`engine.py`)
+## 3. Index & Provenance Model (R7.1, R7.4)
 
-```python
-class MSMEngine:
-    def __init__(self, config: MSMConfig) -> None: ...
-    def reset(self) -> None: ...
-    def process_candle(self, candle: StrategyCandle) -> MSMSnapshot: ...
-    def process_candles(self, data: Union[pd.DataFrame, List[StrategyCandle], List[dict]]) -> MSMSnapshot: ...
-    def replay(self, data: Union[pd.DataFrame, List[StrategyCandle], List[dict]]) -> List[MSMSnapshot]: ...
-    def get_snapshot(self) -> MSMSnapshot: ...
-```
+Internal buffer positions are strictly decoupled from external source candle indices:
 
-- **Clean Run Identity**: `reset()` or re-initialization creates an isolated engine run with zero prior state contamination.
-- **Batch / Sequential Parity**: `process_candles` yields the identical final state as sequential `process_candle` calls or `replay()[-1]`.
-
----
-
-## 3. Event & Timestamp Semantics
-
-To prevent temporal lookahead and data leakage, three distinct temporal concepts are strictly separated:
-
-1. **Source Candle Open Timestamp** (`candle_open_time`):
-   - The opening timestamp of the historical candle containing the swing body edge.
-2. **Identification / Confirmation Bar Index** (`event_bar_index` / `confirmation_bar_index`):
-   - The exact bar index whose completion triggered the state transition (pullback identified or break confirmed).
-3. **Event Knowledge / Availability Time** (`event_time` / `confirmation_time`):
-   - The timestamp when the event became knowable. For completed historical candles, this corresponds to the candle close/availability time (`close_time`), strictly after the candle open time.
-   - A candle's open timestamp is **never** used as its closing-event knowledge time.
-   - For offline test fixtures, explicit synthetic close times are supported. Live broker close boundaries are not inferred locally.
+- **Internal Positions**:
+  - The engine uses 0-based list positions (`_search_start_pos`, `_pullback_scan_pos`, `_next_eligible_pullback_pos`) exclusively for internal sliding window tests and array slicing.
+- **Source Candle Indices**:
+  - Input candles may have arbitrary, nonzero, or noncontiguous indices (e.g. `100, 110, 120...` or filtered slices).
+  - The engine maps buffer positions back to the original source candle index on every generated event.
+- **Identification vs. Confirmation Provenance (R7.4)**:
+  - Every `SwingPoint` explicitly records both its identification event and confirmation event:
+    - `identified_bar_index`: Source index of the bar whose completion established the level as tentative (pullback completion bar `p2`).
+    - `identified_time`: Knowledge/availability time when the level was identified.
+    - `confirmed_bar_index`: Source index of the break bar `k` that confirmed the level (`None` while tentative).
+    - `confirmed_time`: Knowledge/availability time when the level was confirmed (`None` while tentative).
+  - Confirmation never overwrites or erases the original tentative identification provenance.
 
 ---
 
-## 4. Input & Completion Requirements
+## 4. Strict Validation at Every Public Entry Point (R7.2)
 
-- **Completed Bars Only**: Forming bars (`is_forming == True` or `bar_status != "CONFIRMED_COMPLETED"`) are strictly excluded from state machine transitions. Ingesting a forming bar returns the current completed state without mutation.
-- **Start Candle Validation (OPEN-08)**:
-  - Starting candle must exist in the dataset.
-  - Starting candle must be a verified completed bar.
-  - If absent or forming, raises `ValueError("Invalid starting candle: start candle must be a verified completed historical candle.")`.
-- **Sequential Ingestion Integrity**:
-  - Sequential ingestion requires strictly increasing timestamps. Out-of-order or duplicate candles raise `ValueError`.
+Every entry point (`process_candles`, `process_candle`, `replay`) enforces the identical strict boundary:
 
----
-
-## 5. Reconciled Strategy Rules Implemented
-
-1. **2-Candle Pullback**:
-   - Upward: Two consecutive red candles with `close[p2] < low[p1]` (strict inequality).
-   - Downward: Two consecutive green candles with `close[p2] > high[p1]` (strict inequality).
-   - Flat candle (`open == close`) strictly interrupts consecutive color sequence.
-2. **Tentative Search Bounds**:
-   - `[search_start_index, p1 - 1]`. Inclusive of `search_start_index`, strictly exclusive of both pullback candles `p1` and `p2`.
-3. **Empty-Range Skip**:
-   - If `p1 == search_start_index`, search range is empty. Skip pullback `(p1, p2)`, retain `search_start_index` unchanged, and continue scan.
-4. **Waiting-State Lockout**:
-   - While in `WAITING_FOR_BREAK`, no subsequent pullbacks are marked or evaluated.
-5. **Closing Break**:
-   - Candidate candle `k > p2`.
-   - Upward: `close[k] > tentative_high.price` (strict inequality).
-   - Downward: `close[k] < tentative_low.price` (strict inequality).
-   - Break candle color does not matter (green, red, or flat).
-6. **Confirmed Opposite Extreme Search**:
-   - Window: `[tentative_point.candle_index, k]` (inclusive of both endpoints: from tentative extreme candle through the break candle `k`).
-   - Upward: Lowest lower body edge in window.
-   - Downward: Highest upper body edge in window.
-7. **Latest-Candle Tie-Breaker**:
-   - Exact price equality on body edges selects the candle with the highest index (latest timestamp).
-8. **Advance & Post-Break Candidate Restriction**:
-   - Search start advances to confirmed opposite extreme candle index.
-   - Next candidate pullback candle `p1` must be strictly after the break candle: `p1 > k` (break candle cannot be reused as a pullback candle).
-9. **Trend Status (OPEN-01)**:
-   - Diagnostic only; zero authority over engine direction.
-   - `< 2 pairs`: `"Marking upward structure"` or `"Marking downward structure"`.
-   - `≥ 2 pairs`:
-     - Upward trend: `H_curr > H_prev` AND `L_curr > L_prev`.
-     - Downward trend: `H_curr < H_prev` AND `L_curr < L_prev`.
-     - Else (including equality): `"Trend not confirmed"`.
-10. **Replay & Prefix Immutability (OPEN-09)**:
-    - Prior confirmed pairs and their historical timestamps never shift, delete, or recalculate when dataset is extended.
+- **Prices**: Must be real finite positive numbers (`float` or `int`, never `bool`, never strings, never `+inf`/`-inf`/`nan`).
+- **OHLC Geometry**: `high >= low`, `high >= max(open, close)`, `low <= min(open, close)`.
+- **Timestamps**:
+  - `open_time`: Must be a timezone-aware UTC datetime. Naive timestamps and `NaT` are strictly rejected.
+  - `close_time` (when supplied): Must be timezone-aware UTC datetime and strictly later than `open_time`.
+- **Direction**: Must be an instance of `Direction` enum (`UPWARD` or `DOWNWARD`). Invalid strings or types are rejected before engine state initialization.
+- **Completion Evidence**: Explicit and coherent (`is_forming=True` with `bar_status='CONFIRMED_COMPLETED'` is rejected as contradictory).
+- **Start Candle Selection (OPEN-08)**: Must exist in dataset and be completed historical bar. Forming or absent start candles raise `ValueError("Invalid starting candle: start candle must be a verified completed historical candle.")`.
 
 ---
 
-## 6. Current Limitations & Scope Boundaries
+## 5. Reviewer Correction Recorded (MSM-14 Prefix 0..9)
 
-- **No CHOCH Integration**: The MSM engine operates solely in its initialized direction. CHOCH handling, reversal qualification, and multi-timeframe activation belong to separate subsequent modules.
-- **Offline Only**: No connection to live MT5 terminals or Dash dashboard callbacks in this milestone.
+In MSM-14 prefix 0..9, red pullback `(8, 9)` is identified.
+Under the approved strategy rule:
+*"find the highest upper body edge from the search-start candle through the candle immediately before the first red candle. Include the search-start candle; exclude both pullback candles."*
+
+- Search window: `[search_start = 5, p1 - 1 = 7]`.
+- Upper body edges in `[5, 7]`: Candle 5 (103.5), Candle 6 (109.0), Candle 7 (111.0).
+- Selected Tentative High: **Price 111.0 at source index 7** (identified at bar 9).
+- Per reviewer correction, index 8 is the first pullback candle (`p1`) and is strictly excluded from the tentative search window.
