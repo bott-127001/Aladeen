@@ -24,6 +24,8 @@ import dash
 
 from aladeen.data.contract import BarStatus
 from aladeen.data.fixtures import DEMO_SYMBOL, load_fixture
+from aladeen.data.market_snapshot import MarketDataSnapshot, fetch_market_snapshot
+from aladeen.data.mt5_adapter import MT5ConnectionError, MT5ConnectionState
 from aladeen.strategy.service import (
     MSMContext,
     MSMServiceResult,
@@ -38,9 +40,12 @@ from aladeen.strategy.types import Direction, EngineState, StrategyCandle, Swing
 from aladeen.ui.chart import create_candlestick_chart, create_empty_chart
 from aladeen.ui.layout import (
     build_layout,
+    generate_chart_and_status_from_snapshot,
     generate_chart_and_status_with_trigger,
+    register_callbacks,
 )
 from aladeen.ui.msm_callbacks import (
+    evaluate_msm_for_snapshot,
     get_completed_candle_options,
     process_msm_controls_update,
     process_msm_dropdown_update,
@@ -614,3 +619,269 @@ class TestCoordinatorFlowAndRegressions:
         assert applied_out is None
         assert "MSM is disabled" in status
         assert "currently disabled" in panel.children
+
+
+class TestUnifiedMarketDataSnapshotSynchronization:
+    """Verifies the 8 coherent market-data snapshot synchronization scenarios from Perplexity review."""
+
+    def test_refresh_adds_completed_confirmation_bar_syncs_chart_and_table(self) -> None:
+        """Scenario 1: Refresh adds a completed confirmation bar: chart and table update together."""
+        df = load_fixture(DEMO_SYMBOL, "H4").copy()
+        start_iso = df.index[0].isoformat()
+        applied_data = {
+            "data_source": "demo",
+            "symbol": DEMO_SYMBOL,
+            "timeframe": "H4",
+            "start_candle_time": start_iso,
+            "direction": "UPWARD",
+            "rule_version": "1.0",
+            "enabled": True,
+        }
+
+        # Step 1: Baseline snapshot with 50 bars
+        df_base = df.iloc[:50].copy()
+        snap_base, _ = fetch_market_snapshot("demo", DEMO_SYMBOL, "H4", 50, False)
+
+        fig_base, status_base = generate_chart_and_status_from_snapshot(snap_base, msm_applied=applied_data)
+        res_base, stat_base, _, panel_base = evaluate_msm_for_snapshot(snap_base, applied_data)
+        assert res_base is not None and res_base.is_valid
+        pairs_base = len(res_base.snapshot.confirmed_pairs)
+
+        # Step 2: Refresh adds more bars including completed confirmation bars
+        snap_refreshed, _ = fetch_market_snapshot("demo", DEMO_SYMBOL, "H4", 100, False)
+        assert snap_refreshed.revision_id != snap_base.revision_id
+
+        fig_refreshed, status_refreshed = generate_chart_and_status_from_snapshot(snap_refreshed, msm_applied=applied_data)
+        res_refreshed, stat_refreshed, _, panel_refreshed = evaluate_msm_for_snapshot(snap_refreshed, applied_data)
+
+        # Both chart and table update coherently on the new revision
+        assert res_refreshed is not None and res_refreshed.is_valid
+        assert snap_refreshed.revision_id in stat_refreshed
+        assert snap_refreshed.revision_id in status_refreshed or f"Count: {snap_refreshed.candle_count}" in status_refreshed
+        # Traces in chart reflect the confirmed points
+        assert any(getattr(t, "name", None) == "Confirmed High" for t in fig_refreshed.data)
+
+    def test_unapplied_draft_edits_survive_refresh_without_application(self) -> None:
+        """Scenario 2: Unapplied edits survive Refresh without becoming applied."""
+        df = load_fixture(DEMO_SYMBOL, "H4")
+        start_iso = df.index[0].isoformat()
+        applied_data = {
+            "data_source": "demo",
+            "symbol": DEMO_SYMBOL,
+            "timeframe": "H4",
+            "start_candle_time": start_iso,
+            "direction": "UPWARD",
+            "rule_version": "1.0",
+            "enabled": True,
+        }
+
+        snap, _ = fetch_market_snapshot("demo", DEMO_SYMBOL, "H4", 100, False)
+
+        # User has a draft change to DOWNWARD in UI (unapplied)
+        res, status_text, status_style, panel = evaluate_msm_for_snapshot(
+            snapshot=snap,
+            applied_data=applied_data,
+            draft_direction="DOWNWARD",
+            draft_start_candle=start_iso,
+        )
+
+        # Unapplied warning surfaced, but applied configuration remains UPWARD
+        assert "Unapplied changes" in status_text
+        assert "Applied: UPWARD" in status_text
+        assert res is not None
+        assert res.snapshot.direction == Direction.UPWARD  # Still UPWARD!
+
+    def test_missing_applied_start_reports_insufficient_history_and_clears_markings(self) -> None:
+        """Scenario 3: Missing applied start removes successful current results and reports insufficient history."""
+        # Start time outside window
+        missing_start = "2020-01-01T00:00:00+00:00"
+        applied_data = {
+            "data_source": "demo",
+            "symbol": DEMO_SYMBOL,
+            "timeframe": "H4",
+            "start_candle_time": missing_start,
+            "direction": "UPWARD",
+            "rule_version": "1.0",
+            "enabled": True,
+        }
+
+        snap, _ = fetch_market_snapshot("demo", DEMO_SYMBOL, "H4", 50, False)
+        res, status_text, status_style, panel = evaluate_msm_for_snapshot(snap, applied_data)
+
+        # Successful results removed; insufficient history reported
+        assert res is None
+        assert "Insufficient history" in status_text
+        assert "Insufficient history" in panel.children
+
+        # Chart rendering also suppresses successful MSM overlays
+        fig, chart_status = generate_chart_and_status_from_snapshot(snap, msm_applied=applied_data)
+        trace_names = [getattr(t, "name", None) for t in fig.data]
+        assert "Confirmed High" not in trace_names
+        assert "MSM Error: Starting candle" in chart_status
+
+    def test_candle_count_change_updates_chart_and_table_together(self) -> None:
+        """Scenario 4: History-count change updates both chart and inspection table together."""
+        def make_df(n):
+            times = pd.date_range("2026-10-01", periods=n, freq="4h", tz="UTC")
+            return pd.DataFrame(
+                {
+                    "open": [1.1 + i * 0.001 for i in range(n)],
+                    "high": [1.15 + i * 0.001 for i in range(n)],
+                    "low": [1.05 + i * 0.001 for i in range(n)],
+                    "close": [1.12 + i * 0.001 for i in range(n)],
+                    "is_forming": [False] * (n - 1) + [True],
+                    "is_latest_bar": [False] * (n - 1) + [True],
+                    "bar_status": ["CONFIRMED_COMPLETED"] * (n - 1) + ["UNCONFIRMED_LATEST"],
+                },
+                index=times,
+            )
+
+        mock_adapter = MagicMock()
+        mock_adapter.is_connected.return_value = True
+        mock_adapter.is_broker_connected.return_value = True
+        mock_adapter.get_connection_state.return_value = MT5ConnectionState.CONNECTED_TO_BROKER
+        mock_adapter.fetch_candles.side_effect = lambda sym, tf, count: make_df(count)
+
+        applied_data = {
+            "data_source": "mt5",
+            "symbol": "EURUSD",
+            "timeframe": "H4",
+            "start_candle_time": "2026-10-01T00:00:00+00:00",
+            "direction": "UPWARD",
+            "rule_version": "1.0",
+            "enabled": True,
+        }
+
+        # User changes count to 50
+        snap_50, _ = fetch_market_snapshot("mt5", "EURUSD", "H4", 50, True, adapter=mock_adapter)
+        assert snap_50.candle_count == 50
+        fig_50, status_50 = generate_chart_and_status_from_snapshot(snap_50, msm_applied=applied_data)
+        assert "Count: 50 candles" in status_50
+
+        # User changes count to 100
+        snap_100, _ = fetch_market_snapshot("mt5", "EURUSD", "H4", 100, True, adapter=mock_adapter)
+        assert snap_100.candle_count == 100
+
+        fig_100, status_100 = generate_chart_and_status_from_snapshot(snap_100, msm_applied=applied_data)
+        res_100, edit_status_100, _, panel_100 = evaluate_msm_for_snapshot(snap_100, applied_data)
+
+        assert "Count: 100 candles" in status_100
+        assert snap_100.revision_id in edit_status_100
+        assert res_100 is not None and res_100.is_valid
+
+    def test_disconnect_and_fetch_failure_suppresses_applied_and_pauses_inspection(self) -> None:
+        """Scenario 5: Disconnect/fetch failure suppresses green applied status and displays data unavailable."""
+        applied_data = {
+            "data_source": "mt5",
+            "symbol": "EURUSD",
+            "timeframe": "H4",
+            "start_candle_time": "2026-10-01T00:00:00+00:00",
+            "direction": "UPWARD",
+            "rule_version": "1.0",
+            "enabled": True,
+        }
+
+        # Terminal disconnected
+        snap, _ = fetch_market_snapshot("mt5", "EURUSD", "H4", 100, is_connected=False)
+        assert snap.fetch_status == "DISCONNECTED"
+
+        res, edit_status, edit_style, panel = evaluate_msm_for_snapshot(snap, applied_data)
+
+        assert res is None
+        assert "🔴 Data unavailable" in edit_status
+        assert edit_style["color"] == "#ff5252"
+        assert "Market data unavailable" in panel.children
+
+        fig, chart_status = generate_chart_and_status_from_snapshot(snap, msm_applied=applied_data)
+        assert "🔴 MT5 Disconnected" in chart_status
+
+    def test_delayed_or_stale_context_results_cannot_overwrite_newer_context(self) -> None:
+        """Scenario 6: Delayed old-context/revision results cannot overwrite a newer context."""
+        h4_applied = {
+            "data_source": "demo",
+            "symbol": DEMO_SYMBOL,
+            "timeframe": "H4",
+            "start_candle_time": "2026-10-01T00:00:00+00:00",
+            "direction": "UPWARD",
+            "rule_version": "1.0",
+            "enabled": True,
+        }
+
+        # Context switched to D1
+        snap_d1, _ = fetch_market_snapshot("demo", DEMO_SYMBOL, "D1", 100, False)
+        assert is_context_compatible(h4_applied, snap_d1.data_source, snap_d1.symbol, snap_d1.timeframe) is False
+
+        # Evaluation cleanly rejects the stale H4 context against D1 snapshot
+        res, status_text, status_style, panel = evaluate_msm_for_snapshot(snap_d1, h4_applied)
+        assert res is None
+        assert "Context changed" in status_text
+        assert "Context changed" in panel.children
+
+    def test_chart_dropdown_and_inspection_share_exact_same_revision_id(self) -> None:
+        """Scenario 7: Chart, dropdown, and inspection share the exact same snapshot revision ID."""
+        snap, _ = fetch_market_snapshot("demo", DEMO_SYMBOL, "H4", 100, False)
+        start_iso = snap.candles_data[0]["time"]
+        applied_data = {
+            "data_source": "demo",
+            "symbol": DEMO_SYMBOL,
+            "timeframe": "H4",
+            "start_candle_time": start_iso,
+            "direction": "UPWARD",
+            "rule_version": "1.0",
+            "enabled": True,
+        }
+
+        # 1. Dropdown options extracted directly from this snapshot
+        options = get_completed_candle_options(snap)
+        assert len(options) == snap.candle_count  # All demo fixture candles are completed
+
+        # 2. Inspection table rendered from this snapshot
+        res, edit_status, _, panel = evaluate_msm_for_snapshot(snap, applied_data)
+        assert res is not None
+        assert snap.revision_id in edit_status
+
+        # 3. Chart rendered from this exact snapshot
+        fig, chart_status = generate_chart_and_status_from_snapshot(snap, msm_applied=applied_data)
+        assert f"Count: {snap.candle_count} candles" in chart_status
+
+    def test_data_update_causes_zero_duplicate_independent_fetches(self) -> None:
+        """Scenario 8: A normal data update causes zero duplicate independent fetches."""
+        times = pd.date_range("2026-10-01", periods=10, freq="4h", tz="UTC")
+        df_mock = pd.DataFrame(
+            {
+                "open": [1.1 + i * 0.01 for i in range(10)],
+                "high": [1.12 + i * 0.01 for i in range(10)],
+                "low": [1.08 + i * 0.01 for i in range(10)],
+                "close": [1.11 + i * 0.01 for i in range(10)],
+                "is_forming": [False] * 9 + [True],
+                "is_latest_bar": [False] * 9 + [True],
+                "bar_status": ["CONFIRMED_COMPLETED"] * 9 + ["UNCONFIRMED_LATEST"],
+            },
+            index=times,
+        )
+
+        mock_adapter = MagicMock()
+        mock_adapter.is_connected.return_value = True
+        mock_adapter.is_broker_connected.return_value = True
+        mock_adapter.get_connection_state.return_value = MT5ConnectionState.CONNECTED_TO_BROKER
+        mock_adapter.fetch_candles.return_value = df_mock
+
+        # Step 1: Single fetch path executes exactly 1 fetch
+        snap, _ = fetch_market_snapshot(
+            data_source="mt5",
+            symbol="EURUSD",
+            timeframe="H4",
+            candle_count=10,
+            is_connected=True,
+            adapter=mock_adapter,
+        )
+        assert mock_adapter.fetch_candles.call_count == 1
+
+        # Step 2: All consumers (dropdown, inspection, chart) consume the snapshot without calling fetch_candles
+        options = get_completed_candle_options(snap)
+        res, status, _, panel = evaluate_msm_for_snapshot(snap, applied_data=None)
+        fig, chart_status = generate_chart_and_status_from_snapshot(snap, msm_applied=None)
+
+        # Call count remains exactly 1! Zero duplicate independent fetches!
+        assert mock_adapter.fetch_candles.call_count == 1
+

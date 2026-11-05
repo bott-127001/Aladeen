@@ -1,10 +1,11 @@
 """Focused MSM Coordinator and Dash Callbacks Module.
 
-Separates MSM UI interactions and callbacks from the layout foundation:
-- Starting candle dropdown extraction using validated completion predicate.
+Implements the coherent market-data snapshot consumer architecture:
+- Starting candle dropdown options extracted from the shared market snapshot.
 - MSM Configuration application, unapplied edit tracking, and fail-closed validation.
-- Causal provenance inspection table rendering (retaining 'Unknown' where unrecorded).
+- Causal provenance inspection table rendering (with revision ID and exact 1-based labels).
 - Context isolation across symbol / timeframe / data source transitions.
+- Refresh recomputation using applied configuration (preserving unapplied draft edits).
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 from aladeen.data.fixtures import DEMO_SYMBOL, SUPPORTED_TIMEFRAMES, load_fixture
+from aladeen.data.market_snapshot import MarketDataSnapshot, fetch_market_snapshot
 from aladeen.data.mt5_adapter import MT5ConnectionState, get_mt5_adapter
 from aladeen.strategy.service import (
     MSMContext,
@@ -30,26 +32,38 @@ from aladeen.strategy.service import (
 from aladeen.strategy.types import Direction, MSMSnapshot
 
 
-def get_completed_candle_options(df: Optional[pd.DataFrame]) -> list[dict]:
-    """Extract list of completed candle options from *df* for the start candle selector.
+def get_completed_candle_options(snapshot_or_df: Any) -> list[dict]:
+    """Extract list of completed candle options from *snapshot_or_df*.
 
-    Rules & Invariants (R10.1):
-    ---------------------------
+    Rules & Invariants (R10.1 & Item 4):
+    -------------------------------------
     - Uses the exact shared completion predicate `is_candle_completed()`.
-    - Strictly rejects missing or null completion fields.
-    - Excludes forming / unconfirmed candles (`is_forming == True` or `bar_status != "CONFIRMED_COMPLETED"`).
+    - Fail-closed: surfaces invalid completion evidence immediately instead of skipping silently.
+    - Excludes forming / unconfirmed candles.
     """
-    if df is None or df.empty:
+    if snapshot_or_df is None:
+        return []
+
+    if isinstance(snapshot_or_df, MarketDataSnapshot):
+        if snapshot_or_df.fetch_status != "SUCCESS" or not snapshot_or_df.candles_data:
+            return []
+        df = snapshot_or_df.to_dataframe()
+    elif isinstance(snapshot_or_df, dict):
+        if snapshot_or_df.get("fetch_status") != "SUCCESS" or not snapshot_or_df.get("candles_data"):
+            return []
+        snap = MarketDataSnapshot.from_dict(snapshot_or_df)
+        df = snap.to_dataframe()
+    elif isinstance(snapshot_or_df, pd.DataFrame):
+        df = snapshot_or_df
+    else:
+        return []
+
+    if df.empty:
         return []
 
     options = []
     for row_pos, (ts, row) in enumerate(df.iterrows()):
-        try:
-            completed = is_candle_completed(row_pos, row)
-        except Exception as e:
-            logger.warning(f"Row {row_pos} failed completion validation in dropdown extraction: {e}")
-            continue
-
+        completed = is_candle_completed(row_pos, row)
         if not completed:
             continue
 
@@ -65,7 +79,39 @@ def get_completed_candle_options(df: Optional[pd.DataFrame]) -> list[dict]:
     return options
 
 
-def render_msm_inspection_table(snapshot: MSMSnapshot, context: MSMContext) -> html.Div:
+def process_msm_dropdown_update(
+    snapshot_or_df: Any = None,
+    current_value: str | None = None,
+    *,
+    data_source: str = "demo",
+    symbol: str | None = None,
+    timeframe: str = "H4",
+    candle_count: int = 100,
+    store_data: dict | None = None,
+    adapter: Any = None,
+    **kwargs: Any,
+) -> tuple[list[dict], str | None]:
+    """Pure coordinator function for updating starting candle dropdown options.
+
+    Extracts completed candles and preserves current_value if still present in options.
+    """
+    if snapshot_or_df is None and data_source:
+        is_conn = store_data.get("state") != MT5ConnectionState.DISCONNECTED.value if store_data else False
+        snap, _ = fetch_market_snapshot(data_source, symbol, timeframe, candle_count, is_conn, adapter)
+        options = get_completed_candle_options(snap)
+    else:
+        options = get_completed_candle_options(snapshot_or_df)
+
+    valid_values = [o["value"] for o in options]
+    new_value: Optional[str] = current_value if current_value and current_value in valid_values else None
+    return options, new_value
+
+
+def render_msm_inspection_table(
+    snapshot: MSMSnapshot,
+    context: MSMContext,
+    revision_id: str = "",
+) -> html.Div:
     """Generate the HTML inspection table for an applied MSM snapshot.
 
     Rules & Invariants (R10.3, R10.4):
@@ -73,6 +119,7 @@ def render_msm_inspection_table(snapshot: MSMSnapshot, context: MSMContext) -> h
     - Pair labels use pair_index directly: H1, L1, Pair #1 (R10.3).
     - Explicitly renders last support / resistance summary values (R10.4).
     - Availability timestamps remain 'Unknown' where not established.
+    - Displays coherent snapshot revision ID.
     """
     table_header = html.Thead(
         html.Tr(
@@ -91,7 +138,6 @@ def render_msm_inspection_table(snapshot: MSMSnapshot, context: MSMContext) -> h
     rows = []
     pairs = snapshot.confirmed_pairs
     for p in pairs:
-        # Confirmed High (R10.3: direct pair_index)
         h = p.high
         id_h = h.identified_time.strftime("%Y-%m-%d %H:%M UTC") if h.identified_time else "Unknown"
         conf_h = h.confirmed_time.strftime("%Y-%m-%d %H:%M UTC") if h.confirmed_time else "Unknown"
@@ -108,7 +154,6 @@ def render_msm_inspection_table(snapshot: MSMSnapshot, context: MSMContext) -> h
                 ],
             )
         )
-        # Confirmed Low (R10.3: direct pair_index)
         low = p.low
         id_l = low.identified_time.strftime("%Y-%m-%d %H:%M UTC") if low.identified_time else "Unknown"
         conf_l = low.confirmed_time.strftime("%Y-%m-%d %H:%M UTC") if low.confirmed_time else "Unknown"
@@ -126,7 +171,6 @@ def render_msm_inspection_table(snapshot: MSMSnapshot, context: MSMContext) -> h
             )
         )
 
-    # Tentative Point
     if snapshot.tentative_point is not None:
         tent = snapshot.tentative_point
         id_t = tent.identified_time.strftime("%Y-%m-%d %H:%M UTC") if tent.identified_time else "Unknown"
@@ -156,7 +200,6 @@ def render_msm_inspection_table(snapshot: MSMSnapshot, context: MSMContext) -> h
         html.Span([html.B("Direction: "), html.Span(context.direction.value, style={"color": "#ff80ab"})], style={"fontSize": "12px", "color": "#ccc"}),
     ]
 
-    # R10.4: Render explicit last support / resistance summary indicators
     if snapshot.last_support is not None:
         summary_items.append(
             html.Span(
@@ -170,6 +213,11 @@ def render_msm_inspection_table(snapshot: MSMSnapshot, context: MSMContext) -> h
                 [html.B("Last Resistance: "), html.Span(f"{snapshot.last_resistance.price:.4f} (Bar #{snapshot.last_resistance.candle_index})", style={"color": "#ff1744", "fontWeight": "bold"})],
                 style={"fontSize": "12px", "color": "#ccc"},
             )
+        )
+
+    if revision_id:
+        summary_items.append(
+            html.Span([html.B("Snapshot Revision: "), html.Code(revision_id, style={"color": "#90caf9"})], style={"fontSize": "11px", "color": "#aaa"})
         )
 
     summary_bar = html.Div(
@@ -186,38 +234,94 @@ def render_msm_inspection_table(snapshot: MSMSnapshot, context: MSMContext) -> h
     ])
 
 
-def process_msm_dropdown_update(
-    data_source: str,
-    symbol: str | None,
-    timeframe: str,
-    candle_count: int,
-    store_data: dict | None,
-    current_value: str | None,
-    adapter: Any = None,
-) -> tuple[list[dict], str | None]:
-    """Pure helper returning updated (options, selected_value) for the starting candle dropdown (R10.2)."""
-    if adapter is None:
-        adapter = get_mt5_adapter()
+def evaluate_msm_for_snapshot(
+    snapshot: MarketDataSnapshot,
+    applied_data: Optional[Dict[str, Any]],
+    draft_direction: Optional[str] = None,
+    draft_start_candle: Optional[str] = None,
+) -> Tuple[Optional[MSMServiceResult], str, Dict[str, str], Any]:
+    """Evaluates applied MSM configuration against the coherent market data snapshot.
 
-    df: Optional[pd.DataFrame] = None
-    if data_source == "demo":
-        if timeframe in SUPPORTED_TIMEFRAMES:
-            df = load_fixture(DEMO_SYMBOL, timeframe)
+    Returns (msm_result, edit_status_text, edit_status_style, inspection_panel_children).
+    """
+    # 1. MSM Disabled or not applied
+    if not applied_data or not applied_data.get("enabled", False):
+        status_text = "MSM is disabled. Check 'Enable MSM Overlay', choose an initial direction and starting candle, and click 'Apply / Calculate MSM'."
+        status_style = {"marginTop": "10px", "fontSize": "12px", "color": "#888"}
+        panel = html.P(
+            "MSM is currently disabled. Check 'Enable MSM Overlay' and click 'Apply / Calculate MSM' to inspect structure swing levels.",
+            style={"color": "#666", "fontSize": "13px", "margin": "8px 0"},
+        )
+        return None, status_text, status_style, panel
+
+    # 2. Market data fetch failure or disconnection
+    if snapshot.fetch_status != "SUCCESS":
+        status_text = f"🔴 Data unavailable: {snapshot.error_message or snapshot.fetch_status}. MSM inspection paused (rev: {snapshot.revision_id})."
+        status_style = {"marginTop": "10px", "fontSize": "12px", "color": "#ff5252", "fontWeight": "bold"}
+        panel = html.Div(
+            f"Market data unavailable ({snapshot.fetch_status}). MSM structure calculation paused.",
+            style={"color": "#ff5252", "padding": "8px 0"},
+        )
+        return None, status_text, status_style, panel
+
+    # 3. Context compatibility check (symbol / timeframe / source)
+    if not is_context_compatible(applied_data, snapshot.data_source, snapshot.symbol, snapshot.timeframe):
+        status_text = f"Context changed. Select direction and starting candle for {snapshot.symbol} ({snapshot.timeframe}), then click 'Apply / Calculate MSM'."
+        status_style = {"marginTop": "10px", "fontSize": "12px", "color": "#ffd54f"}
+        panel = html.P(
+            f"Context changed: No MSM applied for {snapshot.symbol} ({snapshot.timeframe}). Select parameters and click 'Apply / Calculate MSM'.",
+            style={"color": "#888", "fontSize": "13px", "margin": "8px 0"},
+        )
+        return None, status_text, status_style, panel
+
+    # 4. Parse applied context and compute MSM
+    try:
+        ctx = MSMContext.from_dict(applied_data)
+        df = snapshot.to_dataframe()
+        res = calculate_msm(df, ctx)
+    except Exception as e:
+        status_text = f"❌ MSM Calculation Error: {e} (rev: {snapshot.revision_id})"
+        status_style = {"marginTop": "10px", "fontSize": "12px", "color": "#ff5252", "fontWeight": "bold"}
+        panel = html.Div(f"Calculation failed: {e}", style={"color": "#ff5252"})
+        return None, status_text, status_style, panel
+
+    # 5. Check if starting candle missing from history window
+    if not res.is_valid or res.snapshot is None:
+        status_text = (
+            f"⚠️ Insufficient history: Applied starting candle ({ctx.start_candle_time.strftime('%Y-%m-%d %H:%M UTC')}) "
+            f"is no longer in window ({snapshot.candle_count} bars, rev: {snapshot.revision_id}). Select a new start candle and Apply."
+        )
+        status_style = {"marginTop": "10px", "fontSize": "12px", "color": "#ff9800", "fontWeight": "bold"}
+        panel = html.Div(
+            f"⚠️ Insufficient history: Applied starting candle ({ctx.start_candle_time.strftime('%Y-%m-%d %H:%M UTC')}) "
+            f"is no longer in the loaded window ({snapshot.candle_count} bars). Suppressing successful markings.",
+            style={"color": "#ff9800", "padding": "8px 0"},
+        )
+        return None, status_text, status_style, panel
+
+    # 6. Success: check unapplied draft edits
+    pair_cnt = len(res.snapshot.confirmed_pairs)
+    has_unapplied_draft = False
+    if draft_direction and draft_direction != ctx.direction.value:
+        has_unapplied_draft = True
+    if draft_start_candle and draft_start_candle != ctx.start_candle_time.isoformat():
+        has_unapplied_draft = True
+
+    if has_unapplied_draft:
+        status_text = (
+            f"🟡 Unapplied changes (Click '⚡ Apply / Calculate MSM' to update) | "
+            f"Applied: {ctx.direction.value} ({pair_cnt} pairs confirmed, rev: {snapshot.revision_id})"
+        )
+        status_style = {"marginTop": "10px", "fontSize": "12px", "color": "#ffd600", "fontWeight": "bold"}
     else:
-        is_connected = store_data.get("state", "DISCONNECTED") != MT5ConnectionState.DISCONNECTED.value if store_data else False
-        if is_connected and symbol:
-            try:
-                df = adapter.fetch_candles(symbol, timeframe, count=candle_count)
-            except Exception:
-                df = None
+        status_text = (
+            f"🟢 Applied: {ctx.direction.value} from {ctx.start_candle_time.strftime('%Y-%m-%d %H:%M UTC')} | "
+            f"{pair_cnt} pairs confirmed | {res.snapshot.trend_status} (rev: {snapshot.revision_id})"
+        )
+        status_style = {"marginTop": "10px", "fontSize": "12px", "color": "#00e676", "fontWeight": "bold"}
 
-    options = get_completed_candle_options(df)
-    valid_values = [o["value"] for o in options]
-
-    # R10.2: Do NOT silently auto-select the first candle! Preserve selection only if still valid; else None.
-    new_value: Optional[str] = current_value if current_value and current_value in valid_values else None
-
-    return options, new_value
+    panel = render_msm_inspection_table(res.snapshot, ctx, snapshot.revision_id)
+    return res, status_text, status_style, panel
 
 
 def process_msm_controls_update(
@@ -225,17 +329,36 @@ def process_msm_controls_update(
     enable_toggle_val: list[str],
     direction_val: str | None,
     start_candle_val: str | None,
-    data_source: str,
-    symbol: str | None,
-    timeframe: str,
-    candle_count: int,
-    store_data: dict | None,
-    applied_data: dict | None,
+    *args: Any,
+    market_snapshot_data: dict | None = None,
+    applied_data: dict | None = None,
+    data_source: str = "demo",
+    symbol: str | None = None,
+    timeframe: str = "H4",
+    candle_count: int = 100,
+    store_data: dict | None = None,
     adapter: Any = None,
+    **kwargs: Any,
 ) -> tuple[dict | None, str, dict, Any]:
     """Pure coordinator function for MSM controls, application, and unapplied edit detection."""
-    if adapter is None:
-        adapter = get_mt5_adapter()
+    # Unpack positional arguments flexibly for unit tests and callbacks
+    if args:
+        if isinstance(args[0], str):
+            data_source = args[0]
+            if len(args) > 1:
+                symbol = args[1]
+            if len(args) > 2:
+                timeframe = args[2]
+            if len(args) > 3:
+                candle_count = args[3]
+            if len(args) > 4:
+                store_data = args[4]
+            if len(args) > 5:
+                applied_data = args[5]
+        else:
+            market_snapshot_data = args[0]
+            if len(args) > 1:
+                applied_data = args[1]
 
     is_enabled = "enabled" in enable_toggle_val if enable_toggle_val else False
 
@@ -253,19 +376,45 @@ def process_msm_controls_update(
             panel,
         )
 
-    # 2. Context changed (symbol / timeframe / source) -> Incompatible markings disappear
-    if triggered_id in {"data-source-selector", "symbol-selector", "timeframe-selector"}:
-        status_style = {"marginTop": "10px", "fontSize": "12px", "color": "#ffd54f"}
-        panel = html.P(
-            "Context changed. Please select an initial direction and completed starting candle, then click 'Apply / Calculate MSM'.",
-            style={"color": "#888", "fontSize": "13px", "margin": "8px 0"},
+    # Reconstruct or fetch coherent snapshot
+    snapshot: MarketDataSnapshot
+    if market_snapshot_data is not None:
+        try:
+            snapshot = MarketDataSnapshot.from_dict(market_snapshot_data)
+        except Exception:
+            snapshot = MarketDataSnapshot(
+                revision_id="rev-unknown",
+                data_source="unknown",
+                symbol="",
+                timeframe="",
+                candle_count=0,
+                timestamp_utc="",
+                fetch_status="DATA_ERROR",
+                error_message="Invalid market data payload.",
+            )
+    else:
+        is_conn = store_data.get("state") != MT5ConnectionState.DISCONNECTED.value if store_data else False
+        snapshot, _ = fetch_market_snapshot(data_source, symbol, timeframe, candle_count, is_conn, adapter)
+
+    # 2. Context change or new market data update triggered
+    market_triggers = {
+        "market-data-store",
+        "timeframe-selector",
+        "symbol-selector",
+        "data-source-selector",
+        "refresh-btn",
+        "candle-count-selector",
+        "mt5-connection-store",
+    }
+    if triggered_id in market_triggers:
+        _, status_text, status_style, panel = evaluate_msm_for_snapshot(
+            snapshot=snapshot,
+            applied_data=applied_data,
+            draft_direction=direction_val,
+            draft_start_candle=start_candle_val,
         )
-        return (
-            None,
-            "Context changed. Select direction and starting candle, then click 'Apply / Calculate MSM'.",
-            status_style,
-            panel,
-        )
+        new_applied = applied_data if is_context_compatible(applied_data, snapshot.data_source, snapshot.symbol, snapshot.timeframe) else None
+        return new_applied, status_text, status_style, panel
 
     # 3. Detect unapplied edits without silently recalculating
     if triggered_id in {"msm-direction-selector", "msm-start-candle-dropdown"}:
@@ -295,35 +444,21 @@ def process_msm_controls_update(
             panel = html.Div("Please select a verified completed starting candle from the dropdown.", style={"color": "#ff5252"})
             return (applied_data, "❌ Error: No starting candle selected.", status_style, panel)
 
-        active_sym = DEMO_SYMBOL if data_source == "demo" else (symbol or "")
-        df: Optional[pd.DataFrame] = None
-        if data_source == "demo":
-            if timeframe in SUPPORTED_TIMEFRAMES:
-                df = load_fixture(DEMO_SYMBOL, timeframe)
-        else:
-            is_connected = store_data.get("state", "DISCONNECTED") != MT5ConnectionState.DISCONNECTED.value if store_data else False
-            if is_connected and active_sym:
-                try:
-                    df = adapter.fetch_candles(active_sym, timeframe, count=candle_count)
-                except Exception as e:
-                    status_style = {"marginTop": "10px", "fontSize": "12px", "color": "#ff5252"}
-                    panel = html.Div(f"Failed to fetch market data: {e}", style={"color": "#ff5252"})
-                    return (None, f"❌ Data Fetch Error: {e}", status_style, panel)
-
-        if df is None or df.empty:
+        if not snapshot.is_valid:
             status_style = {"marginTop": "10px", "fontSize": "12px", "color": "#ff5252"}
-            panel = html.Div("No chart data available to calculate MSM.", style={"color": "#ff5252"})
-            return (None, "❌ Error: No data available.", status_style, panel)
+            panel = html.Div(f"Cannot apply MSM: {snapshot.error_message or snapshot.fetch_status}", style={"color": "#ff5252"})
+            return (None, f"❌ Error: {snapshot.error_message or snapshot.fetch_status}", status_style, panel)
 
         try:
             msm_ctx = MSMContext(
-                data_source=data_source,
-                symbol=active_sym,
-                timeframe=timeframe,
+                data_source=snapshot.data_source,
+                symbol=snapshot.symbol,
+                timeframe=snapshot.timeframe,
                 start_candle_time=start_candle_val,
                 direction=Direction(direction_val),
                 enabled=True,
             )
+            df = snapshot.to_dataframe()
             res = calculate_msm(df, msm_ctx)
             if res.is_valid and res.snapshot is not None:
                 pair_cnt = len(res.snapshot.confirmed_pairs)
@@ -331,9 +466,9 @@ def process_msm_controls_update(
                 status_text = (
                     f"🟢 Applied: {msm_ctx.direction.value} from "
                     f"{msm_ctx.start_candle_time.strftime('%Y-%m-%d %H:%M UTC')} | "
-                    f"{pair_cnt} pairs confirmed | {res.snapshot.trend_status}"
+                    f"{pair_cnt} pairs confirmed | {res.snapshot.trend_status} (rev: {snapshot.revision_id})"
                 )
-                panel = render_msm_inspection_table(res.snapshot, msm_ctx)
+                panel = render_msm_inspection_table(res.snapshot, msm_ctx, snapshot.revision_id)
                 return (msm_ctx.to_dict(), status_text, status_style, panel)
             else:
                 status_style = {"marginTop": "10px", "fontSize": "12px", "color": "#ff5252", "fontWeight": "bold"}
@@ -356,39 +491,18 @@ def process_msm_controls_update(
 
 def register_msm_callbacks(app: Dash, adapter: Any = None) -> tuple[Any, Any]:
     """Register MSM-specific callbacks on *app*."""
-    if adapter is None:
-        adapter = get_mt5_adapter()
-
-    # Callback 3: Update Starting Candle Dropdown Options
+    # Callback 3: Update Starting Candle Dropdown Options from shared market-data snapshot
     @app.callback(
         Output("msm-start-candle-dropdown", "options"),
         Output("msm-start-candle-dropdown", "value"),
-        Input("data-source-selector", "value"),
-        Input("symbol-selector", "value"),
-        Input("timeframe-selector", "value"),
-        Input("candle-count-selector", "value"),
-        Input("refresh-btn", "n_clicks"),
-        Input("mt5-connection-store", "data"),
+        Input("market-data-store", "data"),
         State("msm-start-candle-dropdown", "value"),
     )
     def update_msm_dropdown_options(
-        data_source: str,
-        symbol: str | None,
-        timeframe: str,
-        candle_count: int,
-        _refresh_clicks: int,
-        store_data: dict | None,
+        market_snapshot_data: dict | None,
         current_value: str | None,
     ) -> tuple[list[dict], str | None]:
-        return process_msm_dropdown_update(
-            data_source=data_source,
-            symbol=symbol,
-            timeframe=timeframe,
-            candle_count=candle_count,
-            store_data=store_data,
-            current_value=current_value,
-            adapter=adapter,
-        )
+        return process_msm_dropdown_update(market_snapshot_data, current_value)
 
     # Callback 4: Handle MSM Controls, Application, and Inspection Panel
     @app.callback(
@@ -400,11 +514,7 @@ def register_msm_callbacks(app: Dash, adapter: Any = None) -> tuple[Any, Any]:
         Input("msm-enable-toggle", "value"),
         Input("msm-direction-selector", "value"),
         Input("msm-start-candle-dropdown", "value"),
-        Input("data-source-selector", "value"),
-        Input("symbol-selector", "value"),
-        Input("timeframe-selector", "value"),
-        State("candle-count-selector", "value"),
-        State("mt5-connection-store", "data"),
+        Input("market-data-store", "data"),
         State("msm-applied-store", "data"),
     )
     def handle_msm_controls(
@@ -412,11 +522,7 @@ def register_msm_callbacks(app: Dash, adapter: Any = None) -> tuple[Any, Any]:
         enable_toggle_val: list[str],
         direction_val: str | None,
         start_candle_val: str | None,
-        data_source: str,
-        symbol: str | None,
-        timeframe: str,
-        candle_count: int,
-        store_data: dict | None,
+        market_snapshot_data: dict | None,
         applied_data: dict | None,
     ) -> tuple[dict | None, str, dict, Any]:
         ctx = callback_context
@@ -427,13 +533,8 @@ def register_msm_callbacks(app: Dash, adapter: Any = None) -> tuple[Any, Any]:
             enable_toggle_val=enable_toggle_val,
             direction_val=direction_val,
             start_candle_val=start_candle_val,
-            data_source=data_source,
-            symbol=symbol,
-            timeframe=timeframe,
-            candle_count=candle_count,
-            store_data=store_data,
+            market_snapshot_data=market_snapshot_data,
             applied_data=applied_data,
-            adapter=adapter,
         )
 
     return update_msm_dropdown_options, handle_msm_controls
