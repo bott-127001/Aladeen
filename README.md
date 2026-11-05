@@ -171,7 +171,9 @@ TopG/
 ├── docs/
 │   ├── strategy/                  # Strategy source documents & transcriptions
 │   ├── requirements/              # Source map & requirements
-│   └── architecture-proposal.md   # Architectural blueprint & staged plan
+│   ├── architecture-proposal.md   # Architectural blueprint & staged plan
+│   └── development/               # Autonomous workflow documentation & status tracking
 ├── pyproject.toml                 # Package configuration & optional deps
+├── AGENTS.md                      # Agent rules, authority boundaries & instructions
 └── README.md
 ```
