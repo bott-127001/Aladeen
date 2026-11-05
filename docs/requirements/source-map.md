@@ -1,311 +1,263 @@
 # Source Map — Strategy Module Requirements
 
-> [!IMPORTANT]
-> These documents may not include later user-approved clarifications. Document-level ambiguities are labeled **"pending reconciliation with approved clarifications"**, not as permission to invent defaults. Do not use old dashboard code, Pine scripts, or TopG_Implementation.pdf as strategy authority.
+> [!NOTE]
+> **Reconciliation Status (Updated 2026-11-05)**:
+> Later user-approved clarifications from the TopG project artifact (*Aladin TopG Dashboard — Revised Contract*, 4 November 2026) have been recorded in [`approved-clarifications.md`](file:///docs/requirements/approved-clarifications.md).
+> Key reconciliations:
+> - **EMPTY RANGE**: Reconciled. When a pullback leaves an empty search range, skip that pullback pair and continue searching from the original starting candle reference.
+> - **OPEN-01**: Trend status is display-only and computed separately from marking direction.
+> - **OPEN-08**: Engine instances operate independently without silent state inheritance.
+> - **OPEN-10**: Timeframe boundaries are native MT5 feed timestamps normalized to UTC.
+> Strategy engine implementation remains strictly gated pending individual module acceptance specifications.
 
 ---
 
 ## 1. MSM — Market Structure Marking
 
 ### Source Sections
-- `Market Structure Marking.docx` — Sections 1–8 (complete document)
-- Original authority: TopG.pdf pages 1–8
+- Original Authority: `TopG.pdf` pages 1–8
+- Strategy Document: `docs/strategy/Market Structure Marking.docx` — Sections 1–8
+- Transcription: `docs/strategy/extracted/market-structure-marking.md`
+- Approved Clarifications: `docs/requirements/approved-clarifications.md` (EMPTY RANGE, OPEN-01, OPEN-08, OPEN-10)
 
 ### Inputs and Configuration
-- **User-selected starting candle** (manual, not automatic)
-- **User-selected starting direction**: upward or downward
-- **Timeframe**: H4 or D1 (applied separately)
-- **Candle data**: open, high, low, close for each completed candle
+- **User-selected starting candle**: Mandatory manual start. Must be a verified completed candle; absent or actively forming starts are strictly rejected.
+- **User-selected starting direction**: Upward or downward.
+- **Timeframe**: Timeframe-agnostic engine. While originally illustrated on H4 and D1, the shared MSM engine applies to any configured timeframe required by composite strategy roles (D1, H4, H1 in main/TJL/ISS, and M5, M1 in confirmation detection).
+- **Candle data**: Validated contract DataFrame (`open`, `high`, `low`, `close`, UTC DatetimeIndex, completed candles only).
 
 ### Outputs
-- Tentative highs and lows (with source candle index)
-- Confirmed highs and lows (with source candle index and body-edge price)
-- Last support (latest confirmed low in upward marking)
-- Last resistance (latest confirmed high in downward marking)
-- Trend status: "Marking [direction] structure" / "Upward trend" / "Downward trend" / "Trend not confirmed"
-- History of all confirmed levels
+- **Tentative highs and lows**: Point index, timestamp, and body-edge price.
+- **Confirmed highs and lows**: Point index, timestamp, and body-edge price.
+- **Last support** (latest confirmed low in upward structure).
+- **Last resistance** (latest confirmed high in downward structure).
+- **Display-only Trend Status**: "Marking [direction] structure" / "Upward trend" / "Downward trend" / "Trend not confirmed". (Display-only per OPEN-01; does not alter engine direction).
+- **History of confirmed levels**.
 
 ### State Transitions and Dependencies
-1. **Idle → Searching for pullback**: user selects starting candle and direction
-2. **Searching for pullback → Tentative level identified**: valid two-candle pullback found
-3. **Tentative level identified → Waiting for closing break**: tentative high/low marked
-4. **Waiting for closing break → Confirmed pair**: candle closes strictly beyond tentative level
-5. **Confirmed pair → Searching for next pullback**: search-start moves to confirmed opposite level candle
-6. Trend comparison requires ≥ 2 completed pairs
+1. **Idle → Searching for pullback**: Initialized with validated start candle and direction.
+2. **Searching for pullback → Tentative level identified**: Valid two-candle pullback found with non-empty search range.
+3. **Tentative level identified → Waiting for closing break**: Tentative high/low marked.
+4. **Waiting for closing break → Confirmed pair**: Candle closes strictly beyond tentative level.
+5. **Confirmed pair → Searching for next pullback**: Search-start advances to candle containing the newly confirmed opposite level.
+6. Trend comparison requires ≥ 2 completed confirmed pairs.
 
 ### Explicit Rules
-- Body edges: upper = max(open, close), lower = min(open, close)
-- Pullback (upward): 2 consecutive red candles, 2nd closes strictly below 1st's bottom wick tip
-- Pullback (downward): 2 consecutive green candles, 2nd closes strictly above 1st's top wick tip
-- Tentative level search excludes both pullback candles; includes search-start
-- Opposite level search includes both endpoints (tentative level candle through break candle)
-- Tied body edges → select latest candle
-- Strict comparisons only; equality never satisfies
-- Flat candles (open = close) interrupt colour runs but remain eligible for body-edge searches
-- Break candle colour does not matter
-- No independent cycle while waiting for a closing break
+- **Body edges**: Upper = `max(open, close)`, Lower = `min(open, close)`. All tentative and confirmed swings use body edges.
+- **Pullback (upward)**: 2 consecutive red candles (`close < open`), where 2nd candle closes strictly below 1st candle's bottom wick tip (`close_2 < low_1`).
+- **Pullback (downward)**: 2 consecutive green candles (`close > open`), where 2nd candle closes strictly above 1st candle's top wick tip (`close_2 > high_1`).
+- **Tentative level search range**: Inclusive of search-start, strictly exclusive of both pullback candles: `[search_start, pullback_candle_1)`.
+- **Opposite level search range**: Inclusive of both endpoints from confirmed tentative candle through closing-break candle: `[tentative_candle, break_candle]`.
+- **Tied body edges**: Latest candle selected.
+- **Strict comparisons**: Equality never satisfies pullback or break conditions (`>` or `<`).
+- **Flat candles** (`open == close`): Neither red nor green. Interrupts a pullback run; eligible for body-edge searches and closing breaks.
+- **Break candle colour**: Immaterial.
+- **No independent cycle**: While waiting for a closing break, no new tentative point can be formed.
 
-### Ambiguities — Pending Reconciliation with Approved Clarifications
-1. **Empty search range edge case** (Section 7): starting candle is itself the first pullback candle; no eligible candle remains for tentative level. No behaviour approved. *(Flagged in all five documents.)*
+### Reconciled Decisions & Clarifications
+- **Empty search range (Section 7)**: **RECONCILED**. If the starting candle is itself the first pullback candle, the range `[start, pullback_1)` is empty. The engine skips this pullback pair and continues searching forward from the original start candle.
+- **Trend status role (Section 5)**: **RECONCILED**. Display-only (OPEN-01). Does not trigger direction changes or trade execution.
+- **Timeframe scope (Section 1)**: General shared engine; not artificially constrained to H4/D1 when composite modules (ISS, TJL, MTF) configure H1, M5, or M1.
+
+### Ambiguities — Detailed Implementation Rules to Reconcile
+1. None for MSM baseline. All core marking rules and the empty-range edge case are formally reconciled.
 
 ### Candidate Test Scenarios
-1. Basic upward cycle: 3 green candles → 2 red pullback → tentative high → close above → confirmed pair
-2. Basic downward cycle: mirror of above with green pullback
-3. Failed pullback: 2nd red candle does not close below 1st's wick → skip and continue searching
-4. Flat candle in pullback run: interrupts colour sequence
-5. Tied body edges: latest candle selected
-6. Equality at comparison: does not satisfy (pullback, closing break)
-7. Trend confirmation: 2 completed pairs with strictly higher highs and lows (upward)
-8. "Trend not confirmed": equality in one comparison
-9. Break candle is a pullback candle from old cycle → must occur after previous break
-10. Edge case: starting candle = first pullback candle (empty range — expected: no level invented)
+1. Basic upward cycle: green run → 2 red pullback → tentative high → close above → confirmed pair.
+2. Basic downward cycle: red run → 2 green pullback → tentative low → close below → confirmed pair.
+3. Failed pullback: 2nd red closes above or equal to 1st wick tip → skip pair and continue.
+4. Flat candle interruption: green → flat → red → red does not qualify as a 2-red run.
+5. Tied body edges: latest candle selected in tentative and confirmed searches.
+6. Strict equality rejection: close exactly equal to wick tip or tentative level does not qualify.
+7. Empty range handling: starting candle is pullback candle 1 → skipped cleanly; original reference retained.
+8. Trend status evaluation: 2 confirmed pairs strictly higher -> Upward trend; tie -> Trend not confirmed.
 
 ---
 
 ## 2. CHOCH — Change of Character
 
 ### Source Sections
-- `Choch.pdf` — Sections 1–10 (complete document)
-- Original authority: TopG.pdf pages 9–12
+- Original Authority: `TopG.pdf` pages 9–12
+- Strategy Document: `docs/strategy/Choch.pdf` — Sections 1–10
+- Transcription: `docs/strategy/extracted/choch.md`
+- Approved Clarifications: `docs/requirements/approved-clarifications.md` (OPEN-03, OPEN-04, OPEN-08, OPEN-10, OPEN-11)
 
 ### Inputs and Configuration
-- Active marking direction (from MSM)
-- Latest confirmed support / resistance prices and candles (from MSM)
-- Active tentative point 3 (from MSM current cycle)
-- Completed candle data on H4 or D1
+- Active marking direction (from MSM).
+- Latest confirmed support / resistance prices and source candles (from MSM).
+- Active tentative point 3 (from current unconfirmed MSM cycle).
+- Completed candle data on source timeframe (e.g. H4, D1) or confirmation timeframe (H1, M5, M1).
 
 ### Outputs
-- CHOCH confirmed signal (bearish or bullish)
-- Three zones with labels:
-  - Bearish: SBR (confirmed low), QML/A+ (confirmed high), Double top (tentative point 3)
-  - Bullish: QML/A+ (confirmed low), RBS (confirmed high), Double bottom (tentative point 3)
-- Each zone: price range (body edge to wick tip) or single price line
-- New marking direction and reference candle for restart
+- CHOCH confirmed signal (bearish or bullish).
+- Three structural zones:
+  - Bearish: SBR (confirmed low / last support), QML/A+ (confirmed high), Double top (tentative point 3).
+  - Bullish: RBS (confirmed high / last resistance), QML/A+ (confirmed low), Double bottom (tentative point 3).
+- Zone geometries: `[body_edge, wick_tip]` or single price line when wick is zero.
+- New reference candle and inverted direction for MSM restart.
 
 ### State Transitions and Dependencies
-1. **Monitoring**: reading MSM state; point 3 not yet identified → no qualifying close counted
-2. **Point 3 active**: tentative level identified by current marking cycle
-3. **First qualifying close**: one candle closes strictly beyond support/resistance in reversal direction
-4. **Confirmed CHOCH**: immediately next candle also closes strictly beyond → zones created, old cycle ended
-5. **Failed pair**: next candle does not close on required side → reset to monitoring for new consecutive pair
-6. **Restart**: point 3's candle becomes new reference; marking begins in new direction
+1. **Monitoring**: Point 3 active; monitoring for break of last support/resistance.
+2. **First qualifying close**: Candle closes strictly beyond support/resistance in reversal direction.
+3. **Confirmed CHOCH**: Immediately next candle also closes strictly beyond in reversal direction (2 consecutive closes).
+4. **Failed pair**: Next candle does not close beyond level → resets consecutive close counter to 0.
+5. **Restart**: Point 3 candle becomes new reference candle; marking restarts in inverted direction.
 
 ### Explicit Rules
-- Bearish CHOCH: 2 consecutive candles close strictly below last support (upward structure)
-- Bullish CHOCH: 2 consecutive candles close strictly above last resistance (downward structure)
-- Single close insufficient; nonconsecutive closes cannot combine
-- This is a closing-price rule, not a pullback-colour rule
-- Point 3 must exist before first qualifying close
-- Point 3 = active tentative level from current MSM cycle only
-- If cycle completes (tentative becomes confirmed), point 3 is gone; need new pullback
-- Zone construction: body edge to wick tip; zero-width → single price line
-- Restart: first new-direction pullback must occur after CHOCH confirmation candle
+- Bearish CHOCH: 2 consecutive closes strictly below last support (`close < support`).
+- Bullish CHOCH: 2 consecutive closes strictly above last resistance (`close > resistance`).
+- Non-consecutive closes cannot combine.
+- Point 3 must exist prior to the first qualifying close. If the MSM cycle completes normally (break confirms point 3), point 3 is consumed and CHOCH cannot form until a new tentative point 3 forms.
+- Reversal restart: Pullback search in new direction starts only after the CHOCH confirmation candle.
 
-### Ambiguities — Pending Reconciliation with Approved Clarifications
-1. Inherited MSM empty-search-range edge case (Section 9)
-2. No explicit rule for what happens if point 3 is confirmed and immediately a new pullback creates a new point 3 in the same candle sequence as a potential CHOCH close
+### Reconciled Decisions & Clarifications
+- **Invalidation Precedence (OPEN-03)**: At a shared close where a level is invalidated and a potential entry appears, source invalidation executes first.
+- **Candle Interval & Order (OPEN-04)**: Candle boundaries are `[open, close)`. A confirmation occurring at the close cannot claim earlier intra-candle wicks.
 
-### Candidate Test Scenarios
-1. Basic bearish CHOCH: upward structure, point 3 exists, 2 consecutive closes below support → confirmed
-2. Basic bullish CHOCH: downward structure, mirror scenario
-3. Failed pair: first close below support, second close at or above → no CHOCH
-4. No point 3: closes below support but no active tentative level → not counted
-5. Point 3 completes (becomes confirmed) before CHOCH → need new pullback
-6. Zone construction with zero-width wick (no wick on relevant side)
-7. Restart: verify first new-direction pullback is after confirmation candle
-8. Equal close (at support level exactly) → does not qualify
+### Ambiguities — Detailed Rules Pending Specification Before Implementation
+1. Lifecycle of point 3 if a break and new pullback occur in rapid succession before second CHOCH close.
 
 ---
 
 ## 3. ISS — Internal Structure Shift
 
 ### Source Sections
-- `ISS.pdf` — Sections 1–14 (complete document)
-- Original authority: TopG.pdf pages 15–16
+- Original Authority: `TopG.pdf` pages 15–16
+- Strategy Document: `docs/strategy/ISS.pdf` — Sections 1–14
+- Transcription: `docs/strategy/extracted/iss.md`
+- Approved Clarifications: `docs/requirements/approved-clarifications.md` (EMPTY RANGE, OPEN-03, OPEN-04, OPEN-07, OPEN-08)
 
 ### Inputs and Configuration
-- Main level 2 (confirmed low/high from MSM) — price and candle
-- Main level 3 (active tentative high/low from MSM) — price and candle
-- Fixed boundary: inclusive interval [level 2, level 3] body-edge prices
-- Candle data on H1 timeframe (source timeframe for ISS)
+- Main level 2 (confirmed low/high from MSM) — price and source candle.
+- Main level 3 (active tentative high/low from MSM) — price and source candle.
+- Fixed boundary: inclusive interval `[min(L2, L3), max(L2, L3)]` body-edge prices.
+- Candle data on H1 timeframe (or lower confirmation timeframe when configured).
 
 ### Outputs
-- ISS confirmed signal
-- Two zones with labels:
-  - Bearish main: ISS level 3 = Internal CH2 (RBS), ISS level 4/A+ = Internal CL2 (buying A+)
-  - Bullish main: ISS level 3 = Internal CL2 (SBR), ISS level 4/A+ = Internal CH2 (selling A+)
-- Each zone: body edge to wick tip or single price line
-- ISS state: eligible search / confirmed / rejected / tracking-only
+- ISS confirmed signal.
+- Two structural zones:
+  - Bearish main: Level 3 = Internal CH2 (RBS), Level 4/A+ = Internal CL2 (buying A+).
+  - Bullish main: Level 3 = Internal CL2 (SBR), Level 4/A+ = Internal CH2 (selling A+).
+- ISS lifecycle state: Searching / Confirmed / Rejected / Tracking-Only.
 
 ### State Transitions and Dependencies
-1. **Idle**: no active main level 3
-2. **Eligible search**: main level 3 identified → internal marking begins in opposite direction within fixed boundaries
-3. **Building internal structure**: accumulating 5 internal points (CH1, CL1, CH2, CL2, tentative)
-4. **Confirmed ISS**: 5th point identified, all 5 prices within boundary, completion close within boundary → zones created
-5. **Out-of-bounds marked level**: any internal level outside boundary → reject, remove candidate, stop internal marking
-6. **Outside-range completion close**: levels valid but completion close outside boundary → no ISS, retain tracking only
-7. **Main continuation**: main break confirms level 3 before ISS completes → cancel ISS candidate
-8. **Main CHOCH**: cancel any unfinished ISS, apply CHOCH transition
-9. **New main level 3**: fresh ISS search with new boundaries
+1. **Eligible search**: Main level 3 identified → internal MSM starts in opposite direction within fixed boundaries.
+2. **Building internal structure**: Accumulating 5 internal swing points (CH1, CL1, CH2, CL2, tentative).
+3. **Confirmed ISS**: 5th point identified, all 5 point prices inside boundary, completion close inside boundary.
+4. **Out-of-bounds rejection**: Any marked internal level outside boundary → permanently rejected for that level 3.
+5. **Main continuation cancellation**: Main break confirms level 3 before internal 5-point completion → cancel ISS.
+6. **Main CHOCH cancellation**: Main structure CHOCH cancels active ISS search.
 
 ### Explicit Rules
-- Five internal points = 2 confirmed highs + 2 confirmed lows + 1 tentative (not 5 arbitrary legs)
-- Internal marking uses MSM rules (pullbacks, body edges, ties, etc.)
-- Fixed boundary prices captured at search start; not updated
-- Equality at boundary IS valid (exception to strict comparisons)
-- Check 5 marked prices, not every intervening candle
-- Wick excursions outside range do not invalidate
-- Confirm at 5th-point pullback close, not at continuation break
-- One ISS per main level 3
-- Out-of-bounds: reject permanently for that level 3, remove markings
-- Outside-range completion close: reject permanently, but retain internal marking for tracking
-- ISS does not change main direction
-- No same-candle ISS/main-CHOCH priority rule
+- Exactly 5 internal points (2 confirmed highs, 2 confirmed lows, 1 tentative).
+- Uses standard MSM rules for internal swings.
+- Boundary check evaluates marked swing prices, not intervening wick excursions.
+- Boundary equality is permitted (unlike strict swing break rules).
+- Confirmed on completion of the 5th point pullback, not at continuation break.
 
-### Ambiguities — Pending Reconciliation with Approved Clarifications
-1. Inherited MSM empty-search-range edge case
-2. No explicit rule for the internal marking starting candle being the first internal pullback candle (inherits the same ambiguity)
-
-### Candidate Test Scenarios
-1. Complete 5-point ISS within boundaries → confirmed, zones created
-2. 4th internal point falls outside boundary → rejected, no zones
-3. 5 valid points but completion close outside boundary → no ISS, tracking only
-4. Main continuation break before ISS completes → ISS cancelled
-5. Main CHOCH during active ISS search → ISS cancelled
-6. Price at boundary exactly (equality) → valid
-7. New main level 3 while waiting → fresh ISS search
-8. Wick extends outside boundary but body-edge level is inside → valid
-9. Second ISS attempt under same main level 3 after rejection → not allowed
+### Reconciled Decisions & Clarifications
+- **Consolidated Confirmation (OPEN-07)**: If an entry has both CHOCH and ISS confirmation, record both IDs on one entry without duplicate execution.
+- **Fail-Closed Principle**: Missing evidence blocks only the affected transition, never independent state.
 
 ---
 
 ## 4. TJL — Trend Joining Level
 
 ### Source Sections
-- `TJL.pdf` — Sections 1–9 (complete document)
-- Original authority: TopG.pdf pages 17–18
+- Original Authority: `TopG.pdf` pages 17–18
+- Strategy Document: `docs/strategy/TJL.pdf` — Sections 1–9
+- Transcription: `docs/strategy/extracted/tjl.md`
+- Approved Clarifications: `docs/requirements/approved-clarifications.md` (OPEN-02, OPEN-05, OPEN-08, OPEN-10)
 
 ### Inputs and Configuration
-- Confirmed high and confirmed low from MSM (on H4 and H1 separately)
-- Main structure direction
-- Source candles for each confirmed point
+- Confirmed highs and lows from MSM (evaluated on D1, H4, H1).
+- Main structure direction.
 
 ### Outputs
-- TJL1 label and zone (confirmed high in bullish / confirmed low in bearish)
-- TJL2 / A+ label and zone (confirmed low/LSM in bullish / confirmed high/LRM in bearish)
-- Zone price ranges or single price lines
-- Current active TJL set
+- **TJL1 label & zone**: Confirmed high in bullish / confirmed low in bearish.
+- **TJL2 / A+ label & zone**: Confirmed low (LSM) in bullish / confirmed high (LRM) in bearish.
+- Zone boundaries: `[body_edge, wick_tip]`.
 
-### State Transitions and Dependencies
-- TJL is a labeling layer on top of MSM; no independent state machine
-- When MSM establishes/updates a confirmed point → TJL label and zone auto-assigned
-- On main CHOCH → old TJL trading roles deactivated; new direction TJLs assigned as new confirmed points form
+### Base Module Rules vs. MTF Eligibility Overrides
+- **Base TJL Module (`TJL.pdf`)**:
+  - Serves strictly as a labeling and zone definition layer on top of confirmed MSM swings.
+  - In the base module description, only the latest TJL2 / A+ is designated as trading-eligible; TJL1 is labeled non-trading-eligible.
+- **MTF Module Override (`MTF-Analysis.pdf` Section 13)**:
+  - Under MTF Multi-Timeframe Entry Confirmation, **both TJL1 and TJL2 are explicitly eligible for tap activation and confirmation search**.
+  - TJL1 does NOT require a breakout-retest; it activates on tap under identical confirmation rules.
+  - In competing simultaneous confirmation ties between TJL1 and TJL2 from the same source timeframe, TJL2/A+ takes precedence.
 
-### Explicit Rules
-- TJL uses only confirmed points, never tentative
-- Zone construction: same body-edge-to-wick rules as other modules
-- Only latest TJL2 / A+ is trading-eligible
-- No volatility classification (explicitly excluded by user)
-- TJL1 marked but not trading-eligible under this module
-- No independent TJL confirmation event; follows MSM timing
-
-### Ambiguities — Pending Reconciliation with Approved Clarifications
-1. No historical-retention/deletion policy for older TJL zones on the display
-2. Inherited MSM empty-search-range edge case
-
-### Candidate Test Scenarios
-1. Bullish structure: confirmed high → TJL1, confirmed low → TJL2/A+ (LSM)
-2. Bearish structure: mirror labels
-3. New confirmed pair updates TJL labels automatically
-4. Main CHOCH → old TJL roles deactivated
-5. Zero-width zone (no wick) → single price line
+### Reconciled Decisions & Clarifications
+- **Lifecycle Timing (OPEN-02)**: TJL labels appear at t1; active trading set updates only at t2. Detailed t1/t2 timing criteria must be specified prior to TJL coding.
+- **Out-of-zone Cancellation Rearming (OPEN-05)**: If cancelled while price is already outside the zone, the next touch is rearmed.
 
 ---
 
 ## 5. MTF — Multi-Timeframe Entry Confirmation
 
 ### Source Sections
-- `MTF-Analysis.pdf` — Sections 1–13 (complete document)
-- Baseline: Entry_and_Confirmation_New_Rules.pdf, Version 1, 24 October 2026
-- User approvals through 26 October 2026, 12:58 AM IST
+- Original Authority: `MTF-Analysis.pdf` — Sections 1–13 (complete document)
+- Baseline: `Entry_and_Confirmation_New_Rules.pdf`
+- Approved Clarifications: `docs/requirements/approved-clarifications.md` (OPEN-02 through OPEN-12)
 
 ### Inputs and Configuration
-- TJL levels on D1, H4, H1 (independently marked)
-- Candle data on D1, H4, H1, M5, M1
-- CHOCH and ISS detection state on confirmation timeframes (H1, M5, M1)
-- Monday-to-Monday marking cycle for TJL set retention
+- Active TJL zones on D1, H4, H1.
+- Candle data on D1, H4, H1, M5, M1.
+- Mapped confirmation detection (H1 for D1; M5 for H4; M1 for H1).
 
 ### Outputs
-- Active TJL level activations (per source timeframe)
-- Confirmation signals (fresh CHOCH or ISS on mapped confirmation timeframe)
-- Entry signal at confirmation close
-- Used-level tracking per source timeframe and level
-- Cancellation events
+- Zone activations (on physical wick touch).
+- Entry signals (on fresh lower-timeframe confirmation close).
+- Level usage state (Available, Activated, Used, Cancelled).
 
-### State Transitions and Dependencies
-1. **TJL levels marked**: D1, H4, H1 independently
-2. **Tap**: wick touch of unused eligible TJL zone → activation starts confirmation search
-3. **Confirmation search active**: monitoring mapped lower timeframe for fresh CHOCH or ISS
-4. **Entry confirmed**: fresh directional CHOCH or ISS on mapped timeframe → entry at confirmation close
-5. **Level used**: one trade per level; used level cannot reactivate
-6. **Cancelled**: replaced TJL set, main CHOCH on source, or another entry wins
-7. **Reactivation**: unused cancelled level may reactivate with fresh tap (price must leave and re-enter zone)
+### Explicit Rules & Reconciliations
+- **Single Price Basis (OPEN-06)**: Touch requires physical print inside inclusive zone `[lower, upper]`; no path interpolation.
+- **Fresh Transition Requirement**: Confirmation must be a fresh structural transition occurring on or after the tap candle.
+- **One Trade Per Level**: An entry signal consumes the level (`Used`). A used level never reactivates.
+- **Conflict Resolution**: Earliest timestamp wins; tie-breakers: lower timeframe wins (M1 > M5 > H1); same-timeframe TJL2 wins over TJL1.
+- **No Position Gating (OPEN-11)**: All conceptual signals are listed chronologically without trade/execution filtering.
 
-### Explicit Rules
-- Confirmation mapping: D1 → H1, H4 → M5, H1 → M1
-- Accepted patterns: Normal CHOCH or ISS only
-- Buy: fresh bullish CHOCH/ISS; Sell: fresh bearish CHOCH/ISS
-- Existing aligned trend is NOT sufficient; must be fresh transition
-- Pattern may start before tap but must confirm on tap candle or after
-- Tap candle can also confirm → enter at that close
-- Do not wait for retest of CHOCH/ISS zones
-- Confirming candle need not close inside TJL zone
-- Competing activations: first valid confirmation timestamp wins
-- Timestamp tie: prefer lower confirmation TF (M1 > M5 > H1)
-- Same-source TJL1 vs TJL2 tie: TJL2/A+ wins
-- One trade per level; touch ≠ usage; entry = usage
-- Cancellation: replacement TJL on same source TF; source main CHOCH; entry from any level
-- Reactivation requires price to leave zone and re-touch; remaining inside doesn't count
-- Monday-to-Monday retention: Monday alone doesn't delete, cancel, or reset
-- Both TJL1 and TJL2 use same activation rule; no TJL1 breakout-retest requirement
-
-### Ambiguities — Pending Reconciliation with Approved Clarifications
-1. Inherited MSM empty-search-range edge case
-2. Broker order type, fill handling, and live execution mechanics not defined
-3. No zone expiry period defined
-4. No structural stop loss, target formula, or risk percentage defined (explicitly out of scope)
-5. TJL historical display/archival policy not defined
-
-### Candidate Test Scenarios
-1. D1 TJL2 tapped → monitor H1 for fresh bullish CHOCH → entry at confirmation close
-2. H4 TJL1 tapped → monitor M5 for fresh bearish ISS → entry at confirmation close
-3. Tap candle itself confirms CHOCH → immediate entry
-4. Pattern begins before tap, confirms after → valid
-5. Confirmation completes before tap → not reusable
-6. Two activations: H4 confirms at timestamp T, D1 confirms at timestamp T+1 → H4 wins
-7. Same timestamp tie: M1 wins over M5
-8. TJL1 and TJL2 same source confirm simultaneously → TJL2 wins
-9. Entry on H4 → all other activations (D1, H1) cancelled, not marked used
-10. Used level re-tapped → no activation
-11. Cancelled unused level: price leaves zone, re-taps → fresh activation with fresh confirmation requirement
-12. Monday arrives, no new 3-point set → levels retained, used status retained
-13. Source main CHOCH → immediate cancellation of activation
-14. Replacement TJL on same TF → cancel old activation
+### Distinct Scope Boundaries (Deliberately Out of Scope)
+- Order execution, live broker placement, slippage handling, and stop-loss/take-profit calculation are strictly outside application scope. They are not strategy ambiguities.
 
 ---
 
-## Cross-Module Dependency Graph
+## Cross-Module Architecture & Precedence
 
 ```
-MSM (Market Structure Marking)
- ├─→ CHOCH (reads confirmed levels + active tentative from MSM)
- ├─→ ISS (reads main level 2 and 3 from MSM; uses MSM rules internally)
- ├─→ TJL (labels confirmed MSM points)
- │    └─→ MTF Entry Confirmation (monitors TJL zones; uses CHOCH and ISS on lower TFs)
- └─→ All modules inherit MSM's candle measurement and comparison rules
+┌─────────────────────────────────────────────────────────────┐
+│                      Candle Data Feed                       │
+│           (Native MT5 UTC Timestamps, Contract Validated)   │
+└──────────────────────────────┬──────────────────────────────┘
+                               │
+                               ▼
+┌─────────────────────────────────────────────────────────────┐
+│             MSM (Market Structure Marking Engine)           │
+│  - Timeframe-agnostic (D1, H4, H1, M5, M1)                  │
+│  - Reconciled Empty-Range Skip & Display-Only Trend Status  │
+└──────────────┬──────────────────────────────┬───────────────┘
+               │                              │
+               ▼                              ▼
+┌──────────────────────────────┐┌──────────────────────────────┐
+│       CHOCH Detection        ││             TJL              │
+│  - Point 3 monitoring        ││  - Structural zone labeling  │
+│  - 2 consecutive closes      ││  - t1 identification timing  │
+└──────────────┬───────────────┘└─────────────┬────────────────┘
+               │                              │
+               ▼                              │
+┌──────────────────────────────┐              │
+│        ISS Detection         │              │
+│  - 5-point internal swings   │              │
+└──────────────┬───────────────┘              │
+               │                              │
+               └──────────────┬───────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│             MTF Multi-Timeframe Confirmation                │
+│  - Physical touch activation (OPEN-06)                      │
+│  - Fresh lower-TF confirmation (CHOCH / ISS)                │
+│  - Invalidation precedence before entry (OPEN-03)           │
+│  - Chronological signal generation without position gating  │
+└─────────────────────────────────────────────────────────────┘
 ```
-
-## Shared Unresolved Issue
-
-> [!WARNING]
-> **Empty search range edge case**: All five documents flag the same unresolved MSM boundary case where the user-selected starting candle is itself the first pullback candle, leaving no eligible range for the tentative level. No behaviour has been approved. This is **pending reconciliation with approved clarifications**.

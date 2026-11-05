@@ -1,11 +1,20 @@
-"""Tests for verifying settling and convergence of registered Dash callbacks.
+"""Direct-call tests of registered Dash callback functions using mocked adapters.
 
 Tests the actual registered callback functions from `register_callbacks(app)`:
 - `handle_connection_and_options` (Callback 1)
 - `update_chart` (Callback 2)
 
-Verifies that the callback dependency chain settles without oscillation,
-infinite feedback loops, or unintended fetches across:
+Scope & Verification Boundary:
+------------------------------
+These tests manually invoke the registered callback functions in a chosen sequence
+with mocked adapter states and dash.no_update assertions. They verify callback logic
+and state synchronization in Python without launching a browser.
+They do NOT run the browser's client-side JavaScript dependency scheduler or
+independently prove asynchronous graph convergence in the browser runtime.
+(Browser runtime behavior and console error absence are separately verified in
+`tests/browser_check.py`).
+
+Transitions Covered:
 1. Initial Connect
 2. Steady-State Refresh
 3. Broker Connected -> Terminal Only (Broker Offline)
