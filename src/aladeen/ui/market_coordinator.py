@@ -365,8 +365,8 @@ def generate_chart_and_status_from_snapshot(
                 if msm_res.is_valid and msm_res.snapshot is not None:
                     if msm_res.is_unresolved:
                         msm_status_suffix = (
-                            f" | ⚠️ Integrated Unresolved: Bar #{msm_res.unresolved_candle_index} "
-                            f"(Authoritative: {msm_res.snapshot.trend_status})"
+                            f" | ⚠️ Integrated Unresolved: ambiguous at candle {msm_res.unresolved_candle_index} "
+                            f"(Last Authoritative State: {msm_res.snapshot.trend_status}, Bar #{msm_res.last_processed_index})"
                         )
                     else:
                         choch_cnt = len(msm_res.confirmed_choch_events)

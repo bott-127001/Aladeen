@@ -414,7 +414,8 @@ def calculate_msm(df: pd.DataFrame, context: MSMContext) -> MSMServiceResult:
             if coord_snap.is_unresolved:
                 status_msg = (
                     f"Integrated structure unresolved: ambiguous at candle {coord_snap.unresolved_candle_index} | "
-                    f"Last Authoritative: {snapshot.trend_status if snapshot else 'None'} | "
+                    f"Last Authoritative State: {snapshot.trend_status if snapshot else 'None'} (Bar #{coord_snap.last_processed_index}) | "
+                    f"Received through Bar #{coord_snap.last_received_index} | "
                     f"Pairs: {pair_count} | CHOCH: {choch_count}"
                 )
             else:

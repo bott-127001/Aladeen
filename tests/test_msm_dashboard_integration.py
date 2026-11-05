@@ -1848,7 +1848,7 @@ class TestIntegratedMSMChochDashboard:
             symbol="EURUSD",
             timeframe="H4",
             candle_count=len(candle_records),
-            timestamp_utc="2026-10-02 12:00:00 UTC",
+            timestamp_utc="2026-10-02 16:00:00 UTC",
             fetch_status="SUCCESS",
             candles_data=tuple(candle_records),
         )
@@ -1879,21 +1879,223 @@ class TestIntegratedMSMChochDashboard:
         assert ev.c1_candle_index == 8
         assert ev.c2_candle_index == 9
         assert len(ev.zones) == 3
+        assert ev.confirmation_time == pd.to_datetime("2026-10-02T16:00:00+00:00", utc=True).to_pydatetime()
 
         fig = create_candlestick_chart(df, symbol="EURUSD", timeframe="H4", msm_result=res)
         # Verify chart traces
         trace_names = [t.name for t in fig.data if hasattr(t, "name")]
         assert "CHOCH (BEAR)" in trace_names
 
-        # Verify zones on chart start strictly at c2 confirmation time
-        c2_time = ev.c2_open_time
-        zone_shapes = [s for s in fig.layout.shapes if s.x0 == c2_time]
-        assert len(zone_shapes) == 3, f"Expected 3 zone shapes starting at c2_time, got {len(zone_shapes)}"
+        # R24: Verify zones on chart start strictly at ev.confirmation_time (2026-10-02 16:00 UTC)
+        expected_conf_time = ev.confirmation_time
+        zone_shapes = [s for s in fig.layout.shapes if s.x0 == expected_conf_time]
+        assert len(zone_shapes) == 3, f"Expected 3 zone shapes starting at {expected_conf_time}, got {len(zone_shapes)}"
+
+        # Verify NO zone shape starts at c2_open_time (2026-10-02 12:00 UTC)
+        c2_open_shapes = [s for s in fig.layout.shapes if s.x0 == ev.c2_open_time]
+        assert len(c2_open_shapes) == 0, "No zone shape should start at c2_open_time!"
+
+        # Ensure right boundary is never earlier than left boundary (x1 >= x0)
+        for s in zone_shapes:
+            assert s.x1 >= s.x0, f"Zone shape right boundary earlier than left: {s.x1} < {s.x0}"
 
         # Check zone geometries
         rect_zones = [s for s in zone_shapes if s.type == "rect"]
         line_zones = [s for s in zone_shapes if s.type == "line"]
         assert len(rect_zones) + len(line_zones) == 3
+
+    def test_bullish_fixture_zone_starts_at_confirmation_time(self, choch_acceptance_fixtures) -> None:
+        """R24: Bullish fixture zone starts strictly at confirmation time (2026-10-02 20:00 UTC)."""
+        fix = choch_acceptance_fixtures["choch_bullish_basic_end_to_end"]
+        raw_candles = fix["candles"]
+
+        candle_records = [
+            MarketCandleRecord(
+                time=c["time"],
+                open=c["open"],
+                high=c["high"],
+                low=c["low"],
+                close=c["close"],
+                is_forming=c["is_forming"],
+                bar_status=c["bar_status"],
+                index=i,
+                close_time=c.get("close_time"),
+            )
+            for i, c in enumerate(raw_candles)
+        ]
+
+        snap = MarketDataSnapshot(
+            revision_id="rev-bullish-test",
+            data_source="demo",
+            symbol="EURUSD",
+            timeframe="H4",
+            candle_count=len(candle_records),
+            timestamp_utc="2026-10-02 20:00:00 UTC",
+            fetch_status="SUCCESS",
+            candles_data=tuple(candle_records),
+        )
+
+        df = snap.to_dataframe()
+        ctx = MSMContext(
+            data_source="demo",
+            symbol="EURUSD",
+            timeframe="H4",
+            start_candle_time=pd.to_datetime(fix["start_candle_time"], utc=True).to_pydatetime(),
+            direction=Direction.DOWNWARD,
+            calculation_mode="INTEGRATED_MSM_CHOCH",
+            show_choch_zones=True,
+            show_choch_markers=True,
+        )
+        res = calculate_msm(df, ctx)
+        assert res.is_valid
+        assert len(res.confirmed_choch_events) == 1
+        ev = res.confirmed_choch_events[0]
+
+        expected_conf_time = pd.to_datetime("2026-10-02T20:00:00+00:00", utc=True).to_pydatetime()
+        assert ev.confirmation_time == expected_conf_time
+
+        fig = create_candlestick_chart(df, symbol="EURUSD", timeframe="H4", msm_result=res)
+        zone_shapes = [s for s in fig.layout.shapes if s.x0 == expected_conf_time]
+        assert len(zone_shapes) == 3, f"Expected 3 zone shapes starting at {expected_conf_time}, got {len(zone_shapes)}"
+
+        # Verify NO shape starts at c2_open_time (2026-10-02 16:00 UTC)
+        c2_open_shapes = [s for s in fig.layout.shapes if s.x0 == ev.c2_open_time]
+        assert len(c2_open_shapes) == 0
+
+    def test_unknown_confirmation_time_handling_and_no_fabricated_extension(self, choch_acceptance_fixtures) -> None:
+        """R24: Unknown confirmation time displays 'Unknown' and omits time-extended availability zones on chart."""
+        fix = choch_acceptance_fixtures["choch_bearish_basic_end_to_end"]
+        # Strip close_time so confirmation_time becomes None
+        raw_candles = [dict(c) for c in fix["candles"]]
+        for c in raw_candles:
+            c.pop("close_time", None)
+
+        candle_records = [
+            MarketCandleRecord(
+                time=c["time"],
+                open=c["open"],
+                high=c["high"],
+                low=c["low"],
+                close=c["close"],
+                is_forming=c["is_forming"],
+                bar_status=c["bar_status"],
+                index=i,
+                close_time=None,
+            )
+            for i, c in enumerate(raw_candles)
+        ]
+
+        snap = MarketDataSnapshot(
+            revision_id="rev-unknown-conf",
+            data_source="demo",
+            symbol="EURUSD",
+            timeframe="H4",
+            candle_count=len(candle_records),
+            timestamp_utc="2026-10-02 12:00:00 UTC",
+            fetch_status="SUCCESS",
+            candles_data=tuple(candle_records),
+        )
+
+        df = snap.to_dataframe()
+        ctx = MSMContext(
+            data_source="demo",
+            symbol="EURUSD",
+            timeframe="H4",
+            start_candle_time=pd.to_datetime(fix["start_candle_time"], utc=True).to_pydatetime(),
+            direction=Direction.UPWARD,
+            calculation_mode="INTEGRATED_MSM_CHOCH",
+            show_choch_zones=True,
+            show_choch_markers=True,
+        )
+        res = calculate_msm(df, ctx)
+        ev = res.confirmed_choch_events[0]
+        assert ev.confirmation_time is None
+
+        # Inspection panel must NOT display misleading "(c2 close)"
+        panel = render_msm_inspection_table(res.snapshot, ctx, "rev-unknown-conf", msm_result=res)
+        # Search panel text
+        def extract_text(comp):
+            if isinstance(comp, str):
+                return comp
+            children = getattr(comp, "children", None)
+            if isinstance(children, list):
+                return " ".join(extract_text(c) for c in children)
+            elif children is not None:
+                return extract_text(children)
+            return ""
+
+        panel_text = extract_text(panel)
+        assert "(c2 close)" not in panel_text
+        assert "Unknown — confirmed on completion of candle Bar #9" in panel_text
+
+        # Chart representation: no time-extended availability zones should be drawn
+        fig = create_candlestick_chart(df, symbol="EURUSD", timeframe="H4", msm_result=res)
+        # Check shapes: only MSM last support/resistance/tentative shapes, NO zone shapes
+        zone_types = {z.zone_type.value for z in ev.zones}
+        for s in fig.layout.shapes:
+            assert s.x0 != ev.c2_open_time, "No zone shape should start at c2_open_time"
+
+        # Check marker tooltip explicitly distinguishes open from unknown availability
+        marker_traces = [t for t in fig.data if "CHOCH" in getattr(t, "name", "")]
+        assert len(marker_traces) >= 1
+        hover_txt = marker_traces[0].hovertext[0]
+        assert "Candle-Anchored Marker" in hover_txt
+        assert "Confirmation Availability: Unknown" in hover_txt
+        assert "(c2 close)" not in hover_txt
+
+    def test_final_bar_confirmation_never_produces_backward_zone(self, choch_acceptance_fixtures) -> None:
+        """R24: Final-bar confirmation (where confirmation_time > last_chart_time) never produces x1 < x0."""
+        fix = choch_acceptance_fixtures["choch_bearish_basic_end_to_end"]
+        # End dataset exactly at candle 9 (c2)
+        raw_candles = fix["candles"][:10]  # indices 0..9
+        candle_records = [
+            MarketCandleRecord(
+                time=c["time"],
+                open=c["open"],
+                high=c["high"],
+                low=c["low"],
+                close=c["close"],
+                is_forming=c["is_forming"],
+                bar_status=c["bar_status"],
+                index=i,
+                close_time=c.get("close_time"),
+            )
+            for i, c in enumerate(raw_candles)
+        ]
+
+        snap = MarketDataSnapshot(
+            revision_id="rev-final-bar",
+            data_source="demo",
+            symbol="EURUSD",
+            timeframe="H4",
+            candle_count=len(candle_records),
+            timestamp_utc="2026-10-02 12:00:00 UTC",
+            fetch_status="SUCCESS",
+            candles_data=tuple(candle_records),
+        )
+        df = snap.to_dataframe()
+        assert df.index[-1] == pd.to_datetime("2026-10-02T12:00:00+00:00", utc=True)
+
+        ctx = MSMContext(
+            data_source="demo",
+            symbol="EURUSD",
+            timeframe="H4",
+            start_candle_time=pd.to_datetime(fix["start_candle_time"], utc=True).to_pydatetime(),
+            direction=Direction.UPWARD,
+            calculation_mode="INTEGRATED_MSM_CHOCH",
+            show_choch_zones=True,
+            show_choch_markers=True,
+        )
+        res = calculate_msm(df, ctx)
+        ev = res.confirmed_choch_events[0]
+        # Confirmation time is 2026-10-02 16:00 UTC, which is strictly after last candle open (12:00 UTC)
+        assert ev.confirmation_time > df.index[-1]
+
+        fig = create_candlestick_chart(df, symbol="EURUSD", timeframe="H4", msm_result=res)
+        # All shapes must have x1 >= x0 (no backward shape)
+        for s in fig.layout.shapes:
+            if hasattr(s, "x0") and hasattr(s, "x1"):
+                assert s.x1 >= s.x0, f"Shape drawn backward: x1={s.x1} < x0={s.x0}"
 
     def test_zones_tradability_boundary_never_starts_at_source_swing_time(self, choch_acceptance_fixtures) -> None:
         """Tradability Boundary: Zones start at c2 confirmation, NEVER at original swing candle."""
@@ -1940,7 +2142,7 @@ class TestIntegratedMSMChochDashboard:
         # None of the zone shapes should have x0 at source swing candle open times
         source_swing_times = {z.source_candle_open_time for z in ev.zones}
         for s in fig.layout.shapes:
-            if hasattr(s, "x0") and s.x0 in source_swing_times and s.x0 != ev.c2_open_time:
+            if hasattr(s, "x0") and s.x0 in source_swing_times and s.x0 != ev.confirmation_time:
                 pytest.fail(f"Zone shape drawn starting at source swing time {s.x0} prior to confirmation!")
 
     def test_display_toggles_update_presentation_without_recalculating(self, choch_acceptance_fixtures) -> None:
@@ -2006,9 +2208,9 @@ class TestIntegratedMSMChochDashboard:
         fig = create_candlestick_chart(df, symbol="EURUSD", timeframe="H4", msm_result=res)
         trace_names = [t.name for t in fig.data if hasattr(t, "name")]
         assert "CHOCH (BEAR)" not in trace_names
-        # No zone shapes starting at c2_open_time
+        # No zone shapes starting at confirmation_time
         ev = res.confirmed_choch_events[0]
-        c2_shapes = [s for s in fig.layout.shapes if getattr(s, "x0", None) == ev.c2_open_time]
+        c2_shapes = [s for s in fig.layout.shapes if getattr(s, "x0", None) == ev.confirmation_time]
         assert len(c2_shapes) == 0
 
     def test_unresolved_boundary_presentation_and_containment(self, choch_acceptance_fixtures) -> None:
@@ -2063,6 +2265,7 @@ class TestIntegratedMSMChochDashboard:
         assert applied_store is not None
         assert "Integrated structure unresolved" in status_text
         assert "ambiguous at candle 7" in status_text
+        assert "Last Authoritative State:" in status_text
         # Non-green styling: orange #ff9800
         assert status_style["color"] == "#ff9800"
 
@@ -2077,7 +2280,7 @@ class TestIntegratedMSMChochDashboard:
 
         # Chart representation
         fig = create_candlestick_chart(df, symbol="EURUSD", timeframe="H4", msm_result=res)
-        assert "INTEGRATED UNRESOLVED (Bar #7)" in fig.layout.title.text
+        assert "INTEGRATED UNRESOLVED — Last authoritative state" in fig.layout.title.text
         # Check vertical line shape for unresolved candle
         unres_shapes = [
             s for s in fig.layout.shapes

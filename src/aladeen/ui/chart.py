@@ -350,8 +350,10 @@ def create_candlestick_chart(
             if getattr(msm_result, "is_unresolved", False):
                 unres_idx = getattr(msm_result, "unresolved_candle_index", None)
                 unres_diag = getattr(msm_result, "unresolved_diagnostic", None)
+                last_proc = getattr(msm_result, "last_processed_index", -1)
+                last_rec = getattr(msm_result, "last_received_index", -1)
                 title_parts.append(
-                    f"<span style='color: #ff9800;'>⚠️ INTEGRATED UNRESOLVED (Bar #{unres_idx})</span>"
+                    f"<span style='color: #ff9800;'>⚠️ INTEGRATED UNRESOLVED — Last authoritative state (Bar #{last_proc}, received through Bar #{last_rec})</span>"
                 )
                 if unres_diag is not None:
                     unres_time = unres_diag.candle_open_time
@@ -372,7 +374,7 @@ def create_candlestick_chart(
                                 x=unres_time,
                                 y=1.0,
                                 yref="paper",
-                                text=f"⚠️ Unresolved (Bar #{unres_idx})",
+                                text=f"⚠️ Unresolved: Last authoritative state (Bar #{last_proc})",
                                 showarrow=False,
                                 font=dict(color="#ff9800", size=10),
                                 bgcolor="#2e1a00",
@@ -393,25 +395,25 @@ def create_candlestick_chart(
 
                 for ev in choch_events:
                     c2_time = ev.c2_open_time
-                    conf_time_str = (
-                        ev.confirmation_time.strftime("%Y-%m-%d %H:%M UTC")
-                        if ev.confirmation_time
-                        else f"{ev.c2_open_time.strftime('%Y-%m-%d %H:%M UTC')} (c2 close)"
-                    )
                     is_bear = "BEARISH" in ev.choch_type.value
                     m_color = "#ff4081" if is_bear else "#00e5ff"
                     m_sym = "triangle-down" if is_bear else "triangle-up"
                     m_pos = "bottom center" if is_bear else "top center"
 
+                    if ev.confirmation_time is not None:
+                        conf_avail_marker_str = f"Confirmed At: {ev.confirmation_time.strftime('%Y-%m-%d %H:%M UTC')} (Candle Close)"
+                    else:
+                        conf_avail_marker_str = f"Confirmation Availability: Unknown — confirmed on completion of candle Bar #{ev.c2_candle_index}"
+
                     if show_markers:
                         c2_y = float(df.loc[c2_time, "close"]) if c2_time in df.index else ev.broken_level_price
                         choch_hover = (
-                            f"<b>Confirmed CHOCH ({ev.choch_type.value})</b><br>"
+                            f"<b>Confirmed CHOCH ({ev.choch_type.value}) [Candle-Anchored Marker]</b><br>"
                             f"Broken Level: {ev.broken_level_type} @ {ev.broken_level_price:.4f} (Bar #{ev.broken_level_source_index})<br>"
-                            f"c1: Bar #{ev.c1_candle_index} ({ev.c1_open_time.strftime('%Y-%m-%d %H:%M UTC')})<br>"
-                            f"c2: Bar #{ev.c2_candle_index} ({ev.c2_open_time.strftime('%Y-%m-%d %H:%M UTC')})<br>"
-                            f"Confirmation: {conf_time_str}<br>"
-                            f"Point 3: Bar #{ev.point_3_source_index} ({ev.point_3_open_time.strftime('%Y-%m-%d %H:%M UTC')})<br>"
+                            f"Qualifying Candle c1: Bar #{ev.c1_candle_index} (Open: {ev.c1_open_time.strftime('%Y-%m-%d %H:%M UTC')})<br>"
+                            f"Qualifying Candle c2 (Anchor): Bar #{ev.c2_candle_index} (Open: {ev.c2_open_time.strftime('%Y-%m-%d %H:%M UTC')})<br>"
+                            f"{conf_avail_marker_str}<br>"
+                            f"Point 3: Bar #{ev.point_3_source_index} (Open: {ev.point_3_open_time.strftime('%Y-%m-%d %H:%M UTC')})<br>"
                             f"New Direction: {ev.new_direction.value}"
                         )
                         fig.add_trace(
@@ -430,64 +432,72 @@ def create_candlestick_chart(
                         )
 
                     if show_zones:
-                        x0_zone = ev.c2_open_time  # Available starting strictly from confirmation time
-                        x1_zone = last_chart_time
-                        for z in ev.zones:
-                            z_type_str = z.zone_type.value if hasattr(z.zone_type, "value") else str(z.zone_type)
-                            if "SBR" in z_type_str:
-                                border_color, fill_color = "#ff5252", "rgba(255, 82, 82, 0.15)"
-                            elif "RBS" in z_type_str:
-                                border_color, fill_color = "#00e676", "rgba(0, 230, 118, 0.15)"
-                            elif "QML" in z_type_str:
-                                border_color, fill_color = "#b388ff", "rgba(179, 136, 255, 0.15)"
-                            elif "TOP" in z_type_str:
-                                border_color, fill_color = "#ff7043", "rgba(255, 112, 67, 0.15)"
-                            else:
-                                border_color, fill_color = "#26a69a", "rgba(38, 166, 154, 0.15)"
+                        # R24: Zone shapes and hover traces begin strictly at ev.confirmation_time.
+                        # Never use ev.c2_open_time as the availability boundary.
+                        # If confirmation_time is None (unknown), omit time-extended availability zones.
+                        if ev.confirmation_time is not None:
+                            x0_zone = ev.confirmation_time
+                            conf_avail_label = f"Structural zone available from: {ev.confirmation_time.strftime('%Y-%m-%d %H:%M UTC')}"
+                            # Ensure right boundary is never earlier than left boundary (x1 >= x0)
+                            # If confirmation occurs beyond last plotted candle-open timestamp, x1_zone = max(last_chart_time, x0_zone)
+                            x1_zone = max(last_chart_time, x0_zone)
 
-                            if z.is_line:
-                                shapes.append(
-                                    dict(
-                                        type="line",
-                                        x0=x0_zone,
-                                        x1=x1_zone,
-                                        y0=z.lower_price,
-                                        y1=z.lower_price,
-                                        line=dict(color=border_color, width=1.5, dash="dash"),
+                            for z in ev.zones:
+                                z_type_str = z.zone_type.value if hasattr(z.zone_type, "value") else str(z.zone_type)
+                                if "SBR" in z_type_str:
+                                    border_color, fill_color = "#ff5252", "rgba(255, 82, 82, 0.15)"
+                                elif "RBS" in z_type_str:
+                                    border_color, fill_color = "#00e676", "rgba(0, 230, 118, 0.15)"
+                                elif "QML" in z_type_str:
+                                    border_color, fill_color = "#b388ff", "rgba(179, 136, 255, 0.15)"
+                                elif "TOP" in z_type_str:
+                                    border_color, fill_color = "#ff7043", "rgba(255, 112, 67, 0.15)"
+                                else:
+                                    border_color, fill_color = "#26a69a", "rgba(38, 166, 154, 0.15)"
+
+                                if z.is_line:
+                                    shapes.append(
+                                        dict(
+                                            type="line",
+                                            x0=x0_zone,
+                                            x1=x1_zone,
+                                            y0=z.lower_price,
+                                            y1=z.lower_price,
+                                            line=dict(color=border_color, width=1.5, dash="dash"),
+                                        )
+                                    )
+                                else:
+                                    shapes.append(
+                                        dict(
+                                            type="rect",
+                                            x0=x0_zone,
+                                            x1=x1_zone,
+                                            y0=z.lower_price,
+                                            y1=z.upper_price,
+                                            fillcolor=fill_color,
+                                            line=dict(color=border_color, width=1),
+                                        )
+                                    )
+
+                                mid_y = (z.lower_price + z.upper_price) / 2.0
+                                hover_z = (
+                                    f"<b>Zone: {z_type_str}</b><br>"
+                                    f"Price: {z.lower_price:.4f} – {z.upper_price:.4f}{' (Line)' if z.is_line else ''}<br>"
+                                    f"Source Candle: Bar #{z.source_candle_index} ({z.source_candle_open_time.strftime('%Y-%m-%d %H:%M UTC')})<br>"
+                                    f"{conf_avail_label}"
+                                )
+                                fig.add_trace(
+                                    go.Scatter(
+                                        x=[x0_zone, x1_zone],
+                                        y=[mid_y, mid_y],
+                                        mode="lines",
+                                        name=f"Zone: {z_type_str}",
+                                        line=dict(color=border_color, width=1, dash="dot"),
+                                        hovertext=[hover_z, hover_z],
+                                        hoverinfo="text",
+                                        showlegend=False,
                                     )
                                 )
-                            else:
-                                shapes.append(
-                                    dict(
-                                        type="rect",
-                                        x0=x0_zone,
-                                        x1=x1_zone,
-                                        y0=z.lower_price,
-                                        y1=z.upper_price,
-                                        fillcolor=fill_color,
-                                        line=dict(color=border_color, width=1),
-                                    )
-                                )
-
-                            mid_y = (z.lower_price + z.upper_price) / 2.0
-                            hover_z = (
-                                f"<b>Zone: {z_type_str}</b><br>"
-                                f"Price: {z.lower_price:.4f} – {z.upper_price:.4f}{' (Line)' if z.is_line else ''}<br>"
-                                f"Source Candle: Bar #{z.source_candle_index} ({z.source_candle_open_time.strftime('%Y-%m-%d %H:%M UTC')})<br>"
-                                f"Available From: {conf_time_str} (c2 Confirmation)"
-                            )
-                            fig.add_trace(
-                                go.Scatter(
-                                    x=[x0_zone, x1_zone],
-                                    y=[mid_y, mid_y],
-                                    mode="lines",
-                                    name=f"Zone: {z_type_str}",
-                                    line=dict(color=border_color, width=1, dash="dot"),
-                                    hovertext=[hover_z, hover_z],
-                                    hoverinfo="text",
-                                    showlegend=False,
-                                )
-                            )
 
     fig.update_layout(
         title=" | ".join(title_parts),

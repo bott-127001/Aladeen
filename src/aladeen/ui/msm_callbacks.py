@@ -139,7 +139,7 @@ def render_msm_inspection_table(
                     children=[
                         html.Span("⚠️", style={"fontSize": "18px"}),
                         html.B(
-                            "INTEGRATED STRUCTURE UNRESOLVED — AMBIGUOUS BOUNDARY",
+                            "INTEGRATED STRUCTURE UNRESOLVED — LAST AUTHORITATIVE STATE",
                             style={"color": "#ffb74d", "fontSize": "14px"},
                         ),
                     ],
@@ -147,14 +147,14 @@ def render_msm_inspection_table(
                 html.P(
                     f"Structural ambiguity detected at Candle #{unres_candle}: {unres_msg}. "
                     f"Markings reflect the last authoritative state prior to ambiguity. "
-                    f"Authoritative progress is frozen at Bar #{msm_result.last_processed_index}; "
+                    f"Authoritative processing is frozen at Bar #{msm_result.last_processed_index}; "
                     f"later input received through Bar #{msm_result.last_received_index} without green success styling.",
                     style={"fontSize": "12px", "lineHeight": "1.4", "margin": "0 0 6px 0", "color": "#ffcc80"},
                 ),
                 html.Div(
                     style={"fontSize": "11px", "color": "#bcaaa4"},
                     children=[
-                        html.Span(f"Authoritative Bar: #{msm_result.last_processed_index} | "),
+                        html.Span(f"Last Authoritative Processed Bar: #{msm_result.last_processed_index} | "),
                         html.Span(f"Latest Received Input: Bar #{msm_result.last_received_index} | "),
                         html.Span("Status: Frozen pre-ambiguity state pending reconciliation."),
                     ],
@@ -327,7 +327,9 @@ def render_msm_inspection_table(
                                     ),
                                     html.Td(f"Bar #{ev.point_3_source_index} ({ev.point_3_open_time.strftime('%H:%M')})", style={"padding": "6px 12px"}),
                                     html.Td(
-                                        ev.confirmation_time.strftime("%Y-%m-%d %H:%M UTC") if ev.confirmation_time else f"{ev.c2_open_time.strftime('%Y-%m-%d %H:%M UTC')} (c2 close)",
+                                        ev.confirmation_time.strftime("%Y-%m-%d %H:%M UTC")
+                                        if ev.confirmation_time is not None
+                                        else f"Unknown — confirmed on completion of candle Bar #{ev.c2_candle_index} ({ev.c2_open_time.strftime('%Y-%m-%d %H:%M UTC')})",
                                         style={"padding": "6px 12px"},
                                     ),
                                     html.Td(f"Reversed to {ev.new_direction.value}", style={"padding": "6px 12px", "color": "#00e5ff"}),
@@ -343,7 +345,13 @@ def render_msm_inspection_table(
 
         zone_rows = []
         for ev in msm_result.confirmed_choch_events:
-            conf_str = ev.confirmation_time.strftime('%Y-%m-%d %H:%M UTC') if ev.confirmation_time else f"{ev.c2_open_time.strftime('%Y-%m-%d %H:%M UTC')} (c2 close)"
+            if ev.confirmation_time is not None:
+                avail_str = f"Structural zone available from {ev.confirmation_time.strftime('%Y-%m-%d %H:%M UTC')}"
+                avail_color = "#80d8ff"
+            else:
+                avail_str = f"Unknown — confirmed on completion of candle Bar #{ev.c2_candle_index} ({ev.c2_open_time.strftime('%Y-%m-%d %H:%M UTC')})"
+                avail_color = "#ffb74d"
+
             for z in ev.zones:
                 price_str = f"{z.lower_price:.4f} – {z.upper_price:.4f}" if not z.is_line else f"{z.lower_price:.4f}"
                 geom_str = "Line (Thickness 0)" if z.is_line else "Box / Area"
@@ -362,7 +370,7 @@ def render_msm_inspection_table(
                             html.Td(price_str, style={"padding": "6px 12px", "fontWeight": "bold", "color": "#b388ff"}),
                             html.Td(geom_str, style={"padding": "6px 12px", "color": "#aaa"}),
                             html.Td(f"{z.source_candle_open_time.strftime('%Y-%m-%d %H:%M UTC')} (Bar #{z.source_candle_index})", style={"padding": "6px 12px"}),
-                            html.Td(f"Available from {conf_str}", style={"padding": "6px 12px", "color": "#80d8ff"}),
+                            html.Td(avail_str, style={"padding": "6px 12px", "color": avail_color}),
                         ],
                     )
                 )
@@ -382,7 +390,7 @@ def render_msm_inspection_table(
                                     html.Th("Price Bounds", style={"padding": "8px 12px"}),
                                     html.Th("Geometry", style={"padding": "8px 12px"}),
                                     html.Th("Source Candle (UTC)", style={"padding": "8px 12px"}),
-                                    html.Th("Tradability / Available From", style={"padding": "8px 12px"}),
+                                    html.Th("Structural Zone Availability", style={"padding": "8px 12px"}),
                                 ],
                             )
                         ),
@@ -556,7 +564,8 @@ def evaluate_msm_for_snapshot(
     if res.is_unresolved:
         status_text = (
             f"⚠️ Integrated structure unresolved: ambiguous at candle {res.unresolved_candle_index} | "
-            f"Last Authoritative: {res.snapshot.trend_status} | "
+            f"Last Authoritative State: {res.snapshot.trend_status} (Bar #{res.last_processed_index}) | "
+            f"Received through Bar #{res.last_received_index} | "
             f"Pairs: {pair_cnt} | CHOCH: {choch_cnt} (rev: {snapshot.revision_id})"
         )
         status_style = {"marginTop": "10px", "fontSize": "12px", "color": "#ff9800", "fontWeight": "bold"}
@@ -804,7 +813,8 @@ def process_msm_controls_update(
                     status_style = {"marginTop": "10px", "fontSize": "12px", "color": "#ff9800", "fontWeight": "bold"}
                     status_text = (
                         f"⚠️ Integrated structure unresolved: ambiguous at candle {res.unresolved_candle_index} | "
-                        f"Last Authoritative: {res.snapshot.trend_status} | "
+                        f"Last Authoritative State: {res.snapshot.trend_status} (Bar #{res.last_processed_index}) | "
+                        f"Received through Bar #{res.last_received_index} | "
                         f"Pairs: {pair_cnt} | CHOCH: {choch_cnt} (rev: {snapshot.revision_id})"
                     )
                 else:
