@@ -20,6 +20,9 @@ dev = [
     "pytest>=7.4",
     "pytest-cov>=4.1",
 ]
+mt5 = [
+    "MetaTrader5>=5.0.0; platform_system=='Windows'",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

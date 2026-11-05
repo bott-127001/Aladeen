@@ -2,81 +2,148 @@
 
 A Python and MetaTrader 5 (MT5) trading-analysis dashboard for monitoring, analyzing, and reviewing trading setups and market structure.
 
-## Status
+> [!IMPORTANT]
+> **Read-Only Market Data**: This application only reads candlestick market data. It contains **no order execution**, **no automated trading**, and **no trading strategy calculations**. It never requests, stores, logs, or commits MT5 passwords, account logins, or balances.
 
-**App-shell prototype** — the interface foundation is runnable but no strategy logic or MT5 integration exists.
+---
 
-- ✅ Installable Python package with Dash/Plotly
-- ✅ Browser-based candlestick chart with demo data
-- ✅ Symbol and timeframe selectors, refresh button
-- ✅ 34 automated tests passing
-- ❌ No MSM, CHOCH, ISS, TJL, or MTF modules implemented
-- ❌ No MT5 connectivity — demo data only
-- ❌ No SQLite persistence
-- ❌ No order execution (out of scope)
+## Current Status
 
-## Environment Setup
+- ✅ Installable Python package with Dash/Plotly (`aladeen`)
+- ✅ Shared Candle Data Contract with strict chronological & OHLC integrity validation
+- ✅ Dual Data Source Support:
+  - **Demo Mode**: Built-in deterministic synthetic fixtures (works out of the box without MT5)
+  - **MT5 Mode**: Read-only connection to local MetaTrader 5 desktop terminal
+- ✅ Timeframe support: D1, H4, H1, M5, M1
+- ✅ Bounded candle count selection (50 to 1000 bars)
+- ✅ Forming candle distinction on chart (real-time bar highlighted)
+- ✅ 76 automated tests passing (fixtures, contract validation, mocked MT5 adapter, mode isolation)
+- ❌ No strategy logic (MSM, CHOCH, ISS, TJL, MTF) implemented yet
+- ❌ No SQLite caching / offline replay yet
+- ❌ No order execution (strictly out of scope)
 
-**Requirements**: Python 3.10+
+---
+
+## Environment Setup & Installation
+
+### Option A: Demo Mode Only (Cross-Platform)
+
+Requires Python 3.10+. Works on Windows, macOS, and Linux without MetaTrader 5:
 
 ```bash
-# Create and activate a virtual environment (recommended)
+# Clone the repository
+git clone https://github.com/bott-127001/Aladeen.git
+cd Aladeen
+
+# Create and activate virtual environment
 python -m venv .venv
-# Windows
+# Windows:
 .venv\Scripts\activate
-# macOS/Linux
+# macOS / Linux:
 source .venv/bin/activate
-```
 
-## Installation
-
-```bash
-# Install the package with development dependencies
+# Install package with development dependencies
 pip install -e ".[dev]"
 ```
 
-## Run the Dashboard
+### Option B: With MT5 Integration (Windows Only)
+
+To enable live local MT5 terminal integration:
 
 ```bash
-python -m aladeen.app
+# Install with optional MT5 dependency
+pip install -e ".[dev,mt5]"
 ```
 
-Then open http://127.0.0.1:8050 in your browser.
+*Note*: The `MetaTrader5` library requires Windows 64-bit and Python 3.10+.
 
-The dashboard displays deterministic demo OHLC data. It is **not connected to MT5** and shows a prominent warning banner. Symbol selection is disabled (only one demo fixture exists). Only H4 and D1 timeframes have fixture data; other timeframes show an explicit unsupported-demo message.
+---
 
-## Run Tests
+## Running the Dashboard
+
+```bash
+# Run on localhost (127.0.0.1:8050) with debug disabled by default
+python -m aladeen.app
+
+# Optional: Enable development debug mode or custom port
+python -m aladeen.app --debug --port 8050
+```
+
+Open your browser to: **http://127.0.0.1:8050**
+
+---
+
+## Using MT5 Local Market Data
+
+### Local Terminal Prerequisites
+1. **MetaTrader 5 Desktop Application** must be installed and running on the same Windows machine.
+2. The terminal must be **logged into a trading account** (demo or real broker account).
+3. In MT5: Tools → Options → Expert Advisors, ensure **"Allow algorithmic trading"** is checked.
+
+### Connection Steps
+1. Open the dashboard in your browser.
+2. Switch **Data Source** from `Demo Mode` to `MT5 (Local Terminal)`.
+3. Click the green **"⚡ Connect MT5"** button. The connection badge will update to `🟢 Connected (Local Terminal)`.
+4. Choose an instrument symbol from the dropdown (populated directly from your MT5 terminal MarketWatch).
+5. Choose a timeframe (`D1`, `H4`, `H1`, `M5`, `M1`) and desired candle count.
+6. Click **"🔄 Refresh"** at any time to re-fetch the latest candles.
+7. Click **"✖ Disconnect"** to release the terminal connection.
+
+### Troubleshooting MT5 Errors
+
+| Error Message | Cause | Resolution |
+|---------------|-------|------------|
+| `The 'MetaTrader5' package is not installed` | Package missing from Python environment | Run `pip install -e ".[mt5]"` or `pip install MetaTrader5` |
+| `Failed to connect to local MT5 terminal` | MT5 desktop app is not running | Launch the MetaTrader 5 desktop application and log into your account before connecting |
+| `Symbol 'XYZ' not found or could not be selected` | Symbol is not in your broker's instruments or MarketWatch | Right-click in MT5 MarketWatch and click "Show All", then re-select in dashboard |
+| `No candle data returned for symbol on TF` | Terminal history not yet downloaded | Open a chart for that symbol and timeframe in MT5 to initiate broker history download |
+
+---
+
+## Running Tests
+
+All 76 automated unit tests run without requiring MT5 to be installed or running:
 
 ```bash
 python -m pytest tests/ -v
 ```
 
-## Current Limitations
+Test coverage includes:
+- **`test_fixtures.py`**: Synthetic fixture validation, chronological order, and determinism
+- **`test_contract.py`**: Timezone awareness, positivity, chronological monotonicity, duplicate rejection, OHLC consistency, forming candle flag
+- **`test_chart.py`**: Candlestick and empty chart generation, title banners, edge cases
+- **`test_app.py`**: App construction, CLI arguments (`--debug` disabled by default), mode isolation, rejection of silent demo fallbacks
+- **`test_mt5_adapter.py`**: MT5 lifecycle, connection success/failure, reconnect avoidance, symbol fetching, timeframe mapping, count bounding, forming bar flag, malformed data rejection, absence of order-execution methods
 
-- **No strategy logic**: MSM, CHOCH, ISS, TJL, and MTF entry-confirmation modules are not implemented. Strategy configuration and signal history panels are placeholder only.
-- **No MT5 integration**: the app does not connect to a MetaTrader 5 terminal. All chart data comes from hard-coded deterministic fixtures.
-- **No persistence**: no SQLite caching or replay capability yet.
-- **No order execution**: the dashboard is for analysis only. No buy/sell/modify/close order logic will be added.
-- **Demo data only**: the chart shows fixed synthetic candles labeled clearly as demo data.
-
-## Strategy & Requirements
-
-- Strategy source documents are located in [docs/strategy/](docs/strategy/).
-- Strategy requirements will be supplied separately; do not invent trading rules.
-- Trading logic, strategy modules, and MT5 connectivity will be implemented in subsequent phases.
+---
 
 ## Project Structure
 
 ```
-src/aladeen/
-├── app.py              # Dash application entry point
-├── data/
-│   └── fixtures.py     # Deterministic synthetic OHLC data
-└── ui/
-    ├── chart.py        # Candlestick chart construction
-    └── layout.py       # Dashboard layout and callbacks
-tests/
-├── test_app.py         # App construction tests
-├── test_chart.py       # Chart creation tests
-└── test_fixtures.py    # Fixture validity and ordering tests
+TopG/
+├── src/
+│   └── aladeen/
+│       ├── __init__.py
+│       ├── app.py                 # Dash application entry point & CLI parser
+│       ├── data/
+│       │   ├── __init__.py
+│       │   ├── contract.py        # Shared Candle Data Contract & validator
+│       │   ├── fixtures.py        # Deterministic synthetic OHLC demo fixtures
+│       │   └── mt5_adapter.py     # Read-only MT5 terminal market data adapter
+│       └── ui/
+│           ├── __init__.py
+│           ├── chart.py           # Candlestick chart rendering with Plotly
+│           └── layout.py          # Dashboard layout, controls, and callbacks
+├── tests/
+│   ├── test_app.py                # App construction & CLI tests
+│   ├── test_chart.py              # Chart construction tests
+│   ├── test_contract.py           # Shared data contract integrity tests
+│   ├── test_fixtures.py           # Fixture validity tests
+│   └── test_mt5_adapter.py        # Mocked MT5 adapter tests
+├── docs/
+│   ├── strategy/                  # Strategy source documents & transcriptions
+│   ├── requirements/              # Source map & requirements
+│   └── architecture-proposal.md   # Architectural blueprint & staged plan
+├── pyproject.toml                 # Package configuration & optional deps
+└── README.md
 ```

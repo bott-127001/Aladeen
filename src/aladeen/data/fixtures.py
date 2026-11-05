@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import pandas as pd
 
+from aladeen.data.contract import validate_candle_data
+
 # ---------------------------------------------------------------------------
 # Available fixture metadata
 # ---------------------------------------------------------------------------
@@ -16,7 +18,7 @@ import pandas as pd
 #: The single demo symbol available in fixture mode.
 DEMO_SYMBOL = "DEMO_XAUUSD"
 
-#: Timeframes that have fixture data.  Others are unsupported in demo mode.
+#: Timeframes that have fixture data. Others are unsupported in demo mode.
 SUPPORTED_TIMEFRAMES: list[str] = ["H4", "D1"]
 
 # ---------------------------------------------------------------------------
@@ -68,6 +70,10 @@ def load_fixture(symbol: str, timeframe: str) -> pd.DataFrame | None:
     """Return deterministic OHLC demo data for *symbol* and *timeframe*.
 
     Returns ``None`` when the requested combination has no fixture data.
+    The returned DataFrame complies with the shared candle data contract:
+    - Timezone-aware DatetimeIndex in UTC
+    - Required columns: open, high, low, close
+    - 'is_forming' column (False for completed historical demo candles)
     The same call always returns the same data (deterministic).
     """
     if symbol != DEMO_SYMBOL:
@@ -82,9 +88,11 @@ def load_fixture(symbol: str, timeframe: str) -> pd.DataFrame | None:
         return None
 
     df = pd.DataFrame(raw)
-    df["time"] = pd.to_datetime(df["time"])
+    df["time"] = pd.to_datetime(df["time"], utc=True)
     df = df.set_index("time")
-    return df
+    df["is_forming"] = False
+
+    return validate_candle_data(df)
 
 
 def available_symbols() -> list[str]:
