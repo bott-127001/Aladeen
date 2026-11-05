@@ -30,6 +30,19 @@ from .service import (
     validate_candle_completion,
 )
 
+from .choch_types import (
+    ChochCandidate,
+    ChochDiagnostic,
+    ChochDiagnosticType,
+    ChochSnapshot,
+    ChochType,
+    ChochZone,
+    ChochZoneType,
+    ConfirmedChoch,
+)
+from .choch_detector import ChochDetector
+from .coordinator import CoordinatorSnapshot, MSMChochCoordinator
+
 __all__ = [
     "CandleColor",
     "ConfirmedPair",
@@ -51,4 +64,15 @@ __all__ = [
     "is_candle_completed",
     "is_context_compatible",
     "validate_candle_completion",
+    "ChochCandidate",
+    "ChochDiagnostic",
+    "ChochDiagnosticType",
+    "ChochSnapshot",
+    "ChochType",
+    "ChochZone",
+    "ChochZoneType",
+    "ConfirmedChoch",
+    "ChochDetector",
+    "CoordinatorSnapshot",
+    "MSMChochCoordinator",
 ]

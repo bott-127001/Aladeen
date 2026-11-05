@@ -72,6 +72,27 @@ class MSMEngine:
         """Resets engine to clean run identity with zero state inheritance."""
         self.__init__(self.config)
 
+    def restart_after_choch(
+        self,
+        new_direction: Direction,
+        restart_reference_pos: int,
+        first_eligible_pullback_pos: int,
+    ) -> None:
+        """Restarts the MSM state machine in the new direction following confirmed CHOCH.
+
+        Preserves confirmed pairs and completed candles history.
+        Terminates the previous unfinished cycle (clearing tentative_point).
+        Sets search_start_pos to the original Point 3 candle position.
+        Restricts next pullback search to strictly after the confirmation candle.
+        """
+        self._direction = new_direction
+        self._state = EngineState.SEARCHING_PULLBACK
+        self._tentative_point = None
+        self._search_start_pos = restart_reference_pos
+        self._next_eligible_pullback_pos = first_eligible_pullback_pos
+        self._pullback_scan_pos = first_eligible_pullback_pos
+        self._update_trend_status()
+
     def process_candles(
         self, data: Union[pd.DataFrame, List[StrategyCandle], List[dict]]
     ) -> MSMSnapshot:

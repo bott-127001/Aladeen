@@ -55,4 +55,11 @@ Last Updated: 2026-11-05 (MSM Dashboard Milestone Accepted — Transition to CHO
 - **Active Branch**: `feature/choch-engine` (branched from `7d5e3aedeff3548b2cf35fa41833f6948ad8d82f`)
 - **Objective**: Implement pure domain types, settled CHOCH detector, same-close unresolved diagnostic handling, and MSM + CHOCH coordinator with cycle restart in `src/aladeen/strategy/`.
 - **Scope Boundary**: Pure offline strategy logic. **Strictly zero UI, zero MT5 dependencies, zero ISS, zero TJL, zero zone activations, zero trade entry signals, zero automated trading, and zero merging to `main`**.
-- **Current Status**: Initializing branch and domain types.
+- **Completed Deliverables**:
+  1. `src/aladeen/strategy/choch_types.py`: Immutable domain models, value objects, and enums (`ChochType`, `ChochZoneType`, `ChochZone`, `ChochCandidate`, `ConfirmedChoch`, `ChochDiagnostic`, `ChochSnapshot`).
+  2. `src/aladeen/strategy/choch_detector.py`: Pure sequential CHOCH detector enforcing strict closing price comparisons, chronological position adjacency ($k$ and $k+1$), equality/wick/non-consecutive rejection, Point 3 retention, and continuation reset.
+  3. `src/aladeen/strategy/coordinator.py`: `MSMChochCoordinator` linking `MSMEngine` and `ChochDetector` without duplicating MSM transitions; handles cycle termination, history preservation, 3-zone creation, direction inversion, restart reference at Point 3, and forward scan boundary restriction ($p_1 \ge c_2 + 1$).
+  4. `src/aladeen/strategy/engine.py`: Added `restart_after_choch()` to `MSMEngine` preserving confirmed pairs history while cleanly restarting search start and scan pointers in the new direction.
+  5. `tests/test_choch_engine.py`: 14 comprehensive execution tests verifying Bearish CHOCH at candle 9, Bullish equality at candle 8 and confirmation at candle 10, negative rejections, color independence, zero-width lines, arbitrary source IDs, batch/sequential parity, unresolved same-close diagnostic, and genuine new-direction MSM pair completion.
+  6. `docs/strategy/choch-engine.md`: Comprehensive public API and architecture documentation.
+- **Current Status**: Complete and verified across 231 tests (0 failures). Ready for HANDOFF-020 review.
