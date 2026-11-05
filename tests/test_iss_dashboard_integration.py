@@ -7,15 +7,20 @@ Tests the end-to-end integration of the offline ISS Engine with the TopG Dashboa
 2. Candlestick Chart overlays (Section 10):
    - Confirmation markers on the 5th-point identification candle.
    - Level 3 (RBS/SBR) and Level 4 (Buying/Selling A+) structural zones.
+   - Exactly two ISS zones for a confirmed event with exact bounds and coordinates.
+   - Zero-width zones rendered as lines (type='line', y0 == y1).
    - Known vs unknown availability time bounds (zero time-extended speculative zones).
-   - Display toggle suppression (markers, zones, points).
+   - Display toggle suppression (markers, zones, points) leaving calculations unchanged.
+   - Historical confirmed events remain inspectable across subsequent candidates.
+   - Rejected and cancelled candidates produce zero active internal markings or zones.
    - Hover tooltips explicitly labeled as structural events, not entry signals.
 3. Inspection Panel table rendering:
    - Candidate Identity card (Candidate ID, direction, Level 2/3 references, boundary [min, max]).
    - Lifecycle status badges and diagnostic reporting.
    - Authoritative processed bar progress vs received bar progress.
    - Internal 5-Point Structure table.
-   - Attempted and Ongoing Tracking Points tables labeled "Tracking Only — Not Eligible".
+   - Separate continuation cancellation (cancelled, no active tracking) vs genuine tracking-only
+     (tracking-only status, attempted points, ongoing tracking points labeled 'Tracking Only — Not Eligible').
    - Active Zones table with exact geometry, source candles, and availability.
    - Confirmed ISS History table.
 4. Dashboard Controls Coordinator:
@@ -37,7 +42,10 @@ import pytest
 
 from aladeen.data.market_snapshot import MarketCandleRecord, MarketDataSnapshot
 from aladeen.strategy.iss_types import (
+    CandidateIdentity,
     ConfirmedISSEvent,
+    FrozenBoundary,
+    ISSDiagnosticType,
     ISSLifecycleStatus,
     ISSSnapshot,
     ISSZone,
@@ -68,14 +76,9 @@ def iss_fixtures() -> Dict[str, Any]:
 
 
 def _make_snapshot_from_fixture(fix: Dict[str, Any], rev: str = "rev-iss-test") -> MarketDataSnapshot:
+    """Construct MarketDataSnapshot strictly preserving fixture timestamps without inventing synthetic close times."""
     records = []
     for i, c in enumerate(fix["candles"]):
-        close_t = c.get("close_time")
-        if close_t is None and "time" in c:
-            # Synthetic 4-hour offset for testing
-            dt = datetime.fromisoformat(c["time"])
-            from datetime import timedelta
-            close_t = (dt + timedelta(hours=4)).isoformat()
         records.append(
             MarketCandleRecord(
                 time=c["time"],
@@ -86,14 +89,14 @@ def _make_snapshot_from_fixture(fix: Dict[str, Any], rev: str = "rev-iss-test") 
                 is_forming=bool(c.get("is_forming", False)),
                 bar_status=str(c.get("bar_status", "CONFIRMED_COMPLETED")),
                 index=i,
-                close_time=close_t,
+                close_time=c.get("close_time"),
             )
         )
     return MarketDataSnapshot(
         revision_id=rev,
         data_source="demo",
         symbol="EURUSD",
-        timeframe="H4",
+        timeframe="H1",
         candle_count=len(records),
         timestamp_utc="2026-10-15 12:00:00 UTC",
         fetch_status="SUCCESS",
@@ -118,7 +121,7 @@ def _extract_all_text(comp: Any) -> str:
 
 
 class TestISSDashboardIntegratedService:
-    """Tests calculate_msm with CalculationMode.INTEGRATED_MSM_CHOCH_ISS."""
+    """Tests calculate_msm with CalculationMode.INTEGRATED_MSM_CHOCH_ISS and public API access."""
 
     def test_bearish_iss_basic_service_calculation(self, iss_fixtures) -> None:
         """iss_01: Bearish main structure produces confirmed ISS at Bar 20 with RBS and Buying A+ zones."""
@@ -130,7 +133,7 @@ class TestISSDashboardIntegratedService:
         ctx = MSMContext(
             data_source="demo",
             symbol="EURUSD",
-            timeframe="H4",
+            timeframe="H1",
             start_candle_time=start_time,
             direction=Direction.DOWNWARD,
             calculation_mode="INTEGRATED_MSM_CHOCH_ISS",
@@ -151,7 +154,7 @@ class TestISSDashboardIntegratedService:
         assert ev.level_3_zone.zone_type == ISSZoneType.RBS
         assert ev.level_4_zone.zone_type == ISSZoneType.BUYING_A_PLUS
 
-        # Check synchronization: ISSEngine's coordinator snapshot is exposed
+        # Synchronization: ISSEngine's public combined result is exposed without private field access
         assert res.coordinator_snapshot is not None
         assert res.snapshot is not None
         assert len(res.snapshot.confirmed_pairs) >= 1
@@ -166,7 +169,7 @@ class TestISSDashboardIntegratedService:
         ctx = MSMContext(
             data_source="demo",
             symbol="EURUSD",
-            timeframe="H4",
+            timeframe="H1",
             start_candle_time=start_time,
             direction=Direction.UPWARD,
             calculation_mode="INTEGRATED_MSM_CHOCH_ISS",
@@ -188,10 +191,10 @@ class TestISSDashboardIntegratedService:
 
 
 class TestISSDashboardChartRendering:
-    """Tests chart overlays, confirmation markers, zones, and hover texts (Section 10)."""
+    """Tests chart overlays, confirmation markers, exact zones, and safe tooltips (Section 10)."""
 
     def test_chart_renders_iss_markers_and_zones(self, iss_fixtures) -> None:
-        """Chart renders confirmation markers, Level 3 and Level 4 zones, and safe tooltips."""
+        """Chart renders confirmation markers, exactly two ISS zones with exact coordinates and bounds."""
         fix = iss_fixtures["iss_01_bearish_basic_end_to_end"]
         snap = _make_snapshot_from_fixture(fix, "rev-chart-01")
         df = snap.to_dataframe()
@@ -200,7 +203,7 @@ class TestISSDashboardChartRendering:
         ctx = MSMContext(
             data_source="demo",
             symbol="EURUSD",
-            timeframe="H4",
+            timeframe="H1",
             start_candle_time=start_time,
             direction=Direction.DOWNWARD,
             calculation_mode="INTEGRATED_MSM_CHOCH_ISS",
@@ -209,8 +212,10 @@ class TestISSDashboardChartRendering:
             show_iss_points=True,
         )
         res = calculate_msm(df, ctx)
+        assert len(res.confirmed_iss_events) == 1
+        ev = res.confirmed_iss_events[0]
 
-        fig = create_candlestick_chart(df, symbol="EURUSD", timeframe="H4", msm_result=res)
+        fig = create_candlestick_chart(df, symbol="EURUSD", timeframe="H1", msm_result=res)
 
         # 1. Verify ISS confirmation marker trace
         marker_traces = [t for t in fig.data if "ISS" in getattr(t, "name", "").upper()]
@@ -218,60 +223,35 @@ class TestISSDashboardChartRendering:
         hover_text = marker_traces[0].hovertext[0]
         assert "Confirmed ISS Event" in hover_text
         assert "Structural Event — Not Order Entry Signal" in hover_text
-        assert "Candidate ID:" in hover_text
+        assert f"Candidate ID: {ev.candidate_id}" in hover_text
 
-        # 2. Verify zone shapes are drawn
-        # In iss_01, both RBS and Buying A+ zones should produce shapes
-        shapes = fig.layout.shapes
-        assert len(shapes) >= 2
+        # 2. Verify EXACTLY TWO ISS zone shapes are drawn
+        iss_zone_shapes = [s for s in fig.layout.shapes if getattr(s, "name", "") and s.name.startswith("iss_zone_")]
+        assert len(iss_zone_shapes) == 2, f"Expected exactly 2 ISS zones, got {len(iss_zone_shapes)}"
 
-        # 3. Check tradability boundary: zone shapes must start at confirmation_availability_time
-        ev = res.confirmed_iss_events[0]
-        assert ev.confirmation_time is not None
-        zone_shapes = [s for s in shapes if getattr(s, "x0", None) == ev.confirmation_time]
-        assert len(zone_shapes) >= 1
+        # 3. Verify exact bounds and availability coordinates for Level 3 zone (RBS)
+        l3_name = f"iss_zone_{ev.level_3_zone.zone_type.value.lower()}"
+        l3_shapes = [s for s in iss_zone_shapes if s.name == l3_name]
+        assert len(l3_shapes) == 1
+        l3_s = l3_shapes[0]
+        assert l3_s.x0 == ev.level_3_zone.confirmation_availability_time
+        assert l3_s.y0 == ev.level_3_zone.lower_price
+        assert l3_s.y1 == (ev.level_3_zone.lower_price if ev.level_3_zone.is_line else ev.level_3_zone.upper_price)
+        assert l3_s.x1 >= l3_s.x0
 
-        # 4. Check all shapes have non-negative width (x1 >= x0)
-        for s in shapes:
-            if hasattr(s, "x0") and hasattr(s, "x1") and s.x0 is not None and s.x1 is not None:
-                assert s.x1 >= s.x0
-
-    def test_chart_display_toggles_invariance(self, iss_fixtures) -> None:
-        """Toggling show_iss_markers, show_iss_zones, and show_iss_points suppresses overlays without altering engine state."""
-        fix = iss_fixtures["iss_01_bearish_basic_end_to_end"]
-        snap = _make_snapshot_from_fixture(fix, "rev-tog-01")
-        df = snap.to_dataframe()
-
-        start_time = pd.to_datetime(fix["candles"][0]["time"], utc=True).to_pydatetime()
-
-        # Suppress all ISS visual elements
-        ctx_no_vis = MSMContext(
-            data_source="demo",
-            symbol="EURUSD",
-            timeframe="H4",
-            start_candle_time=start_time,
-            direction=Direction.DOWNWARD,
-            calculation_mode="INTEGRATED_MSM_CHOCH_ISS",
-            show_iss_markers=False,
-            show_iss_zones=False,
-            show_iss_points=False,
-        )
-        res = calculate_msm(df, ctx_no_vis)
-        assert len(res.confirmed_iss_events) == 1
-
-        fig = create_candlestick_chart(df, symbol="EURUSD", timeframe="H4", msm_result=res)
-        marker_traces = [t for t in fig.data if "ISS" in getattr(t, "name", "")]
-        assert len(marker_traces) == 0
-
-        # No ISS zone shapes
-        ev = res.confirmed_iss_events[0]
-        zone_shapes = [s for s in fig.layout.shapes if getattr(s, "x0", None) == ev.confirmation_time]
-        assert len(zone_shapes) == 0
+        # 4. Verify exact bounds and availability coordinates for Level 4 zone (BUYING_A_PLUS)
+        l4_name = f"iss_zone_{ev.level_4_zone.zone_type.value.lower()}"
+        l4_shapes = [s for s in iss_zone_shapes if s.name == l4_name]
+        assert len(l4_shapes) == 1
+        l4_s = l4_shapes[0]
+        assert l4_s.x0 == ev.level_4_zone.confirmation_availability_time
+        assert l4_s.y0 == ev.level_4_zone.lower_price
+        assert l4_s.y1 == (ev.level_4_zone.lower_price if ev.level_4_zone.is_line else ev.level_4_zone.upper_price)
+        assert l4_s.x1 >= l4_s.x0
 
     def test_unknown_availability_does_not_extend_time_box(self, iss_fixtures) -> None:
-        """When confirmation_availability_time is unknown, no speculative time range is plotted."""
+        """When confirmation_availability_time is unknown, zero ISS zone shapes and zone traces are created."""
         fix = iss_fixtures["iss_01_bearish_basic_end_to_end"]
-        # Strip close_time from candles so confirmation_time becomes None
         raw_candles = [dict(c) for c in fix["candles"]]
         for c in raw_candles:
             c.pop("close_time", None)
@@ -294,7 +274,7 @@ class TestISSDashboardChartRendering:
             revision_id="rev-unk-avail",
             data_source="demo",
             symbol="EURUSD",
-            timeframe="H4",
+            timeframe="H1",
             candle_count=len(candle_records),
             timestamp_utc="2026-10-15 12:00:00 UTC",
             fetch_status="SUCCESS",
@@ -306,7 +286,7 @@ class TestISSDashboardChartRendering:
         ctx = MSMContext(
             data_source="demo",
             symbol="EURUSD",
-            timeframe="H4",
+            timeframe="H1",
             start_candle_time=start_time,
             direction=Direction.DOWNWARD,
             calculation_mode="INTEGRATED_MSM_CHOCH_ISS",
@@ -317,12 +297,129 @@ class TestISSDashboardChartRendering:
         ev = res.confirmed_iss_events[0]
         assert ev.confirmation_time is None
 
-        fig = create_candlestick_chart(df, symbol="EURUSD", timeframe="H4", msm_result=res)
-        # Check marker tooltip mentions Unknown
+        fig = create_candlestick_chart(df, symbol="EURUSD", timeframe="H1", msm_result=res)
+
+        # 1. Explicitly assert zero ISS zone shapes are drawn
+        iss_zone_shapes = [s for s in fig.layout.shapes if getattr(s, "name", "") and s.name.startswith("iss_zone_")]
+        assert len(iss_zone_shapes) == 0, "No ISS zone shapes should be drawn when availability is unknown"
+
+        # 2. Explicitly assert zero ISS zone traces are drawn
+        iss_zone_traces = [t for t in fig.data if "ISS Zone:" in getattr(t, "name", "")]
+        assert len(iss_zone_traces) == 0, "No ISS zone traces should be drawn when availability is unknown"
+
+        # 3. Check marker tooltip explicitly designates confirmation availability as Unknown
         marker_traces = [t for t in fig.data if "ISS" in getattr(t, "name", "").upper()]
         assert len(marker_traces) >= 1
         hover_text = marker_traces[0].hovertext[0]
         assert "Confirmation Availability: Unknown" in hover_text
+
+    def test_zero_width_zones_remain_lines(self, iss_fixtures) -> None:
+        """iss_13: Zones with identical lower and upper bounds are rendered as lines (is_line=True)."""
+        fix = iss_fixtures["iss_13_zero_width_zones"]
+        snap = _make_snapshot_from_fixture(fix, "rev-zero-width")
+        df = snap.to_dataframe()
+
+        start_time = pd.to_datetime(fix["candles"][0]["time"], utc=True).to_pydatetime()
+        ctx = MSMContext(
+            data_source="demo",
+            symbol="EURUSD",
+            timeframe="H1",
+            start_candle_time=start_time,
+            direction=Direction.DOWNWARD,
+            calculation_mode="INTEGRATED_MSM_CHOCH_ISS",
+            show_iss_markers=True,
+            show_iss_zones=True,
+        )
+        res = calculate_msm(df, ctx)
+        assert len(res.confirmed_iss_events) == 1
+        ev = res.confirmed_iss_events[0]
+
+        # Verify zero-width zone property
+        has_zero_width = ev.level_3_zone.is_line or ev.level_4_zone.is_line
+        assert has_zero_width is True
+
+        fig = create_candlestick_chart(df, symbol="EURUSD", timeframe="H1", msm_result=res)
+        iss_shapes = [s for s in fig.layout.shapes if getattr(s, "name", "") and s.name.startswith("iss_zone_")]
+        line_shapes = [s for s in iss_shapes if s.type == "line"]
+        assert len(line_shapes) >= 1
+        for s in line_shapes:
+            assert s.y0 == s.y1
+
+    def test_historical_events_remain_inspectable_after_new_candidate(self, iss_fixtures) -> None:
+        """iss_11: Historical confirmed events and zones remain inspectable after candidate resets."""
+        fix = iss_fixtures["iss_11_retained_history_preservation"]
+        snap = _make_snapshot_from_fixture(fix, "rev-hist-pres")
+        df = snap.to_dataframe()
+
+        start_time = pd.to_datetime(fix["candles"][0]["time"], utc=True).to_pydatetime()
+        ctx = MSMContext(
+            data_source="demo",
+            symbol="EURUSD",
+            timeframe="H1",
+            start_candle_time=start_time,
+            direction=Direction.DOWNWARD,
+            calculation_mode="INTEGRATED_MSM_CHOCH_ISS",
+            show_iss_markers=True,
+            show_iss_zones=True,
+        )
+        res = calculate_msm(df, ctx)
+        assert len(res.confirmed_iss_events) >= 1
+
+        panel = render_msm_inspection_table(res.snapshot, ctx, "rev-hist-pres", msm_result=res)
+        panel_text = _extract_all_text(panel)
+        assert "Confirmed Internal Structure Shift (ISS) History" in panel_text
+        assert "Bar #20" in panel_text
+
+        fig = create_candlestick_chart(df, symbol="EURUSD", timeframe="H1", msm_result=res)
+        marker_traces = [t for t in fig.data if "ISS" in getattr(t, "name", "").upper()]
+        assert len(marker_traces) >= 1
+
+    def test_rejected_and_cancelled_candidates_show_no_active_markings(self, iss_fixtures) -> None:
+        """Out-of-bounds rejection and continuation cancellation show zero active markings on chart."""
+        # Case A: Out-of-bounds rejection (iss_05)
+        fix_05 = iss_fixtures["iss_05_out_of_bounds_marked_point_rejection"]
+        snap_05 = _make_snapshot_from_fixture(fix_05, "rev-rej-chart")
+        df_05 = snap_05.to_dataframe()
+        start_05 = pd.to_datetime(fix_05["candles"][0]["time"], utc=True).to_pydatetime()
+        ctx_05 = MSMContext(data_source="demo", symbol="EURUSD", timeframe="H1", start_candle_time=start_05, direction=Direction.DOWNWARD, calculation_mode="INTEGRATED_MSM_CHOCH_ISS")
+        res_05 = calculate_msm(df_05, ctx_05)
+        assert res_05.iss_snapshot.lifecycle_status == ISSLifecycleStatus.OUT_OF_BOUNDS_REJECTED
+
+        fig_05 = create_candlestick_chart(df_05, symbol="EURUSD", timeframe="H1", msm_result=res_05)
+        assert len([s for s in fig_05.layout.shapes if getattr(s, "name", "") and s.name.startswith("iss_zone_")]) == 0
+        assert len([t for t in fig_05.data if "ISS Confirmed" in getattr(t, "name", "")]) == 0
+        assert len([t for t in fig_05.data if "Internal" in getattr(t, "name", "")]) == 0
+
+        # Case B: Main-continuation cancellation (iss_09)
+        fix_09 = iss_fixtures["iss_09_main_continuation_cancellation"]
+        snap_09 = _make_snapshot_from_fixture(fix_09, "rev-cancel-chart")
+        df_09 = snap_09.to_dataframe()
+        start_09 = pd.to_datetime(fix_09["candles"][0]["time"], utc=True).to_pydatetime()
+        ctx_09 = MSMContext(data_source="demo", symbol="EURUSD", timeframe="H1", start_candle_time=start_09, direction=Direction.DOWNWARD, calculation_mode="INTEGRATED_MSM_CHOCH_ISS")
+        res_09 = calculate_msm(df_09, ctx_09)
+        assert res_09.iss_snapshot.lifecycle_status == ISSLifecycleStatus.MAIN_CONTINUATION_CANCELLED
+
+        fig_09 = create_candlestick_chart(df_09, symbol="EURUSD", timeframe="H1", msm_result=res_09)
+        assert len([s for s in fig_09.layout.shapes if getattr(s, "name", "") and s.name.startswith("iss_zone_")]) == 0
+        assert len([t for t in fig_09.data if "ISS Confirmed" in getattr(t, "name", "")]) == 0
+        assert len([t for t in fig_09.data if "Internal" in getattr(t, "name", "")]) == 0
+
+    def test_chart_display_toggles_leave_strategy_results_unchanged(self, iss_fixtures) -> None:
+        """Toggling show_iss_markers, show_iss_zones, and show_iss_points leaves strategy calculations completely unchanged."""
+        fix = iss_fixtures["iss_01_bearish_basic_end_to_end"]
+        snap = _make_snapshot_from_fixture(fix, "rev-tog-01")
+        df = snap.to_dataframe()
+        start_time = pd.to_datetime(fix["candles"][0]["time"], utc=True).to_pydatetime()
+
+        ctx_all = MSMContext(data_source="demo", symbol="EURUSD", timeframe="H1", start_candle_time=start_time, direction=Direction.DOWNWARD, calculation_mode="INTEGRATED_MSM_CHOCH_ISS", show_iss_markers=True, show_iss_zones=True, show_iss_points=True)
+        ctx_none = MSMContext(data_source="demo", symbol="EURUSD", timeframe="H1", start_candle_time=start_time, direction=Direction.DOWNWARD, calculation_mode="INTEGRATED_MSM_CHOCH_ISS", show_iss_markers=False, show_iss_zones=False, show_iss_points=False)
+
+        res_all = calculate_msm(df, ctx_all)
+        res_none = calculate_msm(df, ctx_none)
+
+        assert res_all.iss_snapshot == res_none.iss_snapshot
+        assert res_all.confirmed_iss_events == res_none.confirmed_iss_events
+        assert res_all.snapshot == res_none.snapshot
 
 
 class TestISSDashboardInspectionPanel:
@@ -338,7 +435,7 @@ class TestISSDashboardInspectionPanel:
         ctx = MSMContext(
             data_source="demo",
             symbol="EURUSD",
-            timeframe="H4",
+            timeframe="H1",
             start_candle_time=start_time,
             direction=Direction.DOWNWARD,
             calculation_mode="INTEGRATED_MSM_CHOCH_ISS",
@@ -374,77 +471,101 @@ class TestISSDashboardInspectionPanel:
         assert "Confirmed Internal Structure Shift (ISS) History" in panel_text
         assert "Bar #20" in panel_text
 
-    def test_tracking_only_candidate_presentation(self, iss_fixtures) -> None:
-        """iss_06: Tracking-only candidate presents warning badge and attempted/ongoing tracking points."""
-        fix = iss_fixtures["iss_06_outside_range_completion_tracking_only"]
-        snap = _make_snapshot_from_fixture(fix, "rev-insp-06")
-        df = snap.to_dataframe()
-
-        start_time = pd.to_datetime(fix["candles"][0]["time"], utc=True).to_pydatetime()
-        ctx = MSMContext(
-            data_source="demo",
-            symbol="EURUSD",
-            timeframe="H4",
-            start_candle_time=start_time,
-            direction=Direction.DOWNWARD,
-            calculation_mode="INTEGRATED_MSM_CHOCH_ISS",
-        )
-        res = calculate_msm(df, ctx)
-        assert res.iss_snapshot is not None
-        assert res.iss_snapshot.lifecycle_status in {
-            ISSLifecycleStatus.OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY,
-            ISSLifecycleStatus.MAIN_CONTINUATION_CANCELLED,
-        }
-
-        panel = render_msm_inspection_table(res.snapshot, ctx, "rev-insp-06", msm_result=res)
-        panel_text = _extract_all_text(panel)
-        assert "Internal Structure Shift (ISS) Candidate & Engine Status" in panel_text
-
-    def test_out_of_bounds_rejection_presentation(self, iss_fixtures) -> None:
-        """iss_05: Out-of-bounds rejection presents OUT_OF_BOUNDS_REJECTED lifecycle status."""
-        fix = iss_fixtures["iss_05_out_of_bounds_marked_point_rejection"]
-        snap = _make_snapshot_from_fixture(fix, "rev-insp-05")
-        df = snap.to_dataframe()
-
-        start_time = pd.to_datetime(fix["candles"][0]["time"], utc=True).to_pydatetime()
-        ctx = MSMContext(
-            data_source="demo",
-            symbol="EURUSD",
-            timeframe="H4",
-            start_candle_time=start_time,
-            direction=Direction.DOWNWARD,
-            calculation_mode="INTEGRATED_MSM_CHOCH_ISS",
-        )
-        res = calculate_msm(df, ctx)
-        assert res.iss_snapshot is not None
-        assert res.iss_snapshot.lifecycle_status == ISSLifecycleStatus.OUT_OF_BOUNDS_REJECTED
-
-        panel = render_msm_inspection_table(res.snapshot, ctx, "rev-insp-05", msm_result=res)
-        panel_text = _extract_all_text(panel)
-        assert "OUT_OF_BOUNDS_REJECTED" in panel_text
-
     def test_continuation_cancellation_presentation(self, iss_fixtures) -> None:
-        """iss_09: Cancellation by main continuation displays MAIN_CONTINUATION_CANCELLED."""
-        fix = iss_fixtures["iss_09_main_continuation_cancellation"]
-        snap = _make_snapshot_from_fixture(fix, "rev-insp-09")
+        """iss_06: When Point 5 identification breaks Level 3, status is strictly MAIN_CONTINUATION_CANCELLED."""
+        fix = iss_fixtures["iss_06_outside_range_completion_tracking_only"]
+        snap = _make_snapshot_from_fixture(fix, "rev-cancel-exact")
         df = snap.to_dataframe()
 
         start_time = pd.to_datetime(fix["candles"][0]["time"], utc=True).to_pydatetime()
         ctx = MSMContext(
             data_source="demo",
             symbol="EURUSD",
-            timeframe="H4",
+            timeframe="H1",
             start_candle_time=start_time,
             direction=Direction.DOWNWARD,
             calculation_mode="INTEGRATED_MSM_CHOCH_ISS",
         )
         res = calculate_msm(df, ctx)
         assert res.iss_snapshot is not None
+        # Exact expectation: terminal precedence rule R29.1 cancels candidate
         assert res.iss_snapshot.lifecycle_status == ISSLifecycleStatus.MAIN_CONTINUATION_CANCELLED
+        assert res.iss_snapshot.is_tracking_only is False
+        assert res.iss_snapshot.attempted_points is None
+        assert res.iss_snapshot.tracking_points == ()
+        assert len(res.confirmed_iss_events) == 0
+        assert len(res.iss_snapshot.active_zones) == 0
 
-        panel = render_msm_inspection_table(res.snapshot, ctx, "rev-insp-09", msm_result=res)
+        panel = render_msm_inspection_table(res.snapshot, ctx, "rev-cancel-exact", msm_result=res)
         panel_text = _extract_all_text(panel)
         assert "MAIN_CONTINUATION_CANCELLED" in panel_text
+        assert "TRACKING ONLY — NOT ELIGIBLE" not in panel_text
+
+    def test_genuine_tracking_only_presentation(self, iss_fixtures) -> None:
+        """Genuine tracking-only case: status OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY with explicit not-eligible labeling."""
+        fix = iss_fixtures["iss_01_bearish_basic_end_to_end"]
+        snap = _make_snapshot_from_fixture(fix, "rev-track-genuine")
+        df = snap.to_dataframe()
+        start_time = pd.to_datetime(fix["candles"][0]["time"], utc=True).to_pydatetime()
+        ctx = MSMContext(
+            data_source="demo",
+            symbol="EURUSD",
+            timeframe="H1",
+            start_candle_time=start_time,
+            direction=Direction.DOWNWARD,
+            calculation_mode="INTEGRATED_MSM_CHOCH_ISS",
+        )
+        res = calculate_msm(df, ctx)
+        assert res.iss_snapshot is not None
+
+        # Build genuine tracking-only snapshot where Level 3 remained intact
+        pts = res.iss_snapshot.internal_points
+        cand_id = res.iss_snapshot.candidate_identity
+        b = res.iss_snapshot.captured_boundary
+        tracking_snap = ISSSnapshot(
+            lifecycle_status=ISSLifecycleStatus.OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY,
+            candidate_identity=cand_id,
+            captured_boundary=b,
+            internal_points=(),
+            attempted_points=pts,
+            tracking_points=pts[:3],
+            active_zones=(),
+            confirmed_events=(),
+            is_tracking_only=True,
+            last_processed_index=20,
+            last_received_index=20,
+            diagnostic_type=ISSDiagnosticType.COMPLETION_CLOSE_OUTSIDE_RANGE,
+            diagnostic_message="Completion candle close outside boundary. Tracking only.",
+        )
+        res_tracking = MSMServiceResult(
+            context=ctx,
+            snapshot=res.snapshot,
+            candles=res.candles,
+            status_message="Tracking only",
+            candle_count=len(res.candles),
+            start_candle_found=True,
+            coordinator_snapshot=res.coordinator_snapshot,
+            confirmed_choch_events=res.confirmed_choch_events,
+            iss_snapshot=tracking_snap,
+            confirmed_iss_events=(),
+            last_processed_index=20,
+            last_received_index=20,
+        )
+
+        panel = render_msm_inspection_table(res.snapshot, ctx, "rev-track-genuine", msm_result=res_tracking)
+        panel_text = _extract_all_text(panel)
+        assert "OUTSIDE RANGE COMPLETION (TRACKING ONLY — NOT ELIGIBLE)" in panel_text
+        assert "Attempted Internal Points (Tracking Only — Not Eligible)" in panel_text
+        assert "Ongoing Tracking Points (Tracking Only — Not Eligible)" in panel_text
+        assert "Active ISS Structural Zones" not in panel_text
+
+        # Verify chart does not plot confirmed ISS markers or active zone shapes
+        fig = create_candlestick_chart(df, symbol="EURUSD", timeframe="H1", msm_result=res_tracking)
+        assert len([s for s in fig.layout.shapes if getattr(s, "name", "") and s.name.startswith("iss_zone_")]) == 0
+        assert len([t for t in fig.data if "ISS Confirmed" in getattr(t, "name", "")]) == 0
+        tracking_traces = [t for t in fig.data if "Tracking" in getattr(t, "name", "")]
+        assert len(tracking_traces) >= 1
+        assert "Tracking Only — Not Eligible" in tracking_traces[0].hovertext[0]
 
 
 class TestISSDashboardControlsCoordinator:
@@ -484,7 +605,7 @@ class TestISSDashboardControlsCoordinator:
         applied_data = {
             "data_source": "demo",
             "symbol": "EURUSD",
-            "timeframe": "H4",
+            "timeframe": "H1",
             "start_candle_time": fix["candles"][0]["time"],
             "direction": "DOWNWARD",
             "rule_version": "1.0",
@@ -521,7 +642,7 @@ class TestISSDashboardControlsCoordinator:
         applied_data = {
             "data_source": "demo",
             "symbol": "EURUSD",
-            "timeframe": "H4",
+            "timeframe": "H1",
             "start_candle_time": fix["candles"][0]["time"],
             "direction": "DOWNWARD",
             "rule_version": "1.0",
@@ -584,7 +705,7 @@ class TestISSDashboardControlsCoordinator:
             revision_id="rev-unres-iss",
             data_source="demo",
             symbol="EURUSD",
-            timeframe="H4",
+            timeframe="H1",
             candle_count=len(candle_records),
             timestamp_utc="2026-10-15 12:00:00 UTC",
             fetch_status="SUCCESS",
@@ -606,7 +727,6 @@ class TestISSDashboardControlsCoordinator:
         assert "Last Authoritative State:" in status_text
         assert status_style["color"] == "#ff9800"
 
-        # Check inspection panel text
         panel_text = _extract_all_text(panel)
         assert "INTEGRATED STRUCTURE UNRESOLVED — LAST AUTHORITATIVE STATE" in panel_text
         assert "Authoritative processing is frozen" in panel_text

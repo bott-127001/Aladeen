@@ -15,9 +15,12 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 import math
-from typing import Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from .types import Direction, StrategyCandle, SwingPoint, validate_and_normalize_timestamp
+
+if TYPE_CHECKING:
+    from .coordinator import CoordinatorSnapshot
 
 
 class ISSLifecycleStatus(str, Enum):
@@ -290,3 +293,11 @@ class ISSConfig:
             raise TypeError(f"main_direction must be Direction, got {type(self.main_direction).__name__}")
         norm_time = validate_and_normalize_timestamp(self.start_candle_time, "ISSConfig start_candle_time")
         object.__setattr__(self, "start_candle_time", norm_time)
+
+
+@dataclass(frozen=True)
+class ISSCombinedResult:
+    """Immutable combined result providing authoritative public access to main coordinator and ISS state."""
+    iss_snapshot: ISSSnapshot
+    main_coordinator_snapshot: CoordinatorSnapshot
+    confirmed_iss_events: Tuple[ConfirmedISSEvent, ...]

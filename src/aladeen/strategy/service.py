@@ -442,12 +442,13 @@ def calculate_msm(df: pd.DataFrame, context: MSMContext) -> MSMServiceResult:
             iss_engine = ISSEngine(iss_config)
             iss_snap = iss_engine.process_candles(candles)
 
-            # Expose the single authoritative coordinator snapshot from the ISS engine
-            coord_snap = iss_engine._main_coordinator.get_snapshot()
+            # Public authoritative combined result from the ISS engine
+            combined = iss_engine.get_combined_result()
+            coord_snap = combined.main_coordinator_snapshot
             snapshot = coord_snap.msm_snapshot
             pair_count = len(snapshot.confirmed_pairs) if snapshot else 0
             choch_count = len(coord_snap.confirmed_choch_events)
-            iss_event_count = len(iss_snap.confirmed_events)
+            iss_event_count = len(combined.confirmed_iss_events)
 
             if iss_snap.is_unresolved or coord_snap.is_unresolved:
                 unres_dep = iss_snap.unresolved_dependency or "Main CHOCH ambiguity"

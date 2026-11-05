@@ -461,6 +461,7 @@ def create_candlestick_chart(
                                     shapes.append(
                                         dict(
                                             type="line",
+                                            name=f"choch_zone_{z_type_str.lower()}",
                                             x0=x0_zone,
                                             x1=x1_zone,
                                             y0=z.lower_price,
@@ -472,6 +473,7 @@ def create_candlestick_chart(
                                     shapes.append(
                                         dict(
                                             type="rect",
+                                            name=f"choch_zone_{z_type_str.lower()}",
                                             x0=x0_zone,
                                             x1=x1_zone,
                                             y0=z.lower_price,
@@ -693,6 +695,7 @@ def create_candlestick_chart(
                                     shapes.append(
                                         dict(
                                             type="line",
+                                            name=f"iss_zone_{z_type_str.lower()}",
                                             x0=x0_zone,
                                             x1=x1_zone,
                                             y0=z.lower_price,
@@ -704,6 +707,7 @@ def create_candlestick_chart(
                                     shapes.append(
                                         dict(
                                             type="rect",
+                                            name=f"iss_zone_{z_type_str.lower()}",
                                             x0=x0_zone,
                                             x1=x1_zone,
                                             y0=z.lower_price,

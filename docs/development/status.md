@@ -77,27 +77,49 @@ Last Updated: 2026-11-05 (MSM Dashboard Milestone Accepted — Transition to CHO
 
 ---
 
-## 7. Current Milestone: ISS Dashboard Integration (HANDOFF-031)
+## 7. Current Milestone: ISS Dashboard Integration (HANDOFF-031 & HANDOFF-032)
 - **Active Branch**: `feature/iss-dashboard`
-- **Objective**: Integrate the accepted offline ISS Engine into the Aladeen / TopG read-only dashboard.
+- **Objective**: Integrate the accepted offline ISS Engine into the Aladeen / TopG read-only dashboard with deterministic browser verification.
 - **Scope Boundary**: Pure offline strategy calculation and read-only dashboard presentation. **Strictly zero UI order execution, zero MT5 trading calls, zero TJL, zero zone activations, zero trade entry signals, zero automated trading, and zero merging to `main`**.
-- **Completed Deliverables**:
-  1. `src/aladeen/strategy/service.py`:
+- **Completed Deliverables (HANDOFF-031 & HANDOFF-032)**:
+  1. `src/aladeen/strategy/iss_types.py` & `src/aladeen/strategy/iss_engine.py`:
+     - Added public `ISSCombinedResult` container bundling `(iss_snapshot, main_coordinator_snapshot, confirmed_iss_events)`.
+     - Added public `ISSEngine.get_combined_result()` and `ISSEngine.get_main_coordinator_snapshot()`.
+     - Zero private attribute access (`_main_coordinator`) from application service layer.
+  2. `src/aladeen/strategy/service.py`:
      - Added `CalculationMode.INTEGRATED_MSM_CHOCH_ISS = "INTEGRATED_MSM_CHOCH_ISS"`.
      - Added `show_iss_markers`, `show_iss_zones`, `show_iss_points` to `MSMContext`.
-     - Integrated `ISSEngine` in `calculate_msm()` as single source of truth for main MSM, CHOCH, and ISS state/events.
-  2. `src/aladeen/ui/chart.py`:
-     - Section 10 ISS confirmation markers on 5th-point identification candle.
-     - Level 3 (RBS/SBR) and Level 4 (Buying/Selling A+) structural zones with exact price lines/areas.
-     - Known zone availability strictly begins at `confirmation_availability_time`; unknown remains Unknown (no speculative chart extension).
-     - Visible internal points for `ELIGIBLE_SEARCH` / `CONFIRMED`.
-     - Attempted and ongoing tracking points for `OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY` labeled "Tracking Only — Not Eligible".
-     - All hover tooltips explicitly designated as structural events, not entry signals.
-  3. `src/aladeen/ui/layout.py`:
-     - Added `Integrated MSM + CHOCH + ISS` mode selector.
-     - Added `iss-display-toggles` (`markers`, `zones`, `points`).
+     - Integrated `ISSEngine` via public `get_combined_result()`.
+  3. `src/aladeen/ui/chart.py`:
+     - Stamped zone shapes with stable identifiers `name=f"iss_zone_{z_type_str.lower()}"` and `name=f"choch_zone_{z_type_str.lower()}"`.
+     - Exactly two ISS zones rendered for confirmed event (Level 3 RBS/SBR and Level 4 Buying/Selling A+) starting horizontally strictly at `confirmation_availability_time`.
+     - Unknown availability creates 0 zone shapes (zero speculative extension).
+     - Zero-width zones rendered as horizontal lines (`y0 == y1`).
+     - Markers anchored to candle open with tooltip distinguishing open anchor from confirmation close.
+     - Tooltips explicitly labeled as structural events, not order entry signals.
   4. `src/aladeen/ui/msm_callbacks.py`:
-     - Wired `iss-display-toggles` and `strategy-calculation-mode`.
+     - Normalized dropdown ISO strings and UTC datetimes to prevent false unapplied draft warnings.
+     - Rendered Candidate Identity card, 5-point structure table, Attempted/Tracking tables, Active Zones table, and Confirmed History table.
+  5. `tests/test_iss_dashboard_integration.py`:
+     - Cleaned `_make_snapshot_from_fixture` to preserve exact fixture timestamps without synthetic offsets.
+     - Separated `test_continuation_cancellation_presentation` (exact `MAIN_CONTINUATION_CANCELLED`) and `test_genuine_tracking_only_presentation` (exact `OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY`).
+     - 15/15 offline integration tests pass in 1.61s.
+  6. `tests/test_iss_browser_controlled.py`:
+     - Deterministic Playwright verification across 9 scenarios using `ControllableISSMockAdapter` on port 8062:
+       1. Bearish success (`iss_01`): chart coordinates, markers, zones, inspection text, CONFIRMED badge.
+       2. Bullish success (`iss_02`): SBR & Selling A+ zones, CONFIRMED badge.
+       3. Genuine tracking-only progression: `OUTSIDE RANGE COMPLETION (TRACKING ONLY — NOT ELIGIBLE)` badge, attempted & tracking points tables.
+       4. Out-of-bounds rejection (`iss_05`): `OUT_OF_BOUNDS_REJECTED` badge, 0 active zones.
+       5. Main-continuation cancellation (`iss_09`): `MAIN_CONTINUATION_CANCELLED` badge, 0 active zones.
+       6. Unresolved-main presentation: `#unresolved-status-banner` with orange `#ff9800` border and frozen authoritative bar.
+       7. Mode Apply vs unapplied draft edits: `"🟡 Unapplied changes"` vs `"🟢 Applied"`.
+       8. ISS display toggles: unchecking markers/zones updates presentation without recalculation.
+       9. Context switch / Refresh with shared revision: revision updates without improper retention.
+       10. Error Accounting: 0 console errors, 0 page errors.
+  7. Verification Summary:
+     - 328 unit/integration tests pass in 9.77s.
+     - 1 browser controlled test suite (9 scenarios) passes in 52.48s.
+     - Total: 329 tests passing with 0 failures.
      - Rendered Candidate Identity card, Lifecycle Status badge, 5-Point Structure table, Tracking Points table, Active Zones table, and Confirmed ISS History table.
      - Unapplied draft edits isolation and unresolved ambiguity containment.
   5. `tests/test_iss_dashboard_integration.py`:

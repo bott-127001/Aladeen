@@ -25,6 +25,7 @@ from .iss_types import (
     CandidateIdentity,
     ConfirmedISSEvent,
     FrozenBoundary,
+    ISSCombinedResult,
     ISSConfig,
     ISSDiagnosticType,
     ISSLifecycleStatus,
@@ -104,6 +105,18 @@ class ISSEngine:
     @property
     def last_received_index(self) -> int:
         return self._last_received_index if self._last_received_index >= 0 else self._last_processed_index
+
+    def get_main_coordinator_snapshot(self) -> Any:
+        """Public accessor returning the authoritative main MSM/CHOCH coordinator snapshot."""
+        return self._main_coordinator.get_snapshot()
+
+    def get_combined_result(self) -> ISSCombinedResult:
+        """Public accessor returning an immutable combined result of ISS and main coordinator snapshots."""
+        return ISSCombinedResult(
+            iss_snapshot=self.get_snapshot(),
+            main_coordinator_snapshot=self.get_main_coordinator_snapshot(),
+            confirmed_iss_events=self.confirmed_events,
+        )
 
     def reset(self) -> None:
         """Resets engine to clean initial state."""
