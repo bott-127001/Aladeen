@@ -31,9 +31,8 @@ Last Updated: 2026-11-05
 
 ### OPEN-02 — TJL Level Lifecycle & Trading Set Timing (t1 vs. t2)
 - **Approved Decision**:
-  - TJL labels appear at **t1** (identification/formation timing).
-  - The current trading set changes only at **t2** (qualification/activation timing).
-  - *Note*: The exact operational definitions and lifecycle transition criteria of t1/t2 require the detailed recorded specification before implementation; they must not be guessed or inferred from this summary.
+  - TJL labels appear at **t1**; the current trading set changes only at **t2**.
+  - The exact definitions and lifecycle of t1/t2 require the detailed recorded specification before implementation; do not infer them from this summary.
 
 ### OPEN-03 — Invalidation Precedence at Shared Close
 - **Approved Decision**:
@@ -68,7 +67,7 @@ Last Updated: 2026-11-05
 ### OPEN-08 — Independent Engine Configuration & Manual Start Validation
 - **Approved Decision**:
   - Each strategy engine operates with its own starting reference candle and direction.
-  - H1 source and H1 confirmation engines share configuration and event streams only when explicitly configured to do so; they do not silently inherit state.
+  - H1 source and H1 confirmation share one configuration and event stream unless the user configures them differently. This does not authorize silent starting-candle inheritance across distinct engine configurations.
   - No silent start-candle inheritance across engines or timeframes.
   - Absent or currently forming (unconfirmed) start candles must be strictly rejected.
   - Editing a starting candle creates a completely new, clean calculation run without merging or contaminating prior historical signals.
@@ -85,7 +84,7 @@ Last Updated: 2026-11-05
 - **Approved Decision**:
   - Candle boundaries must use native MT5 bar open times.
   - Weekly boundary (Monday 00:00) is interpreted strictly within the persisted source calendar of the broker data feed.
-  - Calculation identity comprises: `(server, symbol, price_basis, timeframe, manual_start_time, rule_version)`.
+  - Calculation identity includes: `(server, symbol, price_basis, timeframe_configuration, manual_start_time, rule_version)`.
   - Never infer the market calendar from the local computer's clock or timezone.
 
 ### OPEN-11 — Chronological Signal Listing Without Position Gating

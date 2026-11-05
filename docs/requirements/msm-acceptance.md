@@ -4,8 +4,8 @@ Last Updated: 2026-11-05
 
 > [!IMPORTANT]
 > **Specification Authority**:
-> Derived from original strategy authority `TopG.pdf` (pages 1–8), `Market Structure Marking.docx` (transcribed at [`market-structure-marking.md`](file:///docs/strategy/extracted/market-structure-marking.md)), and approved clarifications [`approved-clarifications.md`](file:///docs/requirements/approved-clarifications.md) (EMPTY RANGE, OPEN-01, OPEN-08, OPEN-10).
-> This document specifies verifiable acceptance criteria, explicit OHLC test fixtures, and mathematical boundary semantics for the MSM engine. No strategy logic is implemented in this specification.
+> Derived from original strategy document `Market Structure Marking.docx` (transcribed at [`docs/strategy/extracted/market-structure-marking.md`](../strategy/extracted/market-structure-marking.md)), which references `TopG.pdf` (pages 1–8) as stated ancestry, and approved clarifications [`docs/requirements/approved-clarifications.md`](approved-clarifications.md) (EMPTY RANGE, OPEN-01, OPEN-08, OPEN-10).
+> This document specifies verifiable acceptance criteria, explicit OHLC test fixtures, and mathematical boundary semantics for the MSM engine. No strategy logic or execution engine is implemented in this specification.
 
 ---
 
@@ -122,18 +122,22 @@ The engine operates as a deterministic, sequential state machine over completed 
    - Inclusive of `search_start_idx`, strictly exclusive of `p1` and `p2`.
 2. If `search_start_idx == p1`, range is empty: skip pair, retain `search_start_idx`, continue scan.
 3. Tentative low price is `min(LB(i))` for `i in [search_start_idx, p1 - 1]`. Latest candle if tied.
+4. Record `tentative_low = {price: LB(idx), candle_idx: idx, time: time[idx]}`.
 
 #### Phase C: Waiting for Closing Break
 1. Scan candles `k > p2` for `close[k] < tentative_low.price`.
+2. Break candle `k`'s color does not matter (green, red, or flat).
+3. No subsequent pullbacks evaluated while waiting.
 
 #### Phase D: Pair Confirmation & Search-Start Advance
 1. On qualifying break candle `k`:
    - `tentative_low` becomes **Confirmed Low**.
    - Confirmed high search window: `[tentative_low.candle_idx, k]` (inclusive of both endpoints).
    - Confirmed high price is `max(UB(i))` for `i in [tentative_low.candle_idx, k]`. Latest candle if tied.
+   - Record `confirmed_high = {price: UB(idx), candle_idx: idx, time: time[idx]}`.
 2. Newly confirmed high becomes **last resistance**.
 3. Advance `search_start_idx` to `confirmed_high.candle_idx`.
-4. Next pullback search begins strictly after the break candle (`p1 > k`).
+4. Next pullback search begins strictly after the break candle: candidate `p1 > k`.
 
 ---
 
@@ -175,14 +179,14 @@ All fixtures specify deterministic OHLC data with 4-hour candle timestamps in UT
   2. Tentative high search range: `[0, 2]`. Highest upper body edge is candle 2 (`UB = max(105, 107) = 107.0`). Tentative High = 107.0 at index 2.
   3. Candle 6 closes at 109.0 (> 107.0), triggering confirmation.
   4. Confirmed high = 107.0 at index 2.
-  5. Confirmed low search range: `[2, 6]`. Lowest lower body edge is candle 4 (`LB = min(104, 102) = 102.0`) vs candle 5 (`LB = min(102, 103.5) = 102.0`). Tied at 102.0! Latest candle tie-breaker selects candle 5.
+  5. Confirmed low search range: `[2, 6]`. Lowest lower body edges: candle 2 (105.0), candle 3 (104.0), candle 4 (`LB = min(104, 102) = 102.0`), candle 5 (`LB = min(102, 103.5) = 102.0`), candle 6 (103.5). Tied at 102.0 between candle 4 and candle 5. Latest candle tie-breaker selects candle 5.
   6. Confirmed low = 102.0 at index 5 (Last Support).
   7. Next search start candle index = 5. Pullback search begins at index > 6.
 
 ---
 
-### Fixture MSM-02: Downward Standard Cycle (Clean Confirmation)
-- **Source Section**: Section 4 (Downward Algorithm)
+### Fixture MSM-02: Downward Standard Cycle (Clean Confirmation & Confirmed Extreme Tie)
+- **Source Section**: Section 4 (Downward Algorithm) & Section 2.4 (Tie-Breaker)
 - **Starting Input**: Index 0, Direction = DOWNWARD.
 
 | Index | Timestamp (UTC) | Open | High | Low | Close | Color / Role |
@@ -192,7 +196,7 @@ All fixtures specify deterministic OHLC data with 4-hour candle timestamps in UT
 | 2 | 2026-10-01 08:00 | 195.0 | 196.0 | 191.0 | 192.0 | Red (Swing trough) |
 | 3 | 2026-10-01 12:00 | 192.0 | 196.0 | 191.5 | 195.0 | Green (Pullback 1, High=196.0) |
 | 4 | 2026-10-01 16:00 | 195.0 | 198.0 | 194.5 | 197.0 | Green (Pullback 2, Close=197.0 > 196.0) |
-| 5 | 2026-10-01 20:00 | 197.0 | 197.5 | 193.0 | 194.0 | Red (Inside range) |
+| 5 | 2026-10-01 20:00 | 197.0 | 197.5 | 193.0 | 194.0 | Red (Inside range, UB=197.0) |
 | 6 | 2026-10-02 00:00 | 194.0 | 194.5 | 189.0 | 190.0 | Red (Closing break: Close=190 < 192) |
 
 - **Expected Observable Results**:
@@ -200,13 +204,19 @@ All fixtures specify deterministic OHLC data with 4-hour candle timestamps in UT
   2. Tentative low search range: `[0, 2]`. Lowest lower body edge is candle 2 (`LB = min(195, 192) = 192.0`). Tentative Low = 192.0 at index 2.
   3. Candle 6 closes at 190.0 (< 192.0), confirming the pair.
   4. Confirmed low = 192.0 at index 2.
-  5. Confirmed high search range: `[2, 6]`. Highest upper body edge is candle 4 (`UB = max(195, 197) = 197.0`).
-  6. Confirmed high = 197.0 at index 4 (Last Resistance).
-  7. Next search start candle index = 4. Pullback search begins at index > 6.
+  5. Confirmed high search range: `[2, 6]`. Upper body edges:
+     - candle 2: `UB = max(195, 192) = 195.0`
+     - candle 3: `UB = max(192, 195) = 195.0`
+     - candle 4: `UB = max(195, 197) = 197.0`
+     - candle 5: `UB = max(197, 194) = 197.0`
+     - candle 6: `UB = max(194, 190) = 194.0`
+     Max upper body edge is 197.0, tied between candle 4 and candle 5. Latest candle tie-breaker selects candle 5.
+  6. Confirmed high = 197.0 at index 5 (Last Resistance).
+  7. Next search start candle index = 5. Pullback search begins at index > 6.
 
 ---
 
-### Fixture MSM-03: Strict Equality Failures
+### Fixture MSM-03: Strict Equality Failures (Upward)
 - **Source Section**: Section 2 (Strict Comparison Rule)
 - **Starting Input**: Index 0, Direction = UPWARD.
 
@@ -263,7 +273,7 @@ All fixtures specify deterministic OHLC data with 4-hour candle timestamps in UT
 
 - **Expected Observable Results**:
   1. Candles `(0, 1)` form a valid pullback pair (`close[1] < low[0]`).
-  2. Tentative search window would be `[search_start, p1 - 1] = [0, -1]`, which is empty!
+  2. Tentative search window would be `[search_start, p1 - 1] = [0, -1]`, which is empty.
   3. **Empty-Range Rule Applied**: Skip pullback pair `(0, 1)`. Retain `search_start = 0`.
   4. Continue scan: next valid pullback found at `(4, 5)`.
   5. Search window for tentative high is `[0, 3]`. Highest body edge is candle 3 (`UB = 107.0`).
@@ -314,19 +324,243 @@ All fixtures specify deterministic OHLC data with 4-hour candle timestamps in UT
 
 ---
 
-### Fixture MSM-08: Deterministic Replay / Prefix Consistency
-- **Source Section**: OPEN-08 & OPEN-09 (Deterministic Execution)
-- **Requirement**:
-  Given a dataset of N completed candles producing confirmed levels `L_1, ..., L_m`, processing an extended dataset of N + K completed candles must yield the exact same confirmed levels `L_1, ..., L_m` for the initial N candles. Historical confirmed swing points and their timestamps are strictly immutable.
+### Fixture MSM-08: Tied Tentative Extremes in Both Directions
+- **Source Section**: Section 2.4 (Tie-Breaker Rule) & Sections 3.1/3.2 (Phase B)
+
+#### Part A: Upward Tentative High Tie
+- **Starting Input**: Index 0, Direction = UPWARD.
+
+| Index | Timestamp (UTC) | Open | High | Low | Close | Color / Role |
+|---|---|---|---|---|---|---|
+| 0 | 2026-10-01 00:00 | 100.0 | 105.0 | 99.0 | 105.0 | Green (UB = 105.0) |
+| 1 | 2026-10-01 04:00 | 104.0 | 106.0 | 102.0 | 105.0 | Green (UB = 105.0) |
+| 2 | 2026-10-01 08:00 | 105.0 | 105.5 | 101.0 | 102.0 | Red (Pullback 1, Low = 101.0) |
+| 3 | 2026-10-01 12:00 | 102.0 | 102.5 | 99.5 | 100.0 | Red (Pullback 2, Close = 100.0 < 101.0) |
+| 4 | 2026-10-01 16:00 | 100.0 | 108.0 | 100.0 | 107.0 | Green (Break: Close = 107.0 > 105.0) |
+
+- **Expected Observable Results**:
+  1. Valid pullback at `(2, 3)`.
+  2. Tentative high search range: `[0, 1]`.
+     - Candle 0: `UB = max(100.0, 105.0) = 105.0`
+     - Candle 1: `UB = max(104.0, 105.0) = 105.0`
+     - Both equal 105.0. Latest candle tie-breaker selects candle 1.
+  3. Tentative High = 105.0 at index 1.
+  4. Candle 4 closes at 107.0 (> 105.0), confirming high = 105.0 at index 1.
+  5. Confirmed low search range: `[1, 4]`. Lower body edges: candle 1 (104.0), candle 2 (102.0), candle 3 (100.0), candle 4 (100.0). Tied at 100.0; latest candle selects candle 4. Confirmed Low = 100.0 at index 4.
+
+#### Part B: Downward Tentative Low Tie
+- **Starting Input**: Index 0, Direction = DOWNWARD.
+
+| Index | Timestamp (UTC) | Open | High | Low | Close | Color / Role |
+|---|---|---|---|---|---|---|
+| 0 | 2026-10-01 00:00 | 200.0 | 201.0 | 194.0 | 195.0 | Red (LB = 195.0) |
+| 1 | 2026-10-01 04:00 | 196.0 | 197.0 | 194.5 | 195.0 | Red (LB = 195.0) |
+| 2 | 2026-10-01 08:00 | 195.0 | 199.0 | 194.5 | 198.0 | Green (Pullback 1, High = 199.0) |
+| 3 | 2026-10-01 12:00 | 198.0 | 201.0 | 197.5 | 200.0 | Green (Pullback 2, Close = 200.0 > 199.0) |
+| 4 | 2026-10-01 16:00 | 200.0 | 200.5 | 192.0 | 193.0 | Red (Break: Close = 193.0 < 195.0) |
+
+- **Expected Observable Results**:
+  1. Valid pullback at `(2, 3)`.
+  2. Tentative low search range: `[0, 1]`.
+     - Candle 0: `LB = min(200.0, 195.0) = 195.0`
+     - Candle 1: `LB = min(196.0, 195.0) = 195.0`
+     - Both equal 195.0. Latest candle tie-breaker selects candle 1.
+  3. Tentative Low = 195.0 at index 1.
+  4. Candle 4 closes at 193.0 (< 195.0), confirming low = 195.0 at index 1.
+  5. Confirmed high search range: `[1, 4]`. Confirmed High = 200.0 at index 3 (`UB = 200.0`).
 
 ---
 
-## 6. Consequential Interpretations & Open Inquiries
+### Fixture MSM-09: Downward Equality Failures
+- **Source Section**: Section 2 (Strict Comparison Rule) & Section 3.2
+- **Starting Input**: Index 0, Direction = DOWNWARD.
+
+| Index | Timestamp (UTC) | Open | High | Low | Close | Color / Role |
+|---|---|---|---|---|---|---|
+| 0 | 2026-10-01 00:00 | 200.0 | 201.0 | 191.0 | 192.0 | Red (Start candle, LB = 192.0) |
+| 1 | 2026-10-01 04:00 | 192.0 | 196.0 | 191.5 | 195.0 | Green (Pullback 1, High = 196.0) |
+| 2 | 2026-10-01 08:00 | 195.0 | 197.0 | 194.0 | 196.0 | Green (Pullback 2, Close = 196.0 == High_1) |
+| 3 | 2026-10-01 12:00 | 196.0 | 199.0 | 195.5 | 198.5 | Green (Pullback 3, Close = 198.5 > High_2) |
+| 4 | 2026-10-01 16:00 | 198.5 | 199.0 | 191.5 | 192.0 | Red (Close = 192.0 == Tentative Low) |
+
+- **Expected Observable Results**:
+  1. Candidate pair `(1, 2)`: `close[2] = 196.0` is exactly equal to `high[1] = 196.0`. Strict inequality requires `close[2] > high[1]`. `196.0 > 196.0` is False! Pullback rejected.
+  2. Candidate shifts to `(2, 3)`: `high[2] = 197.0`, `close[3] = 198.5 > 197.0`. Valid green pullback accepted.
+  3. Tentative low search range: `[0, 1]`. Min lower body edge is candle 0 (`LB = 192.0`). Tentative low = 192.0 at index 0.
+  4. Candle 4 closes at 192.0. Strict downward break requires `close < 192.0`. `192.0 < 192.0` is False! Candle 4 does NOT trigger confirmation. State remains Waiting for Break.
+
+---
+
+### Fixture MSM-10: Flat Candle Winning Extreme Search (Upward)
+- **Source Section**: Section 2.2 (Flat Candle Rules) & Section 3.1
+- **Starting Input**: Index 0, Direction = UPWARD.
+
+| Index | Timestamp (UTC) | Open | High | Low | Close | Color / Role |
+|---|---|---|---|---|---|---|
+| 0 | 2026-10-01 00:00 | 100.0 | 102.0 | 99.0 | 101.0 | Green (Start, UB = 101.0) |
+| 1 | 2026-10-01 04:00 | 106.0 | 107.0 | 105.0 | 106.0 | Flat (Open == Close == 106.0, UB = 106.0) |
+| 2 | 2026-10-01 08:00 | 105.0 | 105.5 | 103.0 | 104.0 | Red (Pullback 1, Low = 103.0) |
+| 3 | 2026-10-01 12:00 | 104.0 | 104.5 | 101.0 | 102.0 | Red (Pullback 2, Close = 102.0 < 103.0) |
+| 4 | 2026-10-01 16:00 | 102.0 | 109.0 | 102.0 | 108.0 | Green (Break: Close = 108.0 > 106.0) |
+
+- **Expected Observable Results**:
+  1. Valid pullback at `(2, 3)`.
+  2. Tentative high search range: `[0, 1]`.
+     - Candle 0: `UB = 101.0`
+     - Candle 1: `UB = max(106.0, 106.0) = 106.0`
+     - Flat candle 1 has the highest body edge.
+  3. Tentative High = 106.0 at index 1.
+  4. Candle 4 closes at 108.0 (> 106.0), confirming high = 106.0 at index 1 and low = 102.0 at index 3.
+
+---
+
+### Fixture MSM-11: Non-Green Upward Break & Non-Red Downward Break
+- **Source Section**: Section 3.1 / 3.2 (Phase C: "Break candle's color does not matter")
+
+#### Part A: Upward Break by a Red Candle
+- **Starting Input**: Index 0, Direction = UPWARD.
+
+| Index | Timestamp (UTC) | Open | High | Low | Close | Color / Role |
+|---|---|---|---|---|---|---|
+| 0 | 2026-10-01 00:00 | 100.0 | 106.0 | 99.0 | 105.0 | Green (UB = 105.0) |
+| 1 | 2026-10-01 04:00 | 105.0 | 105.5 | 101.0 | 102.0 | Red (Pullback 1, Low = 101.0) |
+| 2 | 2026-10-01 08:00 | 102.0 | 102.5 | 99.0 | 100.0 | Red (Pullback 2, Close = 100.0 < 101.0) |
+| 3 | 2026-10-01 12:00 | 108.0 | 108.5 | 105.5 | 106.0 | Red (Open 108 > Close 106; Close 106 > High 105) |
+
+- **Expected Observable Results**:
+  1. Tentative high established at index 0 with price 105.0.
+  2. Candle 3 has `open = 108.0` and `close = 106.0` (`close < open`, Red candle).
+  3. `close[3] = 106.0 > 105.0`. The upward closing break is strictly satisfied.
+  4. Tentative high confirmed at index 0.
+
+#### Part B: Downward Break by a Green Candle
+- **Starting Input**: Index 0, Direction = DOWNWARD.
+
+| Index | Timestamp (UTC) | Open | High | Low | Close | Color / Role |
+|---|---|---|---|---|---|---|
+| 0 | 2026-10-01 00:00 | 200.0 | 201.0 | 194.0 | 195.0 | Red (LB = 195.0) |
+| 1 | 2026-10-01 04:00 | 195.0 | 199.0 | 194.5 | 198.0 | Green (Pullback 1, High = 199.0) |
+| 2 | 2026-10-01 08:00 | 198.0 | 201.0 | 197.5 | 200.0 | Green (Pullback 2, Close = 200.0 > 199.0) |
+| 3 | 2026-10-01 12:00 | 190.0 | 194.5 | 189.5 | 193.0 | Green (Open 190 < Close 193; Close 193 < Low 195) |
+
+- **Expected Observable Results**:
+  1. Tentative low established at index 0 with price 195.0.
+  2. Candle 3 has `open = 190.0` and `close = 193.0` (`close > open`, Green candle).
+  3. `close[3] = 193.0 < 195.0`. The downward closing break is strictly satisfied.
+  4. Tentative low confirmed at index 0.
+
+---
+
+### Fixture MSM-12: Two Completed Pairs with Post-Break Pullback Restriction and Trend Status
+- **Source Section**: Section 3.1 (Phase D: Post-break rule `p1 > k`), Section 4 & `approved-clarifications.md` (OPEN-01)
+- **Starting Input**: Index 0, Direction = UPWARD.
+
+| Index | Timestamp (UTC) | Open | High | Low | Close | Color / Role |
+|---|---|---|---|---|---|---|
+| 0 | 2026-10-01 00:00 | 100.0 | 102.5 | 99.0 | 102.0 | Green (Start) |
+| 1 | 2026-10-01 04:00 | 102.0 | 106.0 | 101.5 | 105.0 | Green (Swing peak 1, UB = 105.0, LB = 102.0) |
+| 2 | 2026-10-01 08:00 | 105.0 | 105.5 | 102.0 | 103.0 | Red (Pullback 1-A, Low = 102.0) |
+| 3 | 2026-10-01 12:00 | 103.0 | 103.5 | 100.5 | 101.0 | Red (Pullback 1-B, Close = 101.0 < 102.0, LB = 101.0) |
+| 4 | 2026-10-01 16:00 | 102.0 | 108.0 | 101.5 | 107.0 | Green (Break 1: Close = 107.0 > 105.0) |
+| 5 | 2026-10-01 20:00 | 107.0 | 112.0 | 106.5 | 111.0 | Green (Swing peak 2, UB = 111.0, LB = 107.0) |
+| 6 | 2026-10-02 00:00 | 111.0 | 111.5 | 107.0 | 108.0 | Red (Pullback 2-A, candidate p1 = 6 > 4, Low = 107.0) |
+| 7 | 2026-10-02 04:00 | 108.0 | 108.5 | 104.5 | 105.0 | Red (Pullback 2-B, Close = 105.0 < 107.0, LB = 105.0) |
+| 8 | 2026-10-02 08:00 | 106.0 | 115.0 | 105.5 | 114.0 | Green (Break 2: Close = 114.0 > 111.0) |
+
+- **Expected Observable Results**:
+  1. **Cycle 1 Evaluation**:
+     - Pullback at `(2, 3)`.
+     - Tentative High search range: `[0, 1]`. Tentative High = 105.0 at index 1.
+     - Candle 4 breaks 105.0 (`close = 107.0`).
+     - Confirmed Low search range: `[1, 4]`. Lower body edges: candle 1 (102.0), candle 2 (103.0), candle 3 (101.0), candle 4 (102.0). Lowest is candle 3.
+     - Confirmed Pair 1 recorded: `H1 = 105.0 (idx 1)`, `L1 = 101.0 (idx 3)`.
+     - Trend Status after Pair 1: `"Marking upward structure"` (< 2 confirmed pairs).
+  2. **Advance & Post-Break Candidate Restriction**:
+     - `search_start_idx` advances to confirmed low index: `3`.
+     - Next candidate pullback candle `p1` must satisfy `p1 > 4` (strictly after break candle 4).
+     - Candle 4 cannot serve as `p1`.
+  3. **Cycle 2 Evaluation**:
+     - Candidate pair `(6, 7)` tested (`p1 = 6 > 4`): valid red pullback (`close[7] = 105.0 < low[6] = 107.0`).
+     - Tentative High search range: `[search_start = 3, p1 - 1 = 5]`. Upper body edges: candle 3 (103.0), candle 4 (107.0), candle 5 (111.0). Highest is candle 5.
+     - Tentative High = 111.0 at index 5.
+     - Candle 8 breaks 111.0 (`close = 114.0 > 111.0`).
+     - Confirmed Low search range: `[5, 8]`. Lower body edges: candle 5 (107.0), candle 6 (108.0), candle 7 (105.0), candle 8 (106.0). Lowest is candle 7.
+     - Confirmed Pair 2 recorded: `H2 = 111.0 (idx 5)`, `L2 = 105.0 (idx 7)`.
+  4. **Trend Status Evaluation (≥ 2 confirmed pairs)**:
+     - `H2 (111.0) > H1 (105.0)` is True.
+     - `L2 (105.0) > L1 (101.0)` is True.
+     - Diagnostic Trend Status: `"Upward trend"`.
+  5. **Negative Diagnostic Variant**: If Pair 2 had produced `L2 <= L1` (e.g. `L2 = 100.0`), Trend Status would evaluate to `"Trend not confirmed"`.
+
+---
+
+### Fixture MSM-13: Absent and Unconfirmed Starting Candle Rejection
+- **Source Section**: Section 1.2 & `approved-clarifications.md` (OPEN-08)
+
+#### Case A: Start Candle Not in Index
+- **Input**: DataFrame containing candles with timestamps `[2026-10-01 00:00, 2026-10-01 04:00]`.
+- **Selected `start_candle_time`**: `2026-10-01 08:00` (absent from index).
+- **Expected Result**: Initialization raises `ValueError("Invalid starting candle: start candle must be a verified completed historical candle.")`.
+
+#### Case B: Start Candle is Currently Forming
+- **Input**: DataFrame where candle `2026-10-01 04:00` has `is_forming == True` (or `bar_status != CONFIRMED_COMPLETED`).
+- **Selected `start_candle_time`**: `2026-10-01 04:00`.
+- **Expected Result**: Initialization raises `ValueError("Invalid starting candle: start candle must be a verified completed historical candle.")`.
+
+---
+
+### Fixture MSM-14: Deterministic Replay / Prefix Consistency with Knowledge Times
+- **Source Section**: Section 1.2, OPEN-08, OPEN-09 (Deterministic Execution)
+- **Starting Input**: Index 0, Direction = UPWARD.
+
+Full 10-candle dataset (UTC timestamps `2026-10-01 00:00` to `2026-10-02 12:00`):
+
+| Index | Timestamp (UTC) | Open | High | Low | Close | Role in Full Sequence |
+|---|---|---|---|---|---|---|
+| 0 | 2026-10-01 00:00 | 100.0 | 102.0 | 99.0 | 101.0 | Start candle |
+| 1 | 2026-10-01 04:00 | 101.0 | 106.0 | 100.5 | 105.0 | Green |
+| 2 | 2026-10-01 08:00 | 105.0 | 108.0 | 104.0 | 107.0 | Swing peak (UB = 107.0) |
+| 3 | 2026-10-01 12:00 | 107.0 | 107.5 | 103.0 | 104.0 | Red (Pullback 1, Low = 103.0) |
+| 4 | 2026-10-01 16:00 | 104.0 | 104.5 | 101.5 | 102.0 | Red (Pullback 2, Close = 102.0 < 103.0) |
+| 5 | 2026-10-01 20:00 | 102.0 | 105.0 | 101.0 | 103.5 | Green (Inside range) |
+| 6 | 2026-10-02 00:00 | 103.5 | 110.0 | 103.0 | 109.0 | Green (Break of tentative high 107.0) |
+| 7 | 2026-10-02 04:00 | 109.0 | 112.0 | 108.0 | 111.0 | Green |
+| 8 | 2026-10-02 08:00 | 111.0 | 111.5 | 106.0 | 107.0 | Red |
+| 9 | 2026-10-02 12:00 | 107.0 | 107.5 | 103.0 | 104.0 | Red |
+
+- **Prefix Consistency & Knowledge Time Semantics**:
+  1. **Prefix 0..4 (Evaluation at Knowledge Time `2026-10-01 16:00`)**:
+     - Completed candles available: 0 through 4.
+     - Observable state: Valid pullback `(3, 4)` identified.
+     - Tentative High marked: `price = 107.0, candle_idx = 2, candle_time = 2026-10-01 08:00`.
+     - Confirmed pairs: None (0 confirmed pairs).
+     - State: `WAITING_FOR_BREAK`.
+  2. **Prefix 0..6 (Evaluation at Knowledge Time `2026-10-02 00:00`)**:
+     - Completed candles available: 0 through 6.
+     - Candle 6 breaks 107.0 (`close = 109.0`).
+     - Confirmed High: `price = 107.0, candle_idx = 2, candle_time = 2026-10-01 08:00, confirmed_at_time = 2026-10-02 00:00`.
+     - Confirmed Low: `price = 102.0, candle_idx = 5, candle_time = 2026-10-01 20:00, confirmed_at_time = 2026-10-02 00:00`.
+     - Confirmed pairs: 1 pair.
+  3. **Full Dataset 0..9 (Evaluation at Knowledge Time `2026-10-02 12:00`)**:
+     - Completed candles available: 0 through 9.
+     - Confirmed Pair 1 remains strictly identical:
+       - Confirmed High at candle 2 (`2026-10-01 08:00`, price 107.0).
+       - Confirmed Low at candle 5 (`2026-10-01 20:00`, price 102.0).
+       - Event knowledge time remains `2026-10-02 00:00`.
+     - Extension of data by candles 7..9 does not retroactively modify, delete, or shift Pair 1.
+     - Neither future candles nor future calculations leak into earlier prefix evaluations.
+
+---
+
+## 6. Consequential Interpretations & Reconciled Scope
 
 All core rules of Market Structure Marking are formally reconciled and verified:
-1. Empty-range edge case: **Reconciled** (skip pullback, retain start reference).
+1. Empty-range edge case: **Reconciled** (skip pullback, retain search start reference).
 2. Trend status: **Reconciled** (display-only, separate from engine direction).
 3. Equal values: **Reconciled** (latest candle for body-edge ties; strict comparison fails equality).
-4. Flat candles: **Reconciled** (interrupts color run; eligible for searches and breaks).
+4. Flat candles: **Reconciled** (interrupts consecutive color sequence; eligible for searches and breaks).
+5. Post-break candidate restriction: **Reconciled** (candidate `p1` must occur strictly after the closing break candle).
+6. Non-green/non-red breaks: **Reconciled** (break candle color does not matter).
+7. Deterministic prefix immutability: **Reconciled** (historical confirmed levels immutable across prefix expansions, with explicit distinction between candle time and event knowledge time).
 
 There are no remaining unresolved ambiguities in the MSM module specification.

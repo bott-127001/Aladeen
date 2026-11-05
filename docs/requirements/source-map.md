@@ -2,7 +2,7 @@
 
 > [!NOTE]
 > **Reconciliation Status (Updated 2026-11-05)**:
-> Later user-approved clarifications from the TopG project artifact (*Aladin TopG Dashboard — Revised Contract*, 4 November 2026) have been recorded in [`approved-clarifications.md`](file:///docs/requirements/approved-clarifications.md).
+> Later user-approved clarifications from the TopG project artifact (*Aladin TopG Dashboard — Revised Contract*, 4 November 2026) have been recorded in [`approved-clarifications.md`](approved-clarifications.md).
 > Key reconciliations:
 > - **EMPTY RANGE**: Reconciled. When a pullback leaves an empty search range, skip that pullback pair and continue searching from the original starting candle reference.
 > - **OPEN-01**: Trend status is display-only and computed separately from marking direction.
@@ -15,8 +15,7 @@
 ## 1. MSM — Market Structure Marking
 
 ### Source Sections
-- Original Authority: `TopG.pdf` pages 1–8
-- Strategy Document: `docs/strategy/Market Structure Marking.docx` — Sections 1–8
+- Available Specification: `docs/strategy/Market Structure Marking.docx` — Sections 1–8 (stating ancestry from TopG.pdf pages 1–8)
 - Transcription: `docs/strategy/extracted/market-structure-marking.md`
 - Approved Clarifications: `docs/requirements/approved-clarifications.md` (EMPTY RANGE, OPEN-01, OPEN-08, OPEN-10)
 

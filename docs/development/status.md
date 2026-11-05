@@ -1,6 +1,6 @@
 # Development & Review Status — Aladeen / TopG
 
-Last Updated: 2026-11-05 (Strategy Reconciliation & MSM Acceptance Phase)
+Last Updated: 2026-11-05 (Strategy Reconciliation & MSM Acceptance Phase — HANDOFF-005)
 
 ---
 
@@ -17,9 +17,9 @@ Last Updated: 2026-11-05 (Strategy Reconciliation & MSM Acceptance Phase)
 ---
 
 ## 2. Current Task & Scope
-- **Current Task**: Strategy requirements reconciliation and MSM acceptance specification (`HANDOFF-004-STRATEGY-RECONCILIATION`).
+- **Current Task**: Strategy requirements reconciliation and MSM acceptance specification corrections (`HANDOFF-005-STRATEGY-RECONCILIATION`).
 - **Milestone Status**: Workflow/data-shell milestone **ACCEPTED** by Perplexity (HANDOFF-003) with the recorded callback verification limitation.
-- **Authorized Scope**: Requirements reconciliation, approved clarifications recording, source-map update, and MSM acceptance specification. Strictly **no strategy engine implementation, no order execution, and no automated merging**.
+- **Authorized Scope**: Requirements reconciliation, approved clarifications recording, source-map update, and MSM acceptance specification. Strictly **no strategy engine implementation, no order execution, and no automated merging into main**.
 - **Supervisor**: Samarth
 - **Autonomous Reviewer**: Perplexity (via Comet automation endpoint 127.0.0.1:9223)
 
@@ -40,32 +40,45 @@ Last Updated: 2026-11-05 (Strategy Reconciliation & MSM Acceptance Phase)
 ---
 
 ## 4. Verification Performed & Evidence Boundaries
-- **Offline Unit Tests**: 104/104 tests passed in 2.77s (`python -m pytest tests/ -v`).
+- **Offline Unit Tests**: 104/104 tests passed in 2.25s (`python -m pytest tests/ -v`).
   - *Verification Boundary Limitation*: `tests/test_callback_settling.py` consists of direct-call tests of registered callback functions using mocked adapters and manually sequenced state transitions. They verify callback logic and state synchronization in Python; they do not claim to independently prove browser runtime dependency scheduler convergence.
-- **Browser Automation Check**: `tests/browser_check.py` passed with 0 console errors, verifying convergence of UI controls, transitions, and manual refresh.
-- **Startup Smoke Test**: `tests/smoke_test.py` passed (HTTP 200 on `/` and `/_dash-layout`).
-- **Real MT5 Terminal Check**: `tests/check_real_terminal.py` passed with real MT5 terminal (`CONNECTED_TO_BROKER`, 14 MarketWatch symbols, contract validation passed, bar completion semantics verified).
-- **Documentation Verification**: Diff, link, and source consistency checks performed across strategy extracted files, `approved-clarifications.md`, `source-map.md`, and `msm-acceptance.md`.
+- **MSM Fixture Arithmetic Verification**: Complete mathematical and OHLC validity verification performed across all 14 fixtures using standalone verification script:
+  - 100% OHLC validity satisfied: `high >= low`, `high >= max(open, close)`, `low <= min(open, close)`, positive prices.
+  - Body-edge calculations, strict inequality boundaries, tie-breakers, and search ranges verified.
+  - Note: MSM engine itself is NOT implemented yet; tests verify arithmetic and geometry of specification fixtures.
+- **Documentation Verification**: All markdown links verified as repository-relative (e.g. `../strategy/...`, `approved-clarifications.md`).
 
 ---
 
-## 5. Strategy Reconciliation Deliverables (HANDOFF-004)
+## 5. Strategy Reconciliation Deliverables & Review Corrections (HANDOFF-005)
 
-1. **Callback Verification Wording Corrected**:
-   - Updated `tests/test_callback_settling.py` docstring to explicitly describe tests as direct-call tests with mocked adapters, separating them from the browser runtime check.
-2. **Recorded Approved Clarifications**:
-   - Created `docs/requirements/approved-clarifications.md` recording user approvals dated 4 November 2026 from the TopG project artifact (`aladin_topg_dashboard_e6a30e5e.plan.md`).
-   - Covered: EMPTY RANGE, OPEN-01 (display-only trend), OPEN-02 (t1/t2 timing), OPEN-03 (invalidation precedence), OPEN-04 (candle intervals `[open, close)`), OPEN-05 (out-of-zone rearming), OPEN-06 (single price basis & physical observation), OPEN-07 (confirmation consolidation), OPEN-08 (independent engines & start validation), OPEN-09 (immutable signals), OPEN-10 (native MT5 boundaries), OPEN-11 (chronological signals without position gating), OPEN-12 (coarse T rearming), and fail-closed safety principle.
-3. **Updated Source Map**:
-   - Updated `docs/requirements/source-map.md` marking empty-range decision as reconciled.
-   - Decoupled shared MSM detector from specific timeframes (applicable to any configured timeframe).
-   - Separated base TJL passive labeling rules from MTF trading-eligibility overrides (which explicitly permit TJL1 tap activation).
-   - Distinguished out-of-scope broker execution mechanics from strategy rules.
-4. **MSM Acceptance Specification**:
-   - Created `docs/requirements/msm-acceptance.md` specifying complete state machine transitions, exact inclusive/exclusive search windows, strict comparisons, flat candle behavior, latest-candle ties, and 8 explicit numerical OHLC acceptance test fixtures (including bullish/bearish standard cycles, strict equality failure, flat candle interruption, empty-range skip, waiting lockout, forming candle exclusion, and prefix consistency).
+1. **Authority Provenance & Link Fixes**:
+   - `Market Structure Marking.docx` identified as the available MSM specification; `TopG.pdf` (pages 1–8) referenced only as stated ancestry.
+   - All links converted from `file:///docs/...` to repository-relative markdown paths.
+2. **Approved Clarifications Reconciliation**:
+   - `OPEN-08`: default configuration and event stream sharing between H1 source and H1 confirmation engines updated to exact approved language ("H1 source and H1 confirmation share one configuration and event stream unless the user configures them differently. This does not authorize silent starting-candle inheritance across distinct engine configurations.").
+   - `OPEN-02`: removed parenthetical interpretations ("identification/formation" and "qualification/activation").
+   - `OPEN-10`: preserved `timeframe_configuration` in calculation identity.
+3. **MSM-02 Correction**:
+   - Corrected Confirmed High expectation to index 5 (price 197.0) due to tie-breaker between candle 4 (`UB = 197.0`) and candle 5 (`UB = 197.0`) in search range `[2, 6]`. Next search start index is 5.
+4. **Complete 14-Fixture Acceptance Inventory**:
+   - **MSM-01**: Upward Standard Cycle (Clean Confirmation & Confirmed Low tie).
+   - **MSM-02**: Downward Standard Cycle (Clean Confirmation & Confirmed High tie).
+   - **MSM-03**: Strict Equality Failures (Upward pullback equality failure & break equality failure).
+   - **MSM-04**: Flat Candle Interruption (Consecutive color break).
+   - **MSM-05**: Empty-Range Skip (Pullback skipped, start reference retained).
+   - **MSM-06**: Waiting-State Lockout (No overlapping tentative points while awaiting break).
+   - **MSM-07**: Completed Candles Only & Forming Bar Exclusion (No confirmation on forming bar).
+   - **MSM-08**: Tied Tentative Extremes in Both Directions (Part A: Bullish tie in `[start, p1-1]`; Part B: Bearish tie in `[start, p1-1]`).
+   - **MSM-09**: Downward Equality Failures (Mirror of MSM-03: green pullback equality failure & downward break equality failure).
+   - **MSM-10**: Flat Candle Winning Extreme Search (Flat candle with highest body edge in search range).
+   - **MSM-11**: Non-Green Upward Break & Non-Red Downward Break (Part A: Red candle closing > tentative high; Part B: Green candle closing < tentative low).
+   - **MSM-12**: Two Completed Pairs with Post-Break Pullback Restriction (`p1 > k`) and Trend Status ("Upward trend" vs. "Trend not confirmed").
+   - **MSM-13**: Absent and Unconfirmed Starting Candle Rejection (Input validation test specifications).
+   - **MSM-14**: Deterministic Replay / Prefix Consistency with Knowledge Times (10-candle dataset with prefixes 0..4, 0..6, 0..9, demonstrating swing point immutability and separating candle timestamps from event knowledge timestamps).
 
 ---
 
 ## 6. Current State & Next Allowed Action
-- **Current State**: Requirements reconciliation and MSM acceptance specification complete and verified. No strategy engines implemented yet.
-- **Next Allowed Action**: Commit, push to `origin/requirements/strategy-reconciliation`, and submit `HANDOFF-004-STRATEGY-RECONCILIATION` to Perplexity via Comet.
+- **Current State**: Strategy requirements reconciliation and MSM acceptance specification complete and verified. No strategy engines implemented yet.
+- **Next Allowed Action**: Commit, push to `origin/requirements/strategy-reconciliation`, and submit `HANDOFF-005-STRATEGY-RECONCILIATION` to Perplexity via Comet.
