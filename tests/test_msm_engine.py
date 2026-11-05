@@ -970,3 +970,192 @@ class TestMSMFocusedRegressions:
         assert point.event_bar_index == 6
         # Must NOT fall back to identified_time!
         assert point.event_time is None
+
+    # -------------------------------------------------------------------------
+    # Regression Suite: MSMConfig.earliest_pullback_time
+    # -------------------------------------------------------------------------
+
+    def test_earliest_pullback_time_none_preserves_prior_behavior(self):
+        """earliest_pullback_time=None strictly preserves standard MSM pullback detection."""
+        base_time = datetime(2026, 10, 1, 0, 0, tzinfo=timezone.utc)
+        candles = [
+            {"index": 0, "open_time": base_time, "open": 100.0, "high": 105.0, "low": 99.0, "close": 104.0, "is_forming": False, "bar_status": "CONFIRMED_COMPLETED"},
+            {"index": 1, "open_time": base_time + timedelta(hours=4), "open": 104.0, "high": 104.5, "low": 101.0, "close": 102.0, "is_forming": False, "bar_status": "CONFIRMED_COMPLETED"},
+            {"index": 2, "open_time": base_time + timedelta(hours=8), "open": 102.0, "high": 102.5, "low": 99.0, "close": 100.0, "is_forming": False, "bar_status": "CONFIRMED_COMPLETED"},
+        ]
+        config = MSMConfig(start_candle_time=base_time, direction=Direction.UPWARD, earliest_pullback_time=None)
+        engine = MSMEngine(config)
+        snapshot = engine.process_candles(candles)
+
+        assert snapshot.tentative_point is not None
+        assert snapshot.tentative_point.candle_index == 0
+        assert snapshot.tentative_point.price == 104.0
+
+    def test_earliest_pullback_time_ignores_prior_pullback(self):
+        """A valid pullback occurring strictly before earliest_pullback_time is ignored."""
+        base_time = datetime(2026, 10, 1, 0, 0, tzinfo=timezone.utc)
+        # Pullback 1 at bars 1-2 (before boundary at hours=12)
+        # Pullback 2 at bars 4-5 (after boundary at hours=12)
+        candles = [
+            {"index": 0, "open_time": base_time, "open": 100.0, "high": 105.0, "low": 99.0, "close": 104.0, "is_forming": False, "bar_status": "CONFIRMED_COMPLETED"},
+            {"index": 1, "open_time": base_time + timedelta(hours=4), "open": 104.0, "high": 104.5, "low": 101.0, "close": 102.0, "is_forming": False, "bar_status": "CONFIRMED_COMPLETED"},
+            {"index": 2, "open_time": base_time + timedelta(hours=8), "open": 102.0, "high": 102.5, "low": 99.0, "close": 100.0, "is_forming": False, "bar_status": "CONFIRMED_COMPLETED"},
+            {"index": 3, "open_time": base_time + timedelta(hours=12), "open": 100.0, "high": 108.0, "low": 99.5, "close": 107.0, "is_forming": False, "bar_status": "CONFIRMED_COMPLETED"},
+            {"index": 4, "open_time": base_time + timedelta(hours=16), "open": 107.0, "high": 107.5, "low": 104.0, "close": 105.0, "is_forming": False, "bar_status": "CONFIRMED_COMPLETED"},
+            {"index": 5, "open_time": base_time + timedelta(hours=20), "open": 105.0, "high": 105.5, "low": 102.0, "close": 103.0, "is_forming": False, "bar_status": "CONFIRMED_COMPLETED"},
+        ]
+        # Set earliest pullback time to hours=16 (Bar 4)
+        boundary_time = base_time + timedelta(hours=16)
+        config = MSMConfig(start_candle_time=base_time, direction=Direction.UPWARD, earliest_pullback_time=boundary_time)
+        engine = MSMEngine(config)
+        snapshot = engine.process_candles(candles)
+
+        # Pullback 1 (bars 1-2) must be skipped. Pullback 2 (bars 4-5) must be detected!
+        # Search window for tentative high from start (Bar 0) through Bar 3 -> Bar 3 has UB=107.0
+        assert snapshot.tentative_point is not None
+        assert snapshot.tentative_point.candle_index == 3
+        assert snapshot.tentative_point.price == 107.0
+        assert snapshot.tentative_point.identified_bar_index == 5
+
+    def test_earliest_pullback_time_accepts_exact_boundary_pullback(self):
+        """A pullback beginning exactly at earliest_pullback_time timestamp is accepted."""
+        base_time = datetime(2026, 10, 1, 0, 0, tzinfo=timezone.utc)
+        boundary_time = base_time + timedelta(hours=4)
+        candles = [
+            {"index": 0, "open_time": base_time, "open": 100.0, "high": 105.0, "low": 99.0, "close": 104.0, "is_forming": False, "bar_status": "CONFIRMED_COMPLETED"},
+            {"index": 1, "open_time": boundary_time, "open": 104.0, "high": 104.5, "low": 101.0, "close": 102.0, "is_forming": False, "bar_status": "CONFIRMED_COMPLETED"},
+            {"index": 2, "open_time": base_time + timedelta(hours=8), "open": 102.0, "high": 102.5, "low": 99.0, "close": 100.0, "is_forming": False, "bar_status": "CONFIRMED_COMPLETED"},
+        ]
+        config = MSMConfig(start_candle_time=base_time, direction=Direction.UPWARD, earliest_pullback_time=boundary_time)
+        engine = MSMEngine(config)
+        snapshot = engine.process_candles(candles)
+
+        assert snapshot.tentative_point is not None
+        assert snapshot.tentative_point.candle_index == 0
+        assert snapshot.tentative_point.price == 104.0
+
+    def test_earliest_pullback_time_batch_sequential_replay_parity(self):
+        """Batch, incremental sequential ingest, and step-by-step replay produce identical state."""
+        base_time = datetime(2026, 10, 1, 0, 0, tzinfo=timezone.utc)
+        boundary_time = base_time + timedelta(hours=8)
+        candles = [
+            {"index": 0, "open_time": base_time, "open": 100.0, "high": 105.0, "low": 99.0, "close": 104.0, "is_forming": False, "bar_status": "CONFIRMED_COMPLETED"},
+            {"index": 1, "open_time": base_time + timedelta(hours=4), "open": 104.0, "high": 104.5, "low": 101.0, "close": 102.0, "is_forming": False, "bar_status": "CONFIRMED_COMPLETED"},
+            {"index": 2, "open_time": boundary_time, "open": 102.0, "high": 106.0, "low": 101.5, "close": 105.0, "is_forming": False, "bar_status": "CONFIRMED_COMPLETED"},
+            {"index": 3, "open_time": base_time + timedelta(hours=12), "open": 105.0, "high": 105.5, "low": 102.0, "close": 103.0, "is_forming": False, "bar_status": "CONFIRMED_COMPLETED"},
+            {"index": 4, "open_time": base_time + timedelta(hours=16), "open": 103.0, "high": 103.5, "low": 100.0, "close": 101.0, "is_forming": False, "bar_status": "CONFIRMED_COMPLETED"},
+        ]
+        config = MSMConfig(start_candle_time=base_time, direction=Direction.UPWARD, earliest_pullback_time=boundary_time)
+
+        # 1. Batch
+        e_batch = MSMEngine(config)
+        s_batch = e_batch.process_candles(candles)
+
+        # 2. Sequential
+        e_seq = MSMEngine(config)
+        for c in candles:
+            s_seq = e_seq.process_candle(c)
+
+        # 3. Replay
+        e_rep = MSMEngine(config)
+        snaps_rep = e_rep.replay(candles)
+        s_rep = snaps_rep[-1]
+
+        assert s_batch.state == s_seq.state == s_rep.state
+        assert s_batch.tentative_point == s_seq.tentative_point == s_rep.tentative_point
+        assert s_batch.confirmed_pairs == s_seq.confirmed_pairs == s_rep.confirmed_pairs
+
+    def test_earliest_pullback_time_with_unconfirmed_row_before_boundary(self):
+        """Unconfirmed forming rows before boundary are filtered without corrupting completed buffer positions."""
+        base_time = datetime(2026, 10, 1, 0, 0, tzinfo=timezone.utc)
+        boundary_time = base_time + timedelta(hours=12)
+        candles = [
+            {"index": 0, "open_time": base_time, "open": 100.0, "high": 105.0, "low": 99.0, "close": 104.0, "is_forming": False, "bar_status": "CONFIRMED_COMPLETED"},
+            # Unconfirmed latest row that is filtered by adapt_candles
+            {"index": 1, "open_time": base_time + timedelta(hours=4), "open": 104.0, "high": 104.5, "low": 101.0, "close": 102.0, "is_forming": True, "bar_status": "FORMING"},
+            {"index": 2, "open_time": base_time + timedelta(hours=8), "open": 104.0, "high": 107.0, "low": 103.5, "close": 106.0, "is_forming": False, "bar_status": "CONFIRMED_COMPLETED"},
+            {"index": 3, "open_time": boundary_time, "open": 106.0, "high": 106.5, "low": 103.0, "close": 104.0, "is_forming": False, "bar_status": "CONFIRMED_COMPLETED"},
+            {"index": 4, "open_time": base_time + timedelta(hours=16), "open": 104.0, "high": 104.5, "low": 101.0, "close": 102.0, "is_forming": False, "bar_status": "CONFIRMED_COMPLETED"},
+        ]
+        config = MSMConfig(start_candle_time=base_time, direction=Direction.UPWARD, earliest_pullback_time=boundary_time)
+        engine = MSMEngine(config)
+        snapshot = engine.process_candles(candles)
+
+        # Forming bar at index 1 excluded; completed buffer has index 0, 2, 3, 4
+        # Pullback at index 3-4 detected; tentative high from index 0 through 2 -> index 2 has UB=106.0
+        assert snapshot.tentative_point is not None
+        assert snapshot.tentative_point.candle_index == 2
+        assert snapshot.tentative_point.price == 106.0
+        assert snapshot.tentative_point.identified_bar_index == 4
+
+    def test_earliest_pullback_time_beyond_dataset(self):
+        """earliest_pullback_time lying strictly beyond all available candles keeps engine in SEARCHING_PULLBACK."""
+        base_time = datetime(2026, 10, 1, 0, 0, tzinfo=timezone.utc)
+        boundary_time = base_time + timedelta(hours=48)
+        candles = [
+            {"index": 0, "open_time": base_time, "open": 100.0, "high": 105.0, "low": 99.0, "close": 104.0, "is_forming": False, "bar_status": "CONFIRMED_COMPLETED"},
+            {"index": 1, "open_time": base_time + timedelta(hours=4), "open": 104.0, "high": 104.5, "low": 101.0, "close": 102.0, "is_forming": False, "bar_status": "CONFIRMED_COMPLETED"},
+            {"index": 2, "open_time": base_time + timedelta(hours=8), "open": 102.0, "high": 102.5, "low": 99.0, "close": 100.0, "is_forming": False, "bar_status": "CONFIRMED_COMPLETED"},
+        ]
+        config = MSMConfig(start_candle_time=base_time, direction=Direction.UPWARD, earliest_pullback_time=boundary_time)
+        engine = MSMEngine(config)
+        snapshot = engine.process_candles(candles)
+
+        assert snapshot.state == EngineState.SEARCHING_PULLBACK
+        assert snapshot.tentative_point is None
+
+    def test_earliest_pullback_time_with_noncontiguous_source_ids(self):
+        """earliest_pullback_time works reliably with noncontiguous arbitrary candle IDs."""
+        base_time = datetime(2026, 10, 1, 0, 0, tzinfo=timezone.utc)
+        boundary_time = base_time + timedelta(hours=10)
+        candles = [
+            {"index": 501, "open_time": base_time, "open": 100.0, "high": 105.0, "low": 99.0, "close": 104.0, "is_forming": False, "bar_status": "CONFIRMED_COMPLETED"},
+            {"index": 709, "open_time": base_time + timedelta(hours=5), "open": 104.0, "high": 107.0, "low": 103.5, "close": 106.0, "is_forming": False, "bar_status": "CONFIRMED_COMPLETED"},
+            {"index": 822, "open_time": boundary_time, "open": 106.0, "high": 106.5, "low": 103.0, "close": 104.0, "is_forming": False, "bar_status": "CONFIRMED_COMPLETED"},
+            {"index": 999, "open_time": base_time + timedelta(hours=15), "open": 104.0, "high": 104.5, "low": 101.0, "close": 102.0, "is_forming": False, "bar_status": "CONFIRMED_COMPLETED"},
+        ]
+        config = MSMConfig(start_candle_time=base_time, direction=Direction.UPWARD, earliest_pullback_time=boundary_time)
+        engine = MSMEngine(config)
+        snapshot = engine.process_candles(candles)
+
+        assert snapshot.tentative_point is not None
+        assert snapshot.tentative_point.candle_index == 709
+        assert snapshot.tentative_point.identified_bar_index == 999
+
+    def test_earliest_pullback_time_invalid_timestamp_rejected_fail_closed(self):
+        """Naive or non-datetime earliest_pullback_time is rejected fail-closed upfront in MSMConfig."""
+        base_time = datetime(2026, 10, 1, 0, 0, tzinfo=timezone.utc)
+        # Naive datetime
+        naive_dt = datetime(2026, 10, 1, 12, 0)
+        with pytest.raises(ValueError, match="must be timezone-aware"):
+            MSMConfig(start_candle_time=base_time, direction=Direction.UPWARD, earliest_pullback_time=naive_dt)
+
+        # Invalid type
+        with pytest.raises(TypeError, match="must be datetime"):
+            MSMConfig(start_candle_time=base_time, direction=Direction.UPWARD, earliest_pullback_time=12345)
+
+    def test_earliest_pullback_time_preserves_historical_search_reference(self):
+        """Historical extreme-search reference remains at start_candle while forward scan is delayed."""
+        base_time = datetime(2026, 10, 1, 0, 0, tzinfo=timezone.utc)
+        boundary_time = base_time + timedelta(hours=16)
+        # Bar 0 is start reference with UB=110.0 (highest in entire series)
+        # Bars 1-3 rise and fall
+        # Bars 4-5 pullback after boundary
+        candles = [
+            {"index": 0, "open_time": base_time, "open": 100.0, "high": 111.0, "low": 99.0, "close": 110.0, "is_forming": False, "bar_status": "CONFIRMED_COMPLETED"},
+            {"index": 1, "open_time": base_time + timedelta(hours=4), "open": 108.0, "high": 108.2, "low": 105.0, "close": 106.0, "is_forming": False, "bar_status": "CONFIRMED_COMPLETED"},
+            {"index": 2, "open_time": base_time + timedelta(hours=8), "open": 106.0, "high": 107.0, "low": 105.5, "close": 106.5, "is_forming": False, "bar_status": "CONFIRMED_COMPLETED"},
+            {"index": 3, "open_time": base_time + timedelta(hours=12), "open": 106.5, "high": 106.8, "low": 104.0, "close": 105.0, "is_forming": False, "bar_status": "CONFIRMED_COMPLETED"},
+            {"index": 4, "open_time": boundary_time, "open": 105.0, "high": 105.2, "low": 102.0, "close": 103.0, "is_forming": False, "bar_status": "CONFIRMED_COMPLETED"},
+            {"index": 5, "open_time": base_time + timedelta(hours=20), "open": 103.0, "high": 103.2, "low": 100.0, "close": 101.0, "is_forming": False, "bar_status": "CONFIRMED_COMPLETED"},
+        ]
+        config = MSMConfig(start_candle_time=base_time, direction=Direction.UPWARD, earliest_pullback_time=boundary_time)
+        engine = MSMEngine(config)
+        snapshot = engine.process_candles(candles)
+
+        # Pullback at bars 4-5 searches from Bar 0 through Bar 3 -> Bar 0 is selected with UB=110.0
+        assert snapshot.tentative_point is not None
+        assert snapshot.tentative_point.candle_index == 0
+        assert snapshot.tentative_point.price == 110.0
+        assert snapshot.search_start_index == 0
+

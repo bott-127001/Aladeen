@@ -55,12 +55,26 @@ class TestISSFixtureIntegrity:
             "iss_14_first_internal_pullback_timing_restriction",
             "iss_15_prefix_consistency_and_ids",
         ]
+        synthetic_keys = {
+            "iss_07_no_revival_under_same_main_level_3",
+            "iss_08_fresh_search_on_new_main_level_3",
+            "iss_11_retained_history_preservation",
+        }
         for key in expected_keys:
             assert key in iss_fixtures, f"Missing fixture: {key}"
             fix = iss_fixtures[key]
             assert "category" in fix and len(fix["category"]) > 0
             assert "candles" in fix and len(fix["candles"]) > 0
             assert "expected_outcome" in fix
+
+            if key in synthetic_keys:
+                assert fix["category"] == ["synthetic_lifecycle_specification", "source_settled"], (
+                    f"Fixture {key} must be honestly labeled as synthetic_lifecycle_specification"
+                )
+            else:
+                assert fix["category"] == ["end_to_end_msm_derived", "source_settled"], (
+                    f"Fixture {key} must be labeled as end_to_end_msm_derived"
+                )
 
     def test_candles_raw_timezone_awareness_and_finite_ohlc(self, iss_fixtures) -> None:
         """Asserts raw string timezone-awareness, finite prices, and physical OHLC geometry."""

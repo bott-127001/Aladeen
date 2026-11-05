@@ -232,6 +232,10 @@ class MSMConfig:
         elif not isinstance(self.direction, Direction):
             raise TypeError(f"direction must be Direction enum, got {type(self.direction).__name__}")
 
+        if self.earliest_pullback_time is not None:
+            norm_earliest = validate_and_normalize_timestamp(self.earliest_pullback_time, "earliest_pullback_time")
+            object.__setattr__(self, "earliest_pullback_time", norm_earliest)
+
 
 @dataclass(frozen=True)
 class MSMSnapshot:

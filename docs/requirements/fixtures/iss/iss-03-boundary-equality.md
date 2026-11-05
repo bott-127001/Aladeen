@@ -24,7 +24,7 @@ Marked internal point 5 body-edge price exactly equals captured boundary price (
 
 ## 4. Expected Outcome & Lifecycle Status
 - **Lifecycle Status**: `CONFIRMED`
-- **Confirmation Candle**: Bar #20 (None)
+- **Confirmation Candle**: Bar #20 (N/A)
 - **Completion Close Price**: `1.188` (Inside Boundary: `True`)
 
 ## 5. Candles Series Summary

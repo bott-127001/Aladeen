@@ -1,10 +1,10 @@
 {
   "description": "Standardized Acceptance Fixtures for Internal Structure Shift (ISS) Module",
-  "version": "1.1",
+  "version": "1.2",
   "categories": [
     "source_settled",
     "end_to_end_msm_derived",
-    "synthetic_prerequisite_unit",
+    "synthetic_lifecycle_specification",
     "unresolved_boundary"
   ],
   "fixtures": {
@@ -1164,7 +1164,7 @@
         "end_to_end_msm_derived",
         "source_settled"
       ],
-      "description": "Marked internal point 3 body edge (1.2020) breaches frozen upper boundary (1.2000). Candidate permanently rejected, internal markings removed, zero zones created.",
+      "description": "Marked internal point 3 body edge (1.2020) breaches frozen upper boundary (1.2000). Identified at Bar 16; candidate permanently rejected, internal markings removed, zero zones created.",
       "main_direction": "BEARISH",
       "main_prerequisites": {
         "main_level_2": {
@@ -1398,6 +1398,29 @@
           "is_forming": false,
           "bar_status": "CONFIRMED_COMPLETED",
           "close_time": "2026-10-01T21:00:00Z"
+        }
+      ],
+      "expected_internal_points": [
+        {
+          "point_number": 1,
+          "role": "CH1",
+          "candle_index": 10,
+          "body_edge_price": 1.16,
+          "is_inside_boundary": true
+        },
+        {
+          "point_number": 2,
+          "role": "CL1",
+          "candle_index": 12,
+          "body_edge_price": 1.148,
+          "is_inside_boundary": true
+        },
+        {
+          "point_number": 3,
+          "role": "CH2",
+          "candle_index": 14,
+          "body_edge_price": 1.202,
+          "is_inside_boundary": false
         }
       ],
       "expected_outcome": {
@@ -1649,6 +1672,43 @@
           "close_time": "2026-10-01T21:00:00Z"
         }
       ],
+      "expected_internal_points": [
+        {
+          "point_number": 1,
+          "role": "CH1",
+          "candle_index": 10,
+          "body_edge_price": 1.16,
+          "is_inside_boundary": true
+        },
+        {
+          "point_number": 2,
+          "role": "CL1",
+          "candle_index": 12,
+          "body_edge_price": 1.148,
+          "is_inside_boundary": true
+        },
+        {
+          "point_number": 3,
+          "role": "CH2",
+          "candle_index": 14,
+          "body_edge_price": 1.175,
+          "is_inside_boundary": true
+        },
+        {
+          "point_number": 4,
+          "role": "CL2",
+          "candle_index": 16,
+          "body_edge_price": 1.168,
+          "is_inside_boundary": true
+        },
+        {
+          "point_number": 5,
+          "role": "TENTATIVE_HIGH",
+          "candle_index": 18,
+          "body_edge_price": 1.192,
+          "is_inside_boundary": true
+        }
+      ],
       "expected_outcome": {
         "lifecycle_status": "OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY",
         "completion_close_price": 1.135,
@@ -1659,10 +1719,10 @@
     },
     "iss_07_no_revival_under_same_main_level_3": {
       "category": [
-        "end_to_end_msm_derived",
+        "synthetic_lifecycle_specification",
         "source_settled"
       ],
-      "description": "Subsequent internal price action following an outside-range completion attempt cannot revive ISS eligibility under the same main level 3.",
+      "description": "Lifecycle specification: Subsequent internal price action following an outside-range completion attempt cannot revive ISS eligibility under the same main level 3.",
       "main_direction": "BEARISH",
       "main_prerequisites": {
         "main_level_2": {
@@ -1936,10 +1996,10 @@
     },
     "iss_08_fresh_search_on_new_main_level_3": {
       "category": [
-        "end_to_end_msm_derived",
+        "synthetic_lifecycle_specification",
         "source_settled"
       ],
-      "description": "Following prior candidate rejection, a new valid main level 3 is identified. A fresh candidate opens with new captured boundaries and succeeds.",
+      "description": "Lifecycle specification: Following prior candidate rejection, a new valid main level 3 is identified. A fresh candidate opens with new captured boundaries.",
       "main_direction": "BEARISH",
       "candles": [
         {
@@ -2164,7 +2224,7 @@
         "end_to_end_msm_derived",
         "source_settled"
       ],
-      "description": "Main continuation closing break (1.1320 < 1.1400) occurs before ISS completes. Unfinished ISS candidate cancelled without zones.",
+      "description": "Main continuation closing break (1.1320 < 1.1400) occurs at Bar 14 before internal structure completes. Unfinished ISS candidate cancelled without zones.",
       "main_direction": "BEARISH",
       "main_prerequisites": {
         "main_level_2": {
@@ -2340,8 +2400,25 @@
           "close_time": "2026-10-01T15:00:00Z"
         }
       ],
+      "expected_internal_points": [
+        {
+          "point_number": 1,
+          "role": "CH1",
+          "candle_index": 10,
+          "body_edge_price": 1.16,
+          "is_inside_boundary": true
+        },
+        {
+          "point_number": 2,
+          "role": "CL1",
+          "candle_index": 12,
+          "body_edge_price": 1.148,
+          "is_inside_boundary": true
+        }
+      ],
       "expected_outcome": {
         "lifecycle_status": "MAIN_CONTINUATION_CANCELLED",
+        "cancellation_candle_index": 14,
         "zones_created": false,
         "main_marking_proceeds": true
       }
@@ -2351,7 +2428,7 @@
         "end_to_end_msm_derived",
         "source_settled"
       ],
-      "description": "Main CHOCH confirms (two consecutive closes > 1.2000) while internal candidate is unfinished. Active ISS candidate cancelled; confirmed history retained.",
+      "description": "Main CHOCH confirms (two consecutive closes > 1.2000 at Bar 15) while internal candidate is unfinished. Active ISS candidate cancelled; confirmed history retained.",
       "main_direction": "BEARISH",
       "main_prerequisites": {
         "main_level_2": {
@@ -2537,18 +2614,35 @@
           "close_time": "2026-10-01T16:00:00Z"
         }
       ],
+      "expected_internal_points": [
+        {
+          "point_number": 1,
+          "role": "CH1",
+          "candle_index": 10,
+          "body_edge_price": 1.16,
+          "is_inside_boundary": true
+        },
+        {
+          "point_number": 2,
+          "role": "CL1",
+          "candle_index": 12,
+          "body_edge_price": 1.148,
+          "is_inside_boundary": true
+        }
+      ],
       "expected_outcome": {
         "lifecycle_status": "MAIN_CHOCH_CANCELLED",
+        "cancellation_candle_index": 15,
         "zones_created": false,
         "confirmed_history_retained": true
       }
     },
     "iss_11_retained_history_preservation": {
       "category": [
-        "end_to_end_msm_derived",
+        "synthetic_lifecycle_specification",
         "source_settled"
       ],
-      "description": "Confirmed ISS zones and labels remain in history after later main continuation break.",
+      "description": "Lifecycle specification: Confirmed ISS zones and labels remain in history after later main continuation break.",
       "main_direction": "BEARISH",
       "main_prerequisites": {
         "main_level_2": {

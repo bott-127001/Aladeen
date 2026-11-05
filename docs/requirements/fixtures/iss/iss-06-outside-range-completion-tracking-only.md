@@ -16,7 +16,11 @@ All 5 marked points valid inside [1.1400, 1.2000], but completion candle closes 
 ## 3. Expected Internal Points
 | Point # | Role | Bar Index | Body Edge Price | Inside Boundary |
 |:---:|:---:|:---:|:---:|:---:|
-| — | — | — | — | — |
+| 1 | `CH1` | #10 | 1.16 | Yes |
+| 2 | `CL1` | #12 | 1.148 | Yes |
+| 3 | `CH2` | #14 | 1.175 | Yes |
+| 4 | `CL2` | #16 | 1.168 | Yes |
+| 5 | `TENTATIVE_HIGH` | #18 | 1.192 | Yes |
 
 ## 4. Expected Outcome & Lifecycle Status
 - **Lifecycle Status**: `OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY`

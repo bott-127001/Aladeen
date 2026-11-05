@@ -4,7 +4,7 @@
 **Main Direction**: `BEARISH`
 
 ## 1. Description & Strategy Context
-Marked internal point 3 body edge (1.2020) breaches frozen upper boundary (1.2000). Candidate permanently rejected, internal markings removed, zero zones created.
+Marked internal point 3 body edge (1.2020) breaches frozen upper boundary (1.2000). Identified at Bar 16; candidate permanently rejected, internal markings removed, zero zones created.
 
 ## 2. Main Prerequisites & Captured Boundary
 - **Main Level 2**: `CH` at Bar #4 (Price: `1.2`)
@@ -16,7 +16,9 @@ Marked internal point 3 body edge (1.2020) breaches frozen upper boundary (1.200
 ## 3. Expected Internal Points
 | Point # | Role | Bar Index | Body Edge Price | Inside Boundary |
 |:---:|:---:|:---:|:---:|:---:|
-| — | — | — | — | — |
+| 1 | `CH1` | #10 | 1.16 | Yes |
+| 2 | `CL1` | #12 | 1.148 | Yes |
+| 3 | `CH2` | #14 | 1.202 | No |
 
 ## 4. Expected Outcome & Lifecycle Status
 - **Lifecycle Status**: `OUT_OF_BOUNDS_REJECTED`

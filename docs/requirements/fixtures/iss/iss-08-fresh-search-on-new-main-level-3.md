@@ -1,10 +1,10 @@
 # Fixture Specification: `iss_08_fresh_search_on_new_main_level_3`
 
-**Category**: end_to_end_msm_derived, source_settled
+**Category**: synthetic_lifecycle_specification, source_settled
 **Main Direction**: `BEARISH`
 
 ## 1. Description & Strategy Context
-Following prior candidate rejection, a new valid main level 3 is identified. A fresh candidate opens with new captured boundaries and succeeds.
+Lifecycle specification: Following prior candidate rejection, a new valid main level 3 is identified. A fresh candidate opens with new captured boundaries.
 
 ## 2. Main Prerequisites & Captured Boundary
 - Standard baseline prerequisites inherited from `iss_01_bearish_basic_end_to_end`.

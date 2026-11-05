@@ -116,16 +116,6 @@ class MSMEngine:
         self._next_eligible_pullback_pos = start_completed_pos
         self._pullback_scan_pos = start_completed_pos
 
-        if self.config.earliest_pullback_time is not None:
-            from .types import validate_and_normalize_timestamp
-            norm_earliest = validate_and_normalize_timestamp(self.config.earliest_pullback_time, "earliest_pullback_time")
-            earliest_pos = next(
-                (i for i, c in enumerate(candles) if c.open_time >= norm_earliest),
-                len(candles),
-            )
-            self._next_eligible_pullback_pos = max(start_completed_pos, earliest_pos)
-            self._pullback_scan_pos = self._next_eligible_pullback_pos
-
         for c in candles:
             self._ingest_candle(c)
 
@@ -214,11 +204,7 @@ class MSMEngine:
             if self._state == EngineState.SEARCHING_PULLBACK:
                 p1_pos = max(self._pullback_scan_pos, self._next_eligible_pullback_pos)
                 if self.config.earliest_pullback_time is not None:
-                    from .types import validate_and_normalize_timestamp
-                    norm_earliest = validate_and_normalize_timestamp(
-                        self.config.earliest_pullback_time, "earliest_pullback_time"
-                    )
-                    while p1_pos < total_candles and self._completed_candles[p1_pos].open_time < norm_earliest:
+                    while p1_pos < total_candles and self._completed_candles[p1_pos].open_time < self.config.earliest_pullback_time:
                         p1_pos += 1
                     self._next_eligible_pullback_pos = max(self._next_eligible_pullback_pos, p1_pos)
                     self._pullback_scan_pos = max(self._pullback_scan_pos, p1_pos)

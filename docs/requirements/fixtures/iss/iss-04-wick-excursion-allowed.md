@@ -20,7 +20,7 @@ Candle wicks pierce beyond the frozen range boundaries (low 1.1350 < 1.1400 and 
 
 ## 4. Expected Outcome & Lifecycle Status
 - **Lifecycle Status**: `CONFIRMED`
-- **Confirmation Candle**: Bar #20 (None)
+- **Confirmation Candle**: Bar #20 (N/A)
 - **Completion Close Price**: `None` (Inside Boundary: `None`)
 - **Structural Zones Formed**:
   - `RBS`: Bar #14 `[1.175, 1.206]` (is_line: `False`)

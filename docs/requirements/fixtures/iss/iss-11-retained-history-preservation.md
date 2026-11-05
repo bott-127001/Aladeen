@@ -1,10 +1,10 @@
 # Fixture Specification: `iss_11_retained_history_preservation`
 
-**Category**: end_to_end_msm_derived, source_settled
+**Category**: synthetic_lifecycle_specification, source_settled
 **Main Direction**: `BEARISH`
 
 ## 1. Description & Strategy Context
-Confirmed ISS zones and labels remain in history after later main continuation break.
+Lifecycle specification: Confirmed ISS zones and labels remain in history after later main continuation break.
 
 ## 2. Main Prerequisites & Captured Boundary
 - **Main Level 2**: `CH` at Bar #4 (Price: `1.2`)

@@ -4,7 +4,7 @@
 **Main Direction**: `BEARISH`
 
 ## 1. Description & Strategy Context
-Main CHOCH confirms (two consecutive closes > 1.2000) while internal candidate is unfinished. Active ISS candidate cancelled; confirmed history retained.
+Main CHOCH confirms (two consecutive closes > 1.2000 at Bar 15) while internal candidate is unfinished. Active ISS candidate cancelled; confirmed history retained.
 
 ## 2. Main Prerequisites & Captured Boundary
 - **Main Level 2**: `CH` at Bar #4 (Price: `1.2`)
@@ -16,10 +16,12 @@ Main CHOCH confirms (two consecutive closes > 1.2000) while internal candidate i
 ## 3. Expected Internal Points
 | Point # | Role | Bar Index | Body Edge Price | Inside Boundary |
 |:---:|:---:|:---:|:---:|:---:|
-| — | — | — | — | — |
+| 1 | `CH1` | #10 | 1.16 | Yes |
+| 2 | `CL1` | #12 | 1.148 | Yes |
 
 ## 4. Expected Outcome & Lifecycle Status
 - **Lifecycle Status**: `MAIN_CHOCH_CANCELLED`
+- **Cancellation Candle**: Bar #15
 
 ## 5. Candles Series Summary
 Total candles: 16
