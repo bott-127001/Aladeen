@@ -25,7 +25,19 @@ This document defines the bounded autonomous development and review loop between
 
 ---
 
-## 2. Core Development Loop
+## 2. Readiness Checkpoints
+
+Autonomous operation requires five separate, sequential checkpoints. A later checkpoint cannot be marked complete based on earlier ones:
+
+1. **Workflow documentation prepared**: `AGENTS.md`, `autonomous-workflow.md`, and `status.md` are documented, reviewed, and committed.
+2. **Browser control verified**: A separate Comet instance with a dedicated profile is launchable, verified loopback-only on a local port, and controllable via CDP (tab enumeration, navigation, content evaluation, clean detachment).
+3. **Authentication pending / completed**: Samarth manually signs in to Perplexity in the dedicated Comet profile. The agent never automates login, captures credentials, or handles MFA.
+4. **Conversation handoff verified**: The existing Aladeen / TopG conversation in the TopG project is located and verified via recent context; a supervised handoff report is submitted, and the response is read and recorded without error.
+5. **Autonomous operation approved**: Samarth explicitly authorizes repeated autonomous implementation and review loops.
+
+---
+
+## 3. Core Development Loop
 
 For each authorized task:
 
