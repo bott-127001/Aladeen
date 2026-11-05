@@ -1,0 +1,2268 @@
+{
+  "version": "1.0",
+  "description": "Independently specified acceptance fixture data for Market Structure Marking (MSM)",
+  "fixtures": {
+    "MSM-01": {
+      "fixture_id": "MSM-01",
+      "title": "Upward Standard Cycle (Clean Confirmation)",
+      "direction": "UPWARD",
+      "start_candle_index": 0,
+      "start_candle_time": "2026-10-01T00:00:00+00:00",
+      "candles": [
+        {
+          "open": 100.0,
+          "high": 102.0,
+          "low": 99.0,
+          "close": 101.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 0,
+          "time": "2026-10-01T00:00:00+00:00"
+        },
+        {
+          "open": 101.0,
+          "high": 106.0,
+          "low": 100.5,
+          "close": 105.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 1,
+          "time": "2026-10-01T04:00:00+00:00"
+        },
+        {
+          "open": 105.0,
+          "high": 108.0,
+          "low": 104.0,
+          "close": 107.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 2,
+          "time": "2026-10-01T08:00:00+00:00"
+        },
+        {
+          "open": 107.0,
+          "high": 107.5,
+          "low": 103.0,
+          "close": 104.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 3,
+          "time": "2026-10-01T12:00:00+00:00"
+        },
+        {
+          "open": 104.0,
+          "high": 104.5,
+          "low": 101.5,
+          "close": 102.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 4,
+          "time": "2026-10-01T16:00:00+00:00"
+        },
+        {
+          "open": 102.0,
+          "high": 105.0,
+          "low": 101.0,
+          "close": 103.5,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 5,
+          "time": "2026-10-01T20:00:00+00:00"
+        },
+        {
+          "open": 103.5,
+          "high": 110.0,
+          "low": 103.0,
+          "close": 109.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 6,
+          "time": "2026-10-02T00:00:00+00:00"
+        }
+      ],
+      "search_evaluations": [
+        {
+          "target": "TENTATIVE_HIGH",
+          "search_window": [
+            0,
+            2
+          ],
+          "search_type": "MAX_UB",
+          "eligible_indices": [
+            0,
+            1,
+            2
+          ],
+          "body_edges": [
+            101.0,
+            105.0,
+            107.0
+          ],
+          "extreme_indices": [
+            2
+          ],
+          "selected_index": 2,
+          "selected_price": 107.0,
+          "is_tied": false
+        },
+        {
+          "target": "CONFIRMED_LOW",
+          "search_window": [
+            2,
+            6
+          ],
+          "search_type": "MIN_LB",
+          "eligible_indices": [
+            2,
+            3,
+            4,
+            5,
+            6
+          ],
+          "body_edges": [
+            105.0,
+            104.0,
+            102.0,
+            102.0,
+            103.5
+          ],
+          "extreme_indices": [
+            4,
+            5
+          ],
+          "selected_index": 5,
+          "selected_price": 102.0,
+          "is_tied": true
+        }
+      ],
+      "expected_events": {
+        "pullback_identified_at_bar": 4,
+        "pullback_candles": [
+          3,
+          4
+        ],
+        "tentative_high": {
+          "price": 107.0,
+          "candle_index": 2,
+          "identified_at_bar": 4
+        },
+        "break_at_bar": 6,
+        "confirmed_high": {
+          "price": 107.0,
+          "candle_index": 2,
+          "confirmed_at_bar": 6
+        },
+        "confirmed_low": {
+          "price": 102.0,
+          "candle_index": 5,
+          "confirmed_at_bar": 6
+        },
+        "next_search_start_index": 5,
+        "next_pullback_candidate_min_index": 7,
+        "trend_status": "Marking upward structure"
+      }
+    },
+    "MSM-02": {
+      "fixture_id": "MSM-02",
+      "title": "Downward Standard Cycle (Clean Confirmation & Confirmed Extreme Tie)",
+      "direction": "DOWNWARD",
+      "start_candle_index": 0,
+      "start_candle_time": "2026-10-01T00:00:00+00:00",
+      "candles": [
+        {
+          "open": 200.0,
+          "high": 201.0,
+          "low": 198.0,
+          "close": 199.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 0,
+          "time": "2026-10-01T00:00:00+00:00"
+        },
+        {
+          "open": 199.0,
+          "high": 199.5,
+          "low": 194.0,
+          "close": 195.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 1,
+          "time": "2026-10-01T04:00:00+00:00"
+        },
+        {
+          "open": 195.0,
+          "high": 196.0,
+          "low": 191.0,
+          "close": 192.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 2,
+          "time": "2026-10-01T08:00:00+00:00"
+        },
+        {
+          "open": 192.0,
+          "high": 196.0,
+          "low": 191.5,
+          "close": 195.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 3,
+          "time": "2026-10-01T12:00:00+00:00"
+        },
+        {
+          "open": 195.0,
+          "high": 198.0,
+          "low": 194.5,
+          "close": 197.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 4,
+          "time": "2026-10-01T16:00:00+00:00"
+        },
+        {
+          "open": 197.0,
+          "high": 197.5,
+          "low": 193.0,
+          "close": 194.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 5,
+          "time": "2026-10-01T20:00:00+00:00"
+        },
+        {
+          "open": 194.0,
+          "high": 194.5,
+          "low": 189.0,
+          "close": 190.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 6,
+          "time": "2026-10-02T00:00:00+00:00"
+        }
+      ],
+      "search_evaluations": [
+        {
+          "target": "TENTATIVE_LOW",
+          "search_window": [
+            0,
+            2
+          ],
+          "search_type": "MIN_LB",
+          "eligible_indices": [
+            0,
+            1,
+            2
+          ],
+          "body_edges": [
+            199.0,
+            195.0,
+            192.0
+          ],
+          "extreme_indices": [
+            2
+          ],
+          "selected_index": 2,
+          "selected_price": 192.0,
+          "is_tied": false
+        },
+        {
+          "target": "CONFIRMED_HIGH",
+          "search_window": [
+            2,
+            6
+          ],
+          "search_type": "MAX_UB",
+          "eligible_indices": [
+            2,
+            3,
+            4,
+            5,
+            6
+          ],
+          "body_edges": [
+            195.0,
+            195.0,
+            197.0,
+            197.0,
+            194.0
+          ],
+          "extreme_indices": [
+            4,
+            5
+          ],
+          "selected_index": 5,
+          "selected_price": 197.0,
+          "is_tied": true
+        }
+      ],
+      "expected_events": {
+        "pullback_identified_at_bar": 4,
+        "pullback_candles": [
+          3,
+          4
+        ],
+        "tentative_low": {
+          "price": 192.0,
+          "candle_index": 2,
+          "identified_at_bar": 4
+        },
+        "break_at_bar": 6,
+        "confirmed_low": {
+          "price": 192.0,
+          "candle_index": 2,
+          "confirmed_at_bar": 6
+        },
+        "confirmed_high": {
+          "price": 197.0,
+          "candle_index": 5,
+          "confirmed_at_bar": 6
+        },
+        "next_search_start_index": 5,
+        "next_pullback_candidate_min_index": 7,
+        "trend_status": "Marking downward structure"
+      }
+    },
+    "MSM-03": {
+      "fixture_id": "MSM-03",
+      "title": "Strict Equality Failures (Upward)",
+      "direction": "UPWARD",
+      "start_candle_index": 0,
+      "start_candle_time": "2026-10-01T00:00:00+00:00",
+      "candles": [
+        {
+          "open": 100.0,
+          "high": 105.0,
+          "low": 99.0,
+          "close": 104.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 0,
+          "time": "2026-10-01T00:00:00+00:00"
+        },
+        {
+          "open": 104.0,
+          "high": 104.5,
+          "low": 101.0,
+          "close": 102.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 1,
+          "time": "2026-10-01T04:00:00+00:00"
+        },
+        {
+          "open": 102.0,
+          "high": 102.5,
+          "low": 100.0,
+          "close": 101.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 2,
+          "time": "2026-10-01T08:00:00+00:00"
+        },
+        {
+          "open": 101.0,
+          "high": 103.0,
+          "low": 100.0,
+          "close": 100.5,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 3,
+          "time": "2026-10-01T12:00:00+00:00"
+        },
+        {
+          "open": 100.5,
+          "high": 101.0,
+          "low": 98.0,
+          "close": 99.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 4,
+          "time": "2026-10-01T16:00:00+00:00"
+        },
+        {
+          "open": 99.0,
+          "high": 104.5,
+          "low": 99.0,
+          "close": 104.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 5,
+          "time": "2026-10-01T20:00:00+00:00"
+        }
+      ],
+      "search_evaluations": [
+        {
+          "target": "TENTATIVE_HIGH",
+          "search_window": [
+            0,
+            2
+          ],
+          "search_type": "MAX_UB",
+          "eligible_indices": [
+            0,
+            1,
+            2
+          ],
+          "body_edges": [
+            104.0,
+            104.0,
+            102.0
+          ],
+          "extreme_indices": [
+            0,
+            1
+          ],
+          "selected_index": 1,
+          "selected_price": 104.0,
+          "is_tied": true
+        }
+      ],
+      "expected_events": {
+        "rejected_pullback_candidates": [
+          [
+            1,
+            2
+          ],
+          [
+            2,
+            3
+          ]
+        ],
+        "pullback_identified_at_bar": 4,
+        "pullback_candles": [
+          3,
+          4
+        ],
+        "tentative_high": {
+          "price": 104.0,
+          "candle_index": 1,
+          "identified_at_bar": 4
+        },
+        "break_attempt_bar": 5,
+        "break_result": "FAILED_EQUALITY",
+        "confirmed_pairs_count": 0,
+        "final_state": "WAITING_FOR_BREAK",
+        "trend_status": "Marking upward structure"
+      }
+    },
+    "MSM-04": {
+      "fixture_id": "MSM-04",
+      "title": "Flat Candle Interruption",
+      "direction": "UPWARD",
+      "start_candle_index": 0,
+      "start_candle_time": "2026-10-01T00:00:00+00:00",
+      "candles": [
+        {
+          "open": 100.0,
+          "high": 105.0,
+          "low": 99.0,
+          "close": 104.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 0,
+          "time": "2026-10-01T00:00:00+00:00"
+        },
+        {
+          "open": 104.0,
+          "high": 104.5,
+          "low": 101.0,
+          "close": 102.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 1,
+          "time": "2026-10-01T04:00:00+00:00"
+        },
+        {
+          "open": 102.0,
+          "high": 103.0,
+          "low": 101.0,
+          "close": 102.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 2,
+          "time": "2026-10-01T08:00:00+00:00"
+        },
+        {
+          "open": 102.0,
+          "high": 102.5,
+          "low": 99.0,
+          "close": 100.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 3,
+          "time": "2026-10-01T12:00:00+00:00"
+        }
+      ],
+      "search_evaluations": [],
+      "expected_events": {
+        "flat_candle_index": 2,
+        "rejected_pullback_candidates": [
+          [
+            1,
+            2
+          ],
+          [
+            2,
+            3
+          ]
+        ],
+        "pullback_count": 0,
+        "tentative_points_count": 0,
+        "final_state": "SEARCHING_PULLBACK",
+        "trend_status": "Marking upward structure"
+      }
+    },
+    "MSM-05": {
+      "fixture_id": "MSM-05",
+      "title": "Empty-Range Skip (Reconciled Clarification)",
+      "direction": "UPWARD",
+      "start_candle_index": 0,
+      "start_candle_time": "2026-10-01T00:00:00+00:00",
+      "candles": [
+        {
+          "open": 105.0,
+          "high": 105.5,
+          "low": 102.0,
+          "close": 103.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 0,
+          "time": "2026-10-01T00:00:00+00:00"
+        },
+        {
+          "open": 103.0,
+          "high": 103.5,
+          "low": 100.0,
+          "close": 101.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 1,
+          "time": "2026-10-01T04:00:00+00:00"
+        },
+        {
+          "open": 101.0,
+          "high": 106.0,
+          "low": 100.5,
+          "close": 105.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 2,
+          "time": "2026-10-01T08:00:00+00:00"
+        },
+        {
+          "open": 105.0,
+          "high": 108.0,
+          "low": 104.0,
+          "close": 107.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 3,
+          "time": "2026-10-01T12:00:00+00:00"
+        },
+        {
+          "open": 107.0,
+          "high": 107.5,
+          "low": 103.0,
+          "close": 104.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 4,
+          "time": "2026-10-01T16:00:00+00:00"
+        },
+        {
+          "open": 104.0,
+          "high": 104.5,
+          "low": 101.5,
+          "close": 102.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 5,
+          "time": "2026-10-01T20:00:00+00:00"
+        },
+        {
+          "open": 102.0,
+          "high": 110.0,
+          "low": 102.0,
+          "close": 109.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 6,
+          "time": "2026-10-02T00:00:00+00:00"
+        }
+      ],
+      "search_evaluations": [
+        {
+          "target": "TENTATIVE_HIGH",
+          "search_window": [
+            0,
+            3
+          ],
+          "search_type": "MAX_UB",
+          "eligible_indices": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "body_edges": [
+            105.0,
+            103.0,
+            105.0,
+            107.0
+          ],
+          "extreme_indices": [
+            3
+          ],
+          "selected_index": 3,
+          "selected_price": 107.0,
+          "is_tied": false
+        },
+        {
+          "target": "CONFIRMED_LOW",
+          "search_window": [
+            3,
+            6
+          ],
+          "search_type": "MIN_LB",
+          "eligible_indices": [
+            3,
+            4,
+            5,
+            6
+          ],
+          "body_edges": [
+            105.0,
+            104.0,
+            102.0,
+            102.0
+          ],
+          "extreme_indices": [
+            5,
+            6
+          ],
+          "selected_index": 6,
+          "selected_price": 102.0,
+          "is_tied": true
+        }
+      ],
+      "expected_events": {
+        "skipped_empty_range_pullback": [
+          0,
+          1
+        ],
+        "retained_search_start_index": 0,
+        "second_pullback_candles": [
+          4,
+          5
+        ],
+        "tentative_high": {
+          "price": 107.0,
+          "candle_index": 3,
+          "identified_at_bar": 5
+        },
+        "break_at_bar": 6,
+        "confirmed_high": {
+          "price": 107.0,
+          "candle_index": 3,
+          "confirmed_at_bar": 6
+        },
+        "confirmed_low": {
+          "price": 102.0,
+          "candle_index": 6,
+          "confirmed_at_bar": 6
+        },
+        "next_search_start_index": 6,
+        "next_pullback_candidate_min_index": 7,
+        "trend_status": "Marking upward structure"
+      }
+    },
+    "MSM-06": {
+      "fixture_id": "MSM-06",
+      "title": "Waiting-State Lockout (No Overlapping Tentative Points)",
+      "direction": "UPWARD",
+      "start_candle_index": 0,
+      "start_candle_time": "2026-10-01T00:00:00+00:00",
+      "candles": [
+        {
+          "open": 100.0,
+          "high": 108.0,
+          "low": 99.0,
+          "close": 107.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 0,
+          "time": "2026-10-01T00:00:00+00:00"
+        },
+        {
+          "open": 107.0,
+          "high": 107.5,
+          "low": 103.0,
+          "close": 104.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 1,
+          "time": "2026-10-01T04:00:00+00:00"
+        },
+        {
+          "open": 104.0,
+          "high": 104.5,
+          "low": 101.5,
+          "close": 102.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 2,
+          "time": "2026-10-01T08:00:00+00:00"
+        },
+        {
+          "open": 102.0,
+          "high": 106.0,
+          "low": 101.5,
+          "close": 105.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 3,
+          "time": "2026-10-01T12:00:00+00:00"
+        },
+        {
+          "open": 105.0,
+          "high": 105.5,
+          "low": 102.0,
+          "close": 103.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 4,
+          "time": "2026-10-01T16:00:00+00:00"
+        },
+        {
+          "open": 103.0,
+          "high": 103.5,
+          "low": 100.0,
+          "close": 101.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 5,
+          "time": "2026-10-01T20:00:00+00:00"
+        },
+        {
+          "open": 101.0,
+          "high": 110.0,
+          "low": 101.0,
+          "close": 109.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 6,
+          "time": "2026-10-02T00:00:00+00:00"
+        }
+      ],
+      "search_evaluations": [
+        {
+          "target": "TENTATIVE_HIGH",
+          "search_window": [
+            0,
+            0
+          ],
+          "search_type": "MAX_UB",
+          "eligible_indices": [
+            0
+          ],
+          "body_edges": [
+            107.0
+          ],
+          "extreme_indices": [
+            0
+          ],
+          "selected_index": 0,
+          "selected_price": 107.0,
+          "is_tied": false
+        },
+        {
+          "target": "CONFIRMED_LOW",
+          "search_window": [
+            0,
+            6
+          ],
+          "search_type": "MIN_LB",
+          "eligible_indices": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ],
+          "body_edges": [
+            100.0,
+            104.0,
+            102.0,
+            102.0,
+            103.0,
+            101.0,
+            101.0
+          ],
+          "extreme_indices": [
+            0
+          ],
+          "selected_index": 0,
+          "selected_price": 100.0,
+          "is_tied": false
+        }
+      ],
+      "expected_events": {
+        "first_pullback_candles": [
+          1,
+          2
+        ],
+        "tentative_high": {
+          "price": 107.0,
+          "candle_index": 0,
+          "identified_at_bar": 2
+        },
+        "ignored_subsequent_pullback": [
+          4,
+          5
+        ],
+        "break_at_bar": 6,
+        "confirmed_high": {
+          "price": 107.0,
+          "candle_index": 0,
+          "confirmed_at_bar": 6
+        },
+        "confirmed_low": {
+          "price": 100.0,
+          "candle_index": 0,
+          "confirmed_at_bar": 6
+        },
+        "next_search_start_index": 0,
+        "next_pullback_candidate_min_index": 7,
+        "trend_status": "Marking upward structure"
+      }
+    },
+    "MSM-07": {
+      "fixture_id": "MSM-07",
+      "title": "Completed Candles Only & Forming Bar Exclusion",
+      "direction": "UPWARD",
+      "start_candle_index": 0,
+      "start_candle_time": "2026-10-01T00:00:00+00:00",
+      "candles": [
+        {
+          "open": 100.0,
+          "high": 105.0,
+          "low": 99.0,
+          "close": 104.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 0,
+          "time": "2026-10-01T00:00:00+00:00"
+        },
+        {
+          "open": 104.0,
+          "high": 106.0,
+          "low": 103.0,
+          "close": 105.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 1,
+          "time": "2026-10-01T04:00:00+00:00"
+        },
+        {
+          "open": 105.0,
+          "high": 105.5,
+          "low": 102.0,
+          "close": 103.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 2,
+          "time": "2026-10-01T08:00:00+00:00"
+        },
+        {
+          "open": 103.0,
+          "high": 103.5,
+          "low": 100.0,
+          "close": 101.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 3,
+          "time": "2026-10-01T12:00:00+00:00"
+        },
+        {
+          "open": 101.0,
+          "high": 110.0,
+          "low": 101.0,
+          "close": 108.0,
+          "is_forming": true,
+          "bar_status": "FORMING",
+          "index": 4,
+          "time": "2026-10-01T16:00:00+00:00"
+        }
+      ],
+      "search_evaluations": [
+        {
+          "target": "TENTATIVE_HIGH",
+          "search_window": [
+            0,
+            1
+          ],
+          "search_type": "MAX_UB",
+          "eligible_indices": [
+            0,
+            1
+          ],
+          "body_edges": [
+            104.0,
+            105.0
+          ],
+          "extreme_indices": [
+            1
+          ],
+          "selected_index": 1,
+          "selected_price": 105.0,
+          "is_tied": false
+        }
+      ],
+      "expected_events": {
+        "completed_pullback_candles": [
+          2,
+          3
+        ],
+        "tentative_high": {
+          "price": 105.0,
+          "candle_index": 1,
+          "identified_at_bar": 3
+        },
+        "forming_bar_index": 4,
+        "forming_bar_break_ignored": true,
+        "confirmed_pairs_count": 0,
+        "final_state": "WAITING_FOR_BREAK",
+        "trend_status": "Marking upward structure"
+      }
+    },
+    "MSM-08A": {
+      "fixture_id": "MSM-08A",
+      "title": "Tied Tentative Extremes (Part A: Upward)",
+      "direction": "UPWARD",
+      "start_candle_index": 0,
+      "start_candle_time": "2026-10-01T00:00:00+00:00",
+      "candles": [
+        {
+          "open": 100.0,
+          "high": 105.0,
+          "low": 99.0,
+          "close": 105.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 0,
+          "time": "2026-10-01T00:00:00+00:00"
+        },
+        {
+          "open": 104.0,
+          "high": 106.0,
+          "low": 102.0,
+          "close": 105.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 1,
+          "time": "2026-10-01T04:00:00+00:00"
+        },
+        {
+          "open": 105.0,
+          "high": 105.5,
+          "low": 101.0,
+          "close": 102.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 2,
+          "time": "2026-10-01T08:00:00+00:00"
+        },
+        {
+          "open": 102.0,
+          "high": 102.5,
+          "low": 99.5,
+          "close": 100.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 3,
+          "time": "2026-10-01T12:00:00+00:00"
+        },
+        {
+          "open": 100.0,
+          "high": 108.0,
+          "low": 100.0,
+          "close": 107.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 4,
+          "time": "2026-10-01T16:00:00+00:00"
+        }
+      ],
+      "search_evaluations": [
+        {
+          "target": "TENTATIVE_HIGH",
+          "search_window": [
+            0,
+            1
+          ],
+          "search_type": "MAX_UB",
+          "eligible_indices": [
+            0,
+            1
+          ],
+          "body_edges": [
+            105.0,
+            105.0
+          ],
+          "extreme_indices": [
+            0,
+            1
+          ],
+          "selected_index": 1,
+          "selected_price": 105.0,
+          "is_tied": true
+        },
+        {
+          "target": "CONFIRMED_LOW",
+          "search_window": [
+            1,
+            4
+          ],
+          "search_type": "MIN_LB",
+          "eligible_indices": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "body_edges": [
+            104.0,
+            102.0,
+            100.0,
+            100.0
+          ],
+          "extreme_indices": [
+            3,
+            4
+          ],
+          "selected_index": 4,
+          "selected_price": 100.0,
+          "is_tied": true
+        }
+      ],
+      "expected_events": {
+        "pullback_identified_at_bar": 3,
+        "pullback_candles": [
+          2,
+          3
+        ],
+        "tentative_high": {
+          "price": 105.0,
+          "candle_index": 1,
+          "identified_at_bar": 3
+        },
+        "break_at_bar": 4,
+        "confirmed_high": {
+          "price": 105.0,
+          "candle_index": 1,
+          "confirmed_at_bar": 4
+        },
+        "confirmed_low": {
+          "price": 100.0,
+          "candle_index": 4,
+          "confirmed_at_bar": 4
+        },
+        "next_search_start_index": 4,
+        "next_pullback_candidate_min_index": 5,
+        "trend_status": "Marking upward structure"
+      }
+    },
+    "MSM-08B": {
+      "fixture_id": "MSM-08B",
+      "title": "Tied Tentative Extremes (Part B: Downward)",
+      "direction": "DOWNWARD",
+      "start_candle_index": 0,
+      "start_candle_time": "2026-10-01T00:00:00+00:00",
+      "candles": [
+        {
+          "open": 200.0,
+          "high": 201.0,
+          "low": 194.0,
+          "close": 195.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 0,
+          "time": "2026-10-01T00:00:00+00:00"
+        },
+        {
+          "open": 196.0,
+          "high": 197.0,
+          "low": 194.5,
+          "close": 195.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 1,
+          "time": "2026-10-01T04:00:00+00:00"
+        },
+        {
+          "open": 195.0,
+          "high": 199.0,
+          "low": 194.5,
+          "close": 198.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 2,
+          "time": "2026-10-01T08:00:00+00:00"
+        },
+        {
+          "open": 198.0,
+          "high": 201.0,
+          "low": 197.5,
+          "close": 200.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 3,
+          "time": "2026-10-01T12:00:00+00:00"
+        },
+        {
+          "open": 200.0,
+          "high": 200.5,
+          "low": 192.0,
+          "close": 193.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 4,
+          "time": "2026-10-01T16:00:00+00:00"
+        }
+      ],
+      "search_evaluations": [
+        {
+          "target": "TENTATIVE_LOW",
+          "search_window": [
+            0,
+            1
+          ],
+          "search_type": "MIN_LB",
+          "eligible_indices": [
+            0,
+            1
+          ],
+          "body_edges": [
+            195.0,
+            195.0
+          ],
+          "extreme_indices": [
+            0,
+            1
+          ],
+          "selected_index": 1,
+          "selected_price": 195.0,
+          "is_tied": true
+        },
+        {
+          "target": "CONFIRMED_HIGH",
+          "search_window": [
+            1,
+            4
+          ],
+          "search_type": "MAX_UB",
+          "eligible_indices": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "body_edges": [
+            196.0,
+            198.0,
+            200.0,
+            200.0
+          ],
+          "extreme_indices": [
+            3,
+            4
+          ],
+          "selected_index": 4,
+          "selected_price": 200.0,
+          "is_tied": true
+        }
+      ],
+      "expected_events": {
+        "pullback_identified_at_bar": 3,
+        "pullback_candles": [
+          2,
+          3
+        ],
+        "tentative_low": {
+          "price": 195.0,
+          "candle_index": 1,
+          "identified_at_bar": 3
+        },
+        "break_at_bar": 4,
+        "confirmed_low": {
+          "price": 195.0,
+          "candle_index": 1,
+          "confirmed_at_bar": 4
+        },
+        "confirmed_high": {
+          "price": 200.0,
+          "candle_index": 4,
+          "confirmed_at_bar": 4
+        },
+        "next_search_start_index": 4,
+        "next_pullback_candidate_min_index": 5,
+        "trend_status": "Marking downward structure"
+      }
+    },
+    "MSM-09": {
+      "fixture_id": "MSM-09",
+      "title": "Downward Equality Failures",
+      "direction": "DOWNWARD",
+      "start_candle_index": 0,
+      "start_candle_time": "2026-10-01T00:00:00+00:00",
+      "candles": [
+        {
+          "open": 200.0,
+          "high": 201.0,
+          "low": 191.0,
+          "close": 192.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 0,
+          "time": "2026-10-01T00:00:00+00:00"
+        },
+        {
+          "open": 192.0,
+          "high": 196.0,
+          "low": 191.5,
+          "close": 195.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 1,
+          "time": "2026-10-01T04:00:00+00:00"
+        },
+        {
+          "open": 195.0,
+          "high": 197.0,
+          "low": 194.0,
+          "close": 196.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 2,
+          "time": "2026-10-01T08:00:00+00:00"
+        },
+        {
+          "open": 196.0,
+          "high": 199.0,
+          "low": 195.5,
+          "close": 198.5,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 3,
+          "time": "2026-10-01T12:00:00+00:00"
+        },
+        {
+          "open": 198.5,
+          "high": 199.0,
+          "low": 191.5,
+          "close": 192.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 4,
+          "time": "2026-10-01T16:00:00+00:00"
+        }
+      ],
+      "search_evaluations": [
+        {
+          "target": "TENTATIVE_LOW",
+          "search_window": [
+            0,
+            1
+          ],
+          "search_type": "MIN_LB",
+          "eligible_indices": [
+            0,
+            1
+          ],
+          "body_edges": [
+            192.0,
+            192.0
+          ],
+          "extreme_indices": [
+            0,
+            1
+          ],
+          "selected_index": 1,
+          "selected_price": 192.0,
+          "is_tied": true
+        }
+      ],
+      "expected_events": {
+        "rejected_pullback_candidate": [
+          1,
+          2
+        ],
+        "pullback_identified_at_bar": 3,
+        "pullback_candles": [
+          2,
+          3
+        ],
+        "tentative_low": {
+          "price": 192.0,
+          "candle_index": 1,
+          "identified_at_bar": 3
+        },
+        "break_attempt_bar": 4,
+        "break_result": "FAILED_EQUALITY",
+        "confirmed_pairs_count": 0,
+        "final_state": "WAITING_FOR_BREAK",
+        "trend_status": "Marking downward structure"
+      }
+    },
+    "MSM-10": {
+      "fixture_id": "MSM-10",
+      "title": "Flat Candle Winning Extreme Search (Upward)",
+      "direction": "UPWARD",
+      "start_candle_index": 0,
+      "start_candle_time": "2026-10-01T00:00:00+00:00",
+      "candles": [
+        {
+          "open": 100.0,
+          "high": 102.0,
+          "low": 99.0,
+          "close": 101.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 0,
+          "time": "2026-10-01T00:00:00+00:00"
+        },
+        {
+          "open": 106.0,
+          "high": 107.0,
+          "low": 105.0,
+          "close": 106.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 1,
+          "time": "2026-10-01T04:00:00+00:00"
+        },
+        {
+          "open": 105.0,
+          "high": 105.5,
+          "low": 103.0,
+          "close": 104.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 2,
+          "time": "2026-10-01T08:00:00+00:00"
+        },
+        {
+          "open": 104.0,
+          "high": 104.5,
+          "low": 101.0,
+          "close": 102.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 3,
+          "time": "2026-10-01T12:00:00+00:00"
+        },
+        {
+          "open": 102.0,
+          "high": 109.0,
+          "low": 102.0,
+          "close": 108.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 4,
+          "time": "2026-10-01T16:00:00+00:00"
+        }
+      ],
+      "search_evaluations": [
+        {
+          "target": "TENTATIVE_HIGH",
+          "search_window": [
+            0,
+            1
+          ],
+          "search_type": "MAX_UB",
+          "eligible_indices": [
+            0,
+            1
+          ],
+          "body_edges": [
+            101.0,
+            106.0
+          ],
+          "extreme_indices": [
+            1
+          ],
+          "selected_index": 1,
+          "selected_price": 106.0,
+          "is_tied": false
+        },
+        {
+          "target": "CONFIRMED_LOW",
+          "search_window": [
+            1,
+            4
+          ],
+          "search_type": "MIN_LB",
+          "eligible_indices": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "body_edges": [
+            106.0,
+            104.0,
+            102.0,
+            102.0
+          ],
+          "extreme_indices": [
+            3,
+            4
+          ],
+          "selected_index": 4,
+          "selected_price": 102.0,
+          "is_tied": true
+        }
+      ],
+      "expected_events": {
+        "flat_candle_index": 1,
+        "pullback_identified_at_bar": 3,
+        "pullback_candles": [
+          2,
+          3
+        ],
+        "tentative_high": {
+          "price": 106.0,
+          "candle_index": 1,
+          "identified_at_bar": 3
+        },
+        "break_at_bar": 4,
+        "confirmed_high": {
+          "price": 106.0,
+          "candle_index": 1,
+          "confirmed_at_bar": 4
+        },
+        "confirmed_low": {
+          "price": 102.0,
+          "candle_index": 4,
+          "confirmed_at_bar": 4
+        },
+        "next_search_start_index": 4,
+        "next_pullback_candidate_min_index": 5,
+        "trend_status": "Marking upward structure"
+      }
+    },
+    "MSM-11A": {
+      "fixture_id": "MSM-11A",
+      "title": "Non-Green Upward Break (Red Candle Closing Break)",
+      "direction": "UPWARD",
+      "start_candle_index": 0,
+      "start_candle_time": "2026-10-01T00:00:00+00:00",
+      "candles": [
+        {
+          "open": 100.0,
+          "high": 106.0,
+          "low": 99.0,
+          "close": 105.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 0,
+          "time": "2026-10-01T00:00:00+00:00"
+        },
+        {
+          "open": 105.0,
+          "high": 105.5,
+          "low": 101.0,
+          "close": 102.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 1,
+          "time": "2026-10-01T04:00:00+00:00"
+        },
+        {
+          "open": 102.0,
+          "high": 102.5,
+          "low": 99.0,
+          "close": 100.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 2,
+          "time": "2026-10-01T08:00:00+00:00"
+        },
+        {
+          "open": 108.0,
+          "high": 108.5,
+          "low": 105.5,
+          "close": 106.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 3,
+          "time": "2026-10-01T12:00:00+00:00"
+        }
+      ],
+      "search_evaluations": [
+        {
+          "target": "TENTATIVE_HIGH",
+          "search_window": [
+            0,
+            0
+          ],
+          "search_type": "MAX_UB",
+          "eligible_indices": [
+            0
+          ],
+          "body_edges": [
+            105.0
+          ],
+          "extreme_indices": [
+            0
+          ],
+          "selected_index": 0,
+          "selected_price": 105.0,
+          "is_tied": false
+        },
+        {
+          "target": "CONFIRMED_LOW",
+          "search_window": [
+            0,
+            3
+          ],
+          "search_type": "MIN_LB",
+          "eligible_indices": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "body_edges": [
+            100.0,
+            102.0,
+            100.0,
+            106.0
+          ],
+          "extreme_indices": [
+            0,
+            2
+          ],
+          "selected_index": 2,
+          "selected_price": 100.0,
+          "is_tied": true
+        }
+      ],
+      "expected_events": {
+        "pullback_identified_at_bar": 2,
+        "pullback_candles": [
+          1,
+          2
+        ],
+        "tentative_high": {
+          "price": 105.0,
+          "candle_index": 0,
+          "identified_at_bar": 2
+        },
+        "break_candle_index": 3,
+        "break_candle_color": "RED",
+        "confirmed_high": {
+          "price": 105.0,
+          "candle_index": 0,
+          "confirmed_at_bar": 3
+        },
+        "confirmed_low": {
+          "price": 100.0,
+          "candle_index": 2,
+          "confirmed_at_bar": 3
+        },
+        "next_search_start_index": 2,
+        "next_pullback_candidate_min_index": 4,
+        "trend_status": "Marking upward structure"
+      }
+    },
+    "MSM-11B": {
+      "fixture_id": "MSM-11B",
+      "title": "Non-Red Downward Break (Green Candle Closing Break)",
+      "direction": "DOWNWARD",
+      "start_candle_index": 0,
+      "start_candle_time": "2026-10-01T00:00:00+00:00",
+      "candles": [
+        {
+          "open": 200.0,
+          "high": 201.0,
+          "low": 194.0,
+          "close": 195.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 0,
+          "time": "2026-10-01T00:00:00+00:00"
+        },
+        {
+          "open": 195.0,
+          "high": 199.0,
+          "low": 194.5,
+          "close": 198.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 1,
+          "time": "2026-10-01T04:00:00+00:00"
+        },
+        {
+          "open": 198.0,
+          "high": 201.0,
+          "low": 197.5,
+          "close": 200.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 2,
+          "time": "2026-10-01T08:00:00+00:00"
+        },
+        {
+          "open": 190.0,
+          "high": 194.5,
+          "low": 189.5,
+          "close": 193.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 3,
+          "time": "2026-10-01T12:00:00+00:00"
+        }
+      ],
+      "search_evaluations": [
+        {
+          "target": "TENTATIVE_LOW",
+          "search_window": [
+            0,
+            0
+          ],
+          "search_type": "MIN_LB",
+          "eligible_indices": [
+            0
+          ],
+          "body_edges": [
+            195.0
+          ],
+          "extreme_indices": [
+            0
+          ],
+          "selected_index": 0,
+          "selected_price": 195.0,
+          "is_tied": false
+        },
+        {
+          "target": "CONFIRMED_HIGH",
+          "search_window": [
+            0,
+            3
+          ],
+          "search_type": "MAX_UB",
+          "eligible_indices": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "body_edges": [
+            200.0,
+            198.0,
+            200.0,
+            193.0
+          ],
+          "extreme_indices": [
+            0,
+            2
+          ],
+          "selected_index": 2,
+          "selected_price": 200.0,
+          "is_tied": true
+        }
+      ],
+      "expected_events": {
+        "pullback_identified_at_bar": 2,
+        "pullback_candles": [
+          1,
+          2
+        ],
+        "tentative_low": {
+          "price": 195.0,
+          "candle_index": 0,
+          "identified_at_bar": 2
+        },
+        "break_candle_index": 3,
+        "break_candle_color": "GREEN",
+        "confirmed_low": {
+          "price": 195.0,
+          "candle_index": 0,
+          "confirmed_at_bar": 3
+        },
+        "confirmed_high": {
+          "price": 200.0,
+          "candle_index": 2,
+          "confirmed_at_bar": 3
+        },
+        "next_search_start_index": 2,
+        "next_pullback_candidate_min_index": 4,
+        "trend_status": "Marking downward structure"
+      }
+    },
+    "MSM-12": {
+      "fixture_id": "MSM-12",
+      "title": "Two Completed Pairs with Post-Break Pullback Restriction and Trend Status",
+      "direction": "UPWARD",
+      "start_candle_index": 0,
+      "start_candle_time": "2026-10-01T00:00:00+00:00",
+      "candles": [
+        {
+          "open": 100.0,
+          "high": 102.5,
+          "low": 99.0,
+          "close": 102.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 0,
+          "time": "2026-10-01T00:00:00+00:00"
+        },
+        {
+          "open": 102.0,
+          "high": 106.0,
+          "low": 101.5,
+          "close": 105.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 1,
+          "time": "2026-10-01T04:00:00+00:00"
+        },
+        {
+          "open": 105.0,
+          "high": 105.5,
+          "low": 102.0,
+          "close": 103.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 2,
+          "time": "2026-10-01T08:00:00+00:00"
+        },
+        {
+          "open": 103.0,
+          "high": 103.5,
+          "low": 100.5,
+          "close": 101.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 3,
+          "time": "2026-10-01T12:00:00+00:00"
+        },
+        {
+          "open": 102.0,
+          "high": 108.0,
+          "low": 101.5,
+          "close": 107.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 4,
+          "time": "2026-10-01T16:00:00+00:00"
+        },
+        {
+          "open": 107.0,
+          "high": 112.0,
+          "low": 106.5,
+          "close": 111.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 5,
+          "time": "2026-10-01T20:00:00+00:00"
+        },
+        {
+          "open": 111.0,
+          "high": 111.5,
+          "low": 107.0,
+          "close": 108.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 6,
+          "time": "2026-10-02T00:00:00+00:00"
+        },
+        {
+          "open": 108.0,
+          "high": 108.5,
+          "low": 104.5,
+          "close": 105.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 7,
+          "time": "2026-10-02T04:00:00+00:00"
+        },
+        {
+          "open": 106.0,
+          "high": 115.0,
+          "low": 105.5,
+          "close": 114.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 8,
+          "time": "2026-10-02T08:00:00+00:00"
+        }
+      ],
+      "search_evaluations": [
+        {
+          "target": "TENTATIVE_HIGH_CYCLE_1",
+          "search_window": [
+            0,
+            1
+          ],
+          "search_type": "MAX_UB",
+          "eligible_indices": [
+            0,
+            1
+          ],
+          "body_edges": [
+            102.0,
+            105.0
+          ],
+          "extreme_indices": [
+            1
+          ],
+          "selected_index": 1,
+          "selected_price": 105.0,
+          "is_tied": false
+        },
+        {
+          "target": "CONFIRMED_LOW_CYCLE_1",
+          "search_window": [
+            1,
+            4
+          ],
+          "search_type": "MIN_LB",
+          "eligible_indices": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "body_edges": [
+            102.0,
+            103.0,
+            101.0,
+            102.0
+          ],
+          "extreme_indices": [
+            3
+          ],
+          "selected_index": 3,
+          "selected_price": 101.0,
+          "is_tied": false
+        },
+        {
+          "target": "TENTATIVE_HIGH_CYCLE_2",
+          "search_window": [
+            3,
+            5
+          ],
+          "search_type": "MAX_UB",
+          "eligible_indices": [
+            3,
+            4,
+            5
+          ],
+          "body_edges": [
+            103.0,
+            107.0,
+            111.0
+          ],
+          "extreme_indices": [
+            5
+          ],
+          "selected_index": 5,
+          "selected_price": 111.0,
+          "is_tied": false
+        },
+        {
+          "target": "CONFIRMED_LOW_CYCLE_2",
+          "search_window": [
+            5,
+            8
+          ],
+          "search_type": "MIN_LB",
+          "eligible_indices": [
+            5,
+            6,
+            7,
+            8
+          ],
+          "body_edges": [
+            107.0,
+            108.0,
+            105.0,
+            106.0
+          ],
+          "extreme_indices": [
+            7
+          ],
+          "selected_index": 7,
+          "selected_price": 105.0,
+          "is_tied": false
+        }
+      ],
+      "expected_events": {
+        "cycle_1": {
+          "pullback_candles": [
+            2,
+            3
+          ],
+          "tentative_high": {
+            "price": 105.0,
+            "candle_index": 1,
+            "identified_at_bar": 3
+          },
+          "break_at_bar": 4,
+          "confirmed_high": {
+            "price": 105.0,
+            "candle_index": 1,
+            "confirmed_at_bar": 4
+          },
+          "confirmed_low": {
+            "price": 101.0,
+            "candle_index": 3,
+            "confirmed_at_bar": 4
+          },
+          "next_search_start_index": 3,
+          "post_break_min_p1": 5,
+          "trend_status": "Marking upward structure"
+        },
+        "cycle_2": {
+          "pullback_candles": [
+            6,
+            7
+          ],
+          "tentative_high": {
+            "price": 111.0,
+            "candle_index": 5,
+            "identified_at_bar": 7
+          },
+          "break_at_bar": 8,
+          "confirmed_high": {
+            "price": 111.0,
+            "candle_index": 5,
+            "confirmed_at_bar": 8
+          },
+          "confirmed_low": {
+            "price": 105.0,
+            "candle_index": 7,
+            "confirmed_at_bar": 8
+          },
+          "next_search_start_index": 7,
+          "post_break_min_p1": 9,
+          "trend_status": "Upward trend"
+        }
+      }
+    },
+    "MSM-13A": {
+      "fixture_id": "MSM-13A",
+      "title": "Start Candle Not Found in Dataset",
+      "direction": "UPWARD",
+      "start_candle_time": "2026-10-01T08:00:00+00:00",
+      "candles": [
+        {
+          "open": 100.0,
+          "high": 102.0,
+          "low": 99.0,
+          "close": 101.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 0,
+          "time": "2026-10-01T00:00:00+00:00"
+        },
+        {
+          "open": 101.0,
+          "high": 106.0,
+          "low": 100.5,
+          "close": 105.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 1,
+          "time": "2026-10-01T04:00:00+00:00"
+        }
+      ],
+      "search_evaluations": [],
+      "expected_events": {
+        "expected_error": "ValueError",
+        "error_message": "Invalid starting candle: start candle must be a verified completed historical candle."
+      }
+    },
+    "MSM-13B": {
+      "fixture_id": "MSM-13B",
+      "title": "Start Candle is Currently Forming",
+      "direction": "UPWARD",
+      "start_candle_time": "2026-10-01T04:00:00+00:00",
+      "candles": [
+        {
+          "open": 100.0,
+          "high": 102.0,
+          "low": 99.0,
+          "close": 101.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 0,
+          "time": "2026-10-01T00:00:00+00:00"
+        },
+        {
+          "open": 101.0,
+          "high": 106.0,
+          "low": 100.5,
+          "close": 105.0,
+          "is_forming": true,
+          "bar_status": "FORMING",
+          "index": 1,
+          "time": "2026-10-01T04:00:00+00:00"
+        }
+      ],
+      "search_evaluations": [],
+      "expected_events": {
+        "expected_error": "ValueError",
+        "error_message": "Invalid starting candle: start candle must be a verified completed historical candle."
+      }
+    },
+    "MSM-14": {
+      "fixture_id": "MSM-14",
+      "title": "Deterministic Replay / Prefix Consistency with Knowledge Times",
+      "direction": "UPWARD",
+      "start_candle_index": 0,
+      "start_candle_time": "2026-10-01T00:00:00+00:00",
+      "candles": [
+        {
+          "open": 100.0,
+          "high": 102.0,
+          "low": 99.0,
+          "close": 101.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 0,
+          "time": "2026-10-01T00:00:00+00:00"
+        },
+        {
+          "open": 101.0,
+          "high": 106.0,
+          "low": 100.5,
+          "close": 105.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 1,
+          "time": "2026-10-01T04:00:00+00:00"
+        },
+        {
+          "open": 105.0,
+          "high": 108.0,
+          "low": 104.0,
+          "close": 107.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 2,
+          "time": "2026-10-01T08:00:00+00:00"
+        },
+        {
+          "open": 107.0,
+          "high": 107.5,
+          "low": 103.0,
+          "close": 104.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 3,
+          "time": "2026-10-01T12:00:00+00:00"
+        },
+        {
+          "open": 104.0,
+          "high": 104.5,
+          "low": 101.5,
+          "close": 102.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 4,
+          "time": "2026-10-01T16:00:00+00:00"
+        },
+        {
+          "open": 102.0,
+          "high": 105.0,
+          "low": 101.0,
+          "close": 103.5,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 5,
+          "time": "2026-10-01T20:00:00+00:00"
+        },
+        {
+          "open": 103.5,
+          "high": 110.0,
+          "low": 103.0,
+          "close": 109.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 6,
+          "time": "2026-10-02T00:00:00+00:00"
+        },
+        {
+          "open": 109.0,
+          "high": 112.0,
+          "low": 108.0,
+          "close": 111.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 7,
+          "time": "2026-10-02T04:00:00+00:00"
+        },
+        {
+          "open": 111.0,
+          "high": 111.5,
+          "low": 106.0,
+          "close": 107.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 8,
+          "time": "2026-10-02T08:00:00+00:00"
+        },
+        {
+          "open": 107.0,
+          "high": 107.5,
+          "low": 103.0,
+          "close": 104.0,
+          "is_forming": false,
+          "bar_status": "CONFIRMED_COMPLETED",
+          "index": 9,
+          "time": "2026-10-02T12:00:00+00:00"
+        }
+      ],
+      "search_evaluations": [
+        {
+          "target": "TENTATIVE_HIGH",
+          "search_window": [
+            0,
+            2
+          ],
+          "search_type": "MAX_UB",
+          "eligible_indices": [
+            0,
+            1,
+            2
+          ],
+          "body_edges": [
+            101.0,
+            105.0,
+            107.0
+          ],
+          "extreme_indices": [
+            2
+          ],
+          "selected_index": 2,
+          "selected_price": 107.0,
+          "is_tied": false
+        },
+        {
+          "target": "CONFIRMED_LOW",
+          "search_window": [
+            2,
+            6
+          ],
+          "search_type": "MIN_LB",
+          "eligible_indices": [
+            2,
+            3,
+            4,
+            5,
+            6
+          ],
+          "body_edges": [
+            105.0,
+            104.0,
+            102.0,
+            102.0,
+            103.5
+          ],
+          "extreme_indices": [
+            4,
+            5
+          ],
+          "selected_index": 5,
+          "selected_price": 102.0,
+          "is_tied": true
+        }
+      ],
+      "prefixes": {
+        "prefix_0_to_4": {
+          "knowledge_time": "2026-10-01T16:00:00+00:00",
+          "available_indices": [
+            0,
+            1,
+            2,
+            3,
+            4
+          ],
+          "state": "WAITING_FOR_BREAK",
+          "tentative_high": {
+            "price": 107.0,
+            "candle_index": 2,
+            "candle_time": "2026-10-01T08:00:00+00:00"
+          },
+          "confirmed_pairs_count": 0
+        },
+        "prefix_0_to_6": {
+          "knowledge_time": "2026-10-02T00:00:00+00:00",
+          "available_indices": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ],
+          "state": "SEARCHING_PULLBACK",
+          "confirmed_pairs_count": 1,
+          "confirmed_pair_1": {
+            "high": {
+              "price": 107.0,
+              "candle_index": 2,
+              "candle_time": "2026-10-01T08:00:00+00:00",
+              "confirmed_at": "2026-10-02T00:00:00+00:00"
+            },
+            "low": {
+              "price": 102.0,
+              "candle_index": 5,
+              "candle_time": "2026-10-01T20:00:00+00:00",
+              "confirmed_at": "2026-10-02T00:00:00+00:00"
+            }
+          },
+          "next_search_start_index": 5
+        },
+        "prefix_0_to_9": {
+          "knowledge_time": "2026-10-02T12:00:00+00:00",
+          "available_indices": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9
+          ],
+          "confirmed_pairs_count": 1,
+          "confirmed_pair_1": {
+            "high": {
+              "price": 107.0,
+              "candle_index": 2,
+              "candle_time": "2026-10-01T08:00:00+00:00",
+              "confirmed_at": "2026-10-02T00:00:00+00:00"
+            },
+            "low": {
+              "price": 102.0,
+              "candle_index": 5,
+              "candle_time": "2026-10-01T20:00:00+00:00",
+              "confirmed_at": "2026-10-02T00:00:00+00:00"
+            }
+          },
+          "next_search_start_index": 5,
+          "immutability_note": "Confirmed Pair 1 and its historical candle timestamps remain identical to prefix 0..6."
+        }
+      }
+    }
+  }
+}

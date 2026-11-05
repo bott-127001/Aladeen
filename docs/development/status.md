@@ -1,6 +1,6 @@
 # Development & Review Status — Aladeen / TopG
 
-Last Updated: 2026-11-05 (Strategy Reconciliation & MSM Acceptance Phase — HANDOFF-005)
+Last Updated: 2026-11-05 (Strategy Reconciliation & MSM Acceptance Phase — HANDOFF-006)
 
 ---
 
@@ -17,9 +17,9 @@ Last Updated: 2026-11-05 (Strategy Reconciliation & MSM Acceptance Phase — HAN
 ---
 
 ## 2. Current Task & Scope
-- **Current Task**: Strategy requirements reconciliation and MSM acceptance specification corrections (`HANDOFF-005-STRATEGY-RECONCILIATION`).
-- **Milestone Status**: Workflow/data-shell milestone **ACCEPTED** by Perplexity (HANDOFF-003) with the recorded callback verification limitation.
-- **Authorized Scope**: Requirements reconciliation, approved clarifications recording, source-map update, and MSM acceptance specification. Strictly **no strategy engine implementation, no order execution, and no automated merging into main**.
+- **Current Task**: Correct and make MSM acceptance fixtures independently reviewable (`HANDOFF-006-MSM-ACCEPTANCE-FIXTURES`).
+- **Milestone Status**: Workflow/data-shell milestone **ACCEPTED** by Perplexity (HANDOFF-003). Strategy reconciliation & MSM acceptance under active iterative review.
+- **Authorized Scope**: Requirements reconciliation, approved clarifications recording, source-map update, independent machine-readable fixture dataset, fixture-integrity test suite, and un-truncated acceptance documentation. Strictly **no strategy engine implementation, no order execution, and no automated merging into main**.
 - **Supervisor**: Samarth
 - **Autonomous Reviewer**: Perplexity (via Comet automation endpoint 127.0.0.1:9223)
 
@@ -36,49 +36,48 @@ Last Updated: 2026-11-05 (Strategy Reconciliation & MSM Acceptance Phase — HAN
   - `c334df3ddae65d6af16262d05d9702cc5523e2d9` (R1-R6 implementation for HANDOFF-002)
   - `01d056ae0747cb9b03ff802bb609b7c844976735` (Recording HANDOFF-002 findings)
   - `0d6e8b31f9230f4c91351ab4d9ff3eafa82b0c79` (R2 settling tests, R5 launcher fail-closed, standing authorization — ACCEPTED)
+  - `73c120fb365b2069fa2db0622a55928d348a27a8` (Initial strategy reconciliation & MSM acceptance)
+  - `9f9d83492ff5e6720f4c8024220b2241cfb442b2` (Reconciliation corrections for HANDOFF-005)
 
 ---
 
 ## 4. Verification Performed & Evidence Boundaries
-- **Offline Unit Tests**: 104/104 tests passed in 2.25s (`python -m pytest tests/ -v`).
-  - *Verification Boundary Limitation*: `tests/test_callback_settling.py` consists of direct-call tests of registered callback functions using mocked adapters and manually sequenced state transitions. They verify callback logic and state synchronization in Python; they do not claim to independently prove browser runtime dependency scheduler convergence.
-- **MSM Fixture Arithmetic Verification**: Complete mathematical and OHLC validity verification performed across all 14 fixtures using standalone verification script:
-  - 100% OHLC validity satisfied: `high >= low`, `high >= max(open, close)`, `low <= min(open, close)`, positive prices.
-  - Body-edge calculations, strict inequality boundaries, tie-breakers, and search ranges verified.
-  - Note: MSM engine itself is NOT implemented yet; tests verify arithmetic and geometry of specification fixtures.
-- **Documentation Verification**: All markdown links verified as repository-relative (e.g. `../strategy/...`, `approved-clarifications.md`).
+- **Offline Unit & Integrity Tests**: 109/109 tests passed in 2.30s (`python -m pytest tests/ -v`).
+  - Existing callback & adapter suite: 104 passed.
+  - New MSM fixture integrity suite: 5 passed (`tests/test_msm_fixture_integrity.py`).
+- **Fixture Integrity Verification Scope**:
+  - `test_fixture_file_exists_and_loads`: Validates presence and loading of `tests/fixtures/msm_acceptance.json`.
+  - `test_ohlc_geometry_and_chronology`: Independently verifies positive prices, `high >= low`, `high >= UB`, `low <= LB`, and strictly increasing timestamps.
+  - `test_referenced_indices_exist`: Verifies that all referenced window endpoints, selected indices, and eligible indices exist in dataset.
+  - `test_body_edge_arithmetic_matches`: Validates that documented extreme prices match the selected candle's exact body edge.
+  - `test_search_window_extremes_and_tie_breaking`: Verifies that extreme-value selection and latest-index tie-breaking hold across every explicitly specified search window.
+  - *Limitation*: Passing geometry and extreme checks validates fixture data consistency only; it does not claim to implement or prove the MSM state machine or event sequencing.
+- **Documentation Verification**: All 14 fixtures split into individual, dedicated markdown files under `docs/requirements/fixtures/` to completely prevent truncation during retrieval and review.
 
 ---
 
-## 5. Strategy Reconciliation Deliverables & Review Corrections (HANDOFF-005)
+## 5. Deliverables for HANDOFF-006
 
-1. **Authority Provenance & Link Fixes**:
-   - `Market Structure Marking.docx` identified as the available MSM specification; `TopG.pdf` (pages 1–8) referenced only as stated ancestry.
-   - All links converted from `file:///docs/...` to repository-relative markdown paths.
-2. **Approved Clarifications Reconciliation**:
-   - `OPEN-08`: default configuration and event stream sharing between H1 source and H1 confirmation engines updated to exact approved language ("H1 source and H1 confirmation share one configuration and event stream unless the user configures them differently. This does not authorize silent starting-candle inheritance across distinct engine configurations.").
-   - `OPEN-02`: removed parenthetical interpretations ("identification/formation" and "qualification/activation").
-   - `OPEN-10`: preserved `timeframe_configuration` in calculation identity.
-3. **MSM-02 Correction**:
-   - Corrected Confirmed High expectation to index 5 (price 197.0) due to tie-breaker between candle 4 (`UB = 197.0`) and candle 5 (`UB = 197.0`) in search range `[2, 6]`. Next search start index is 5.
-4. **Complete 14-Fixture Acceptance Inventory**:
-   - **MSM-01**: Upward Standard Cycle (Clean Confirmation & Confirmed Low tie).
-   - **MSM-02**: Downward Standard Cycle (Clean Confirmation & Confirmed High tie).
-   - **MSM-03**: Strict Equality Failures (Upward pullback equality failure & break equality failure).
-   - **MSM-04**: Flat Candle Interruption (Consecutive color break).
-   - **MSM-05**: Empty-Range Skip (Pullback skipped, start reference retained).
-   - **MSM-06**: Waiting-State Lockout (No overlapping tentative points while awaiting break).
-   - **MSM-07**: Completed Candles Only & Forming Bar Exclusion (No confirmation on forming bar).
-   - **MSM-08**: Tied Tentative Extremes in Both Directions (Part A: Bullish tie in `[start, p1-1]`; Part B: Bearish tie in `[start, p1-1]`).
-   - **MSM-09**: Downward Equality Failures (Mirror of MSM-03: green pullback equality failure & downward break equality failure).
-   - **MSM-10**: Flat Candle Winning Extreme Search (Flat candle with highest body edge in search range).
-   - **MSM-11**: Non-Green Upward Break & Non-Red Downward Break (Part A: Red candle closing > tentative high; Part B: Green candle closing < tentative low).
-   - **MSM-12**: Two Completed Pairs with Post-Break Pullback Restriction (`p1 > k`) and Trend Status ("Upward trend" vs. "Trend not confirmed").
-   - **MSM-13**: Absent and Unconfirmed Starting Candle Rejection (Input validation test specifications).
-   - **MSM-14**: Deterministic Replay / Prefix Consistency with Knowledge Times (10-candle dataset with prefixes 0..4, 0..6, 0..9, demonstrating swing point immutability and separating candle timestamps from event knowledge timestamps).
+1. **Tie-Breaker Audits & Corrections**:
+   - **MSM-08B**: Confirmed High corrected to **index 4, price 200.0** (tied between indices 3 and 4; Section 2.4 selects latest candle 4). Next search reference is **index 4**.
+   - **MSM-10**: Confirmed Low corrected to **index 4, price 102.0** (tied between indices 3 and 4; Section 2.4 selects latest candle 4). Next search reference is **index 4**.
+   - Exhaustive mathematical audit of all other search windows:
+     - **MSM-03**: Tentative High in `[0, 2]` tied at 104.0 between indices 0 and 1; selects latest candle **index 1**.
+     - **MSM-05**: Confirmed Low in `[3, 6]` tied at 102.0 between indices 5 and 6; selects latest candle **index 6**. Next search reference is **index 6**.
+     - **MSM-09**: Tentative Low in `[0, 1]` tied at 192.0 between indices 0 and 1; selects latest candle **index 1**.
+     - **MSM-11A**: Confirmed Low in `[0, 3]` tied at 100.0 between indices 0 and 2; selects latest candle **index 2**. Next search reference is **index 2**.
+     - **MSM-11B**: Confirmed High in `[0, 3]` tied at 200.0 between indices 0 and 2; selects latest candle **index 2**. Next search reference is **index 2**.
+2. **Machine-Readable Acceptance Dataset**:
+   - Created `tests/fixtures/msm_acceptance.json` containing 14 complete acceptance fixtures with structured candles, search windows, body-edge evaluations, tie flags, knowledge bar indices, prefix states, and trend status.
+3. **Automated Fixture-Integrity Test Suite**:
+   - Created `tests/test_msm_fixture_integrity.py` with 5 dedicated integrity tests without implementing the MSM state machine.
+4. **Un-truncated Acceptance Documentation Architecture**:
+   - Split fixtures into 14 dedicated files under `docs/requirements/fixtures/`:
+     `msm-01-upward-standard.md` through `msm-14-prefix-consistency.md`.
+   - Updated `docs/requirements/msm-acceptance.md` as an authoritative master specification and indexed navigation guide.
 
 ---
 
 ## 6. Current State & Next Allowed Action
-- **Current State**: Strategy requirements reconciliation and MSM acceptance specification complete and verified. No strategy engines implemented yet.
-- **Next Allowed Action**: Commit, push to `origin/requirements/strategy-reconciliation`, and submit `HANDOFF-005-STRATEGY-RECONCILIATION` to Perplexity via Comet.
+- **Current State**: Fixture arithmetic corrected, machine-readable dataset created, integrity test suite passing, and documentation split into un-truncated modules. No strategy engine implemented.
+- **Next Allowed Action**: Commit, push to `origin/requirements/strategy-reconciliation`, and submit `HANDOFF-006` to Perplexity via Comet.
