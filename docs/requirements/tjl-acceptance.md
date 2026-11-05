@@ -87,42 +87,67 @@ The current eligible TJL set requires three structural components:
 - **Eligibility Availability**: Member trading eligibility becomes available at that identification close time, **NOT** at the earlier confirmed-point completion times.
 - **Non-Replacement**: First set creation is an initialization event, **not a replacement**. It emits zero outgoing cancellation intents.
 
-### 4.3 Set Fingerprint
-Every candidate TJL set is uniquely identified by its structural fingerprint:
-$$\text{Set Fingerprint} = (\text{source\_engine\_id},\, \text{direction},\, \text{ch\_point\_id},\, \text{cl\_point\_id},\, \text{p3\_point\_id})$$
+### 4.3 Distinct Identifiers & Set Fingerprint
+To ensure unambiguous tracking, the following identity concepts are strictly separated:
+1. **Feed Identifier (`symbol_feed_id`)**: The market data stream (e.g. `FEED_EURUSD_H1`).
+2. **Source Engine Identifier (`source_engine_id`)**: The strategy engine instance configuration (e.g. `ENGINE_EURUSD_H1`).
+3. **Set Fingerprint**:
+   $$\text{Set Fingerprint} = (\text{source\_engine\_id},\, \text{direction},\, \text{ch\_point\_id},\, \text{cl\_point\_id},\, \text{p3\_point\_id})$$
+4. **Stable Level ID**:
+   $$\text{Level ID} = (\text{symbol\_feed\_id},\, \text{source\_timeframe},\, \text{source\_open\_time},\, \text{HIGH} \mid \text{LOW})$$
 
-### 4.4 Lifecycle Progression: $t_0 \to t_1 \to t_2$
-The lifecycle of current trading sets across market structure continuation follows the formal OPEN-02 specification:
+### 4.4 Independent Strategy Timelines
 
-```mermaid
-flowchart TD
-    t0["t0: Current Set Active\n(CH1, CL1, P3_1)\nEligible for Trading"]
-    t1["t1: Continuation Break\n- Price closes beyond P3_1\n- Confirms new pair (CH2, CL2)\n- P3_1 cleared (no active P3)\n- Next labels recorded\n- Current Set NOT replaced\n(Set 1 remains current & eligible)"]
-    t2["t2: Pullback Identifies P3_2\n- 2-candle pullback completes\n- New P3_2 identified\n- New Fingerprint formed\n- SET REPLACEMENT OCCURS\n- Outgoing Invalidation Intent Emitted"]
+#### Timeline 1: Bullish First-Set Creation (`ENGINE_EURUSD_H1`)
+- **Run Context**: Feed `FEED_EURUSD_H1`, Engine `ENGINE_EURUSD_H1`, Timeframe `H1`, Direction `UPWARD` (Bullish).
+- **$t_{\text{labels}}$ (Bar 4 close)**: MSM confirms swing pair: CH at Bar 1 (price 1.1350) and CL at Bar 4 (price 1.1050). Points receive TJL1 and TJL2 labels. Active P3 is `None`. Current set is `None` (labels alone do not create trading eligibility).
+- **$t_0$ (Bar 7 close)**: 2-candle pullback completes, identifying active Tentative High P3 at Bar 5 (price 1.1550).
+  - First eligible set created: Fingerprint = `("ENGINE_EURUSD_H1", "UPWARD", 1, 4, 5)`.
+  - TJL1 = CH Bar 1 (high-side zone `[1.1350, 1.1400]`).
+  - TJL2 / A+ = CL Bar 4 (low-side zone `[1.1040, 1.1050]`).
+  - Availability timestamp = Bar 7 close (`2026-10-02T00:00:00Z`).
+  - `outgoing_cancellation_intent = False` (first creation is not replacement).
 
-    t0 -->|Continuation Break| t1
-    t1 -->|Next Pullback Completes| t2
-```
+#### Timeline 2: Bearish Lifecycle Progression: $t_0 \to t_1 \to t_2$ (`ENGINE_GBPUSD_H1`)
+- **Run Context**: Feed `FEED_GBPUSD_H1`, Engine `ENGINE_GBPUSD_H1`, Timeframe `H1`, Direction `DOWNWARD` (Bearish).
+- **$t_{\text{labels}}$ (Bar 5 close)**: MSM confirms swing pair: CH at Bar 4 (price 1.2000) and CL at Bar 2 (price 1.1850). Points receive TJL2 and TJL1 labels. Active P3 is `None`. Current set is `None`.
+- **$t_0$ (Bar 9 close — First Set Creation)**:
+  - 2-candle pullback completes, identifying active Tentative Low P3_1 at Bar 7 (price 1.1400).
+  - Set 1 created: Fingerprint = `("ENGINE_GBPUSD_H1", "DOWNWARD", 4, 2, 7)`.
+  - TJL1 = CL Bar 2 (low-side zone `[1.1800, 1.1850]`), TJL2 / A+ = CH Bar 4 (high-side zone `[1.2000, 1.2050]`).
+  - Availability timestamp = Bar 9 close (`2026-10-01T10:00:00Z`).
+  - `outgoing_cancellation_intent = False`.
+- **$t_1$ (Bar 14 close — Continuation Break)**:
+  - Candle 14 closes below 1.1400, confirming continuation pair: CH2 at Bar 13 (1.1680) and CL2 at Bar 7 (1.1400).
+  - Tentative level broken and cleared: active P3 is `None`.
+  - Next labels recorded: Bar 13 -> next TJL2, Bar 7 -> next TJL1.
+  - **Current Set NOT Replaced**: Set 1 remains the current, active, eligible trading set!
+  - `outgoing_cancellation_intent = False`.
+- **$t_2$ (Bar 16 close — Next Pullback Completion & Replacement)**:
+  - Subsequent candles form a valid 2-candle pullback. At Bar 16 close, new active Tentative Low P3_2 at Bar 14 (price 1.1320) is identified.
+  - Set 2 created: Fingerprint = `("ENGINE_GBPUSD_H1", "DOWNWARD", 13, 7, 14)`.
+  - **Set Replacement Occurs**: Set 2 replaces Set 1.
+  - **Cancellation Intent Emitted**: `outgoing_cancellation_intent = True` for Set 1.
+  - Availability timestamp for Set 2 = Bar 16 close (`2026-10-01T17:00:00Z`).
 
-1. **State $t_0$ (Active Current Set)**:
-   - Formed by `CH1`, `CL1`, and active `P3_1`.
-   - Both TJL1 and TJL2 members are currently eligible for trading.
-2. **State $t_1$ (Continuation Break — Labels Without Replacement)**:
-   - A continuation candle closes strictly beyond the tentative level `P3_1`.
-   - MSM confirms a new swing pair: one point is confirmed and the opposite point is finalized (`CH2`, `CL2`).
-   - The old tentative point `P3_1` is broken and cleared; **no active tentative point exists at $t_1$**.
-   - Newly confirmed points receive their TJL labels (`CH2` labeled next TJL1, `CL2` labeled next TJL2).
-   - **Crucial Rule**: The current trading set is **NOT replaced at $t_1$**. Set 1 remains the active, current, eligible set because a new 3-point set has not yet completed.
-3. **State $t_2$ (Next Pullback — Set Replacement & Cancellation Intent)**:
-   - Subsequent price action forms a valid 2-candle pullback, identifying a new active tentative point `P3_2`.
-   - A new distinct fingerprint is formed: `(engine_id, direction, CH2, CL2, P3_2)`.
-   - **Replacement Event**: The new set replaces Set 1 as the current eligible set.
-   - **Outgoing Invalidation Intent**: Set replacement emits an outgoing-set cancellation intent that invalidates pending activations for Set 1.
-   - **Non-Inheritance**: Any pending activation on the replaced set is cancelled. The replacement set requires its own fresh tap.
-   - **Persistent Member Coverage**: The cancellation intent applies to the outgoing set as a whole even if an underlying swing point carries forward into the new set.
+### 4.5 Separation of Persistence & Invalidation Cases
+To prevent conflating point promotion with member persistence across sets, three distinct cases are established:
+1. **Case A (Point Provenance Promotion)**:
+   - A tentative point (e.g. Point 7 in Set 1) is not a TJL zone while tentative.
+   - When subsequent continuation break confirms Point 7 as a swing point (CL2), it first becomes a TJL member.
+   - Point identity is preserved continuously from tentative detection through confirmed status.
+2. **Case B (Confirmed Member Persisting Across Replacement)**:
+   - When structure continuation updates one side (e.g. a higher high confirms in bullish structure) while the opposite confirmed low remains unbroken, that confirmed low persists as a member in BOTH successive sets (Set 1 and Set 2).
+   - Its `Level ID` remains 100% identical.
+   - In accordance with the one-trade-per-level rule, any existing usage status recorded on that level survives into Set 2 without resetting.
+3. **Case C (Outgoing Cancellation Intent Applies to Entire Outgoing Set)**:
+   - When Set 2 replaces Set 1, an outgoing cancellation intent is emitted for Set 1 as a whole.
+   - This invalidation cancels all pending activations on Set 1, **even though a member's Level ID survives into Set 2**.
+   - The surviving member does not inherit its old activation; it requires a fresh tap under Set 2 to rearm.
 
-### 4.5 Idempotence
-Re-evaluating or re-observing the market structure while the fingerprint remains identical produces zero state mutations and emits zero cancellation intents.
+### 4.6 Idempotence & Non-Refresh on Re-observation
+- Re-evaluating or replaying identical candle prefixes where the fingerprint has not changed produces zero set replacements and zero cancellation intents.
+- **Availability Timestamp Invariance**: Re-observation must **never refresh or update** the original eligibility availability timestamp; it remains strictly anchored to the candle close of the set's initial creation.
 
 ---
 

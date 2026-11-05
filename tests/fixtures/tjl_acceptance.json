@@ -1,10 +1,11 @@
 {
   "description": "Standardized Acceptance Fixtures for Trend Joining Level (TJL) Module",
-  "version": "1.0",
+  "version": "1.1",
   "categories": [
     "source_settled",
     "end_to_end_msm_derived",
-    "synthetic_lifecycle_specification"
+    "synthetic_lifecycle_specification",
+    "geometry_specification"
   ],
   "fixtures": {
     "tjl_01_bullish_basic_end_to_end": {
@@ -12,8 +13,9 @@
         "end_to_end_msm_derived",
         "source_settled"
       ],
-      "description": "End-to-end Bullish structure. At Bar 4, MSM confirms CH (Bar 1, price 1.135) and CL (Bar 4, price 1.105). At Bar 7, 2-candle pullback completes identifying active P3 (tentative high at Bar 5, price 1.155). At Bar 7 close, first eligible current set is created: TJL1 = CH (high-side zone [1.135, 1.140]), TJL2/A+ = CL (low-side zone [1.104, 1.105]). Member eligibility availability is Bar 7 close time. First creation is not replacement.",
+      "description": "End-to-end Bullish structure derived from actual MSM execution. At Bar 4, MSM confirms CH (Bar 1, price 1.135) and CL (Bar 4, price 1.105). At Bar 7, 2-candle pullback completes identifying active P3 (tentative high at Bar 5, price 1.155). At Bar 7 close, first eligible current set is created: TJL1 = CH (high-side zone [1.135, 1.140]), TJL2/A+ = CL (low-side zone [1.104, 1.105]). Member eligibility availability is Bar 7 close time. First creation is not replacement.",
       "feed_id": "FEED_EURUSD_H1",
+      "source_engine_id": "ENGINE_EURUSD_H1",
       "source_timeframe": "H1",
       "direction": "UPWARD",
       "start_candle_time": "2026-10-01T00:00:00+00:00",
@@ -163,7 +165,7 @@
       },
       "expected_set_bar_7": {
         "fingerprint": [
-          "FEED_EURUSD_H1",
+          "ENGINE_EURUSD_H1",
           "UPWARD",
           1,
           4,
@@ -221,8 +223,9 @@
         "end_to_end_msm_derived",
         "source_settled"
       ],
-      "description": "End-to-end Bearish structure. At Bar 5, MSM confirms CH (Bar 4, price 1.200) and CL (Bar 2, price 1.185). At Bar 9, 2-candle pullback completes identifying active P3 (tentative low at Bar 7, price 1.140). At Bar 9 close, first eligible current set is created: TJL1 = CL (low-side zone [1.185, 1.185]), TJL2/A+ = CH (high-side zone [1.200, 1.200]). Member eligibility availability is Bar 9 close time. First creation is not replacement.",
+      "description": "End-to-end Bearish structure derived from actual MSM execution. At Bar 5, MSM confirms CH (Bar 4, price 1.200) and CL (Bar 2, price 1.185). At Bar 9, 2-candle pullback completes identifying active P3 (tentative low at Bar 7, price 1.140). At Bar 9 close, first eligible current set is created: TJL1 = CL (low-side zone [1.180, 1.185]), TJL2/A+ = CH (high-side zone [1.200, 1.205]). Member eligibility availability is Bar 9 close time. First creation is not replacement.",
       "feed_id": "FEED_GBPUSD_H1",
+      "source_engine_id": "ENGINE_GBPUSD_H1",
       "source_timeframe": "H1",
       "direction": "DOWNWARD",
       "start_candle_time": "2026-10-01T00:00:00Z",
@@ -350,7 +353,7 @@
       ],
       "expected_set_bar_9": {
         "fingerprint": [
-          "FEED_GBPUSD_H1",
+          "ENGINE_GBPUSD_H1",
           "DOWNWARD",
           4,
           2,
@@ -405,7 +408,7 @@
     },
     "tjl_03_original_candle_geometry_and_zero_width_lines": {
       "category": [
-        "end_to_end_msm_derived",
+        "geometry_specification",
         "source_settled"
       ],
       "description": "Validates original-candle zone geometry across high-side and low-side zones, including zero-wick single price lines.",
@@ -491,6 +494,7 @@
       ],
       "description": "Prefix evaluation of choch_bearish_basic_end_to_end at Bar 4. Confirmed points (CH at Bar 1, CL at Bar 4) have received TJL1 and TJL2 labels, but active P3 is None. Asserts current set is None; labels alone do not create an eligible trading set.",
       "feed_id": "FEED_EURUSD_H1",
+      "source_engine_id": "ENGINE_EURUSD_H1",
       "source_timeframe": "H1",
       "direction": "UPWARD",
       "start_candle_time": "2026-10-01T00:00:00+00:00",
@@ -562,6 +566,7 @@
       ],
       "description": "State t1 timing across continuation break in Bearish structure. At Bar 14, continuation break confirms pair 2 (CH at Bar 13, CL at Bar 7) and clears old tentative point (P3 is None). Newly confirmed points receive next labels, but current set is NOT replaced. Set 1 (from Bar 9) remains current and eligible.",
       "feed_id": "FEED_GBPUSD_H1",
+      "source_engine_id": "ENGINE_GBPUSD_H1",
       "source_timeframe": "H1",
       "direction": "DOWNWARD",
       "start_candle_time": "2026-10-01T00:00:00Z",
@@ -722,7 +727,7 @@
         "msm_confirmed_pairs_count": 2,
         "active_p3": null,
         "current_set_fingerprint": [
-          "FEED_GBPUSD_H1",
+          "ENGINE_GBPUSD_H1",
           "DOWNWARD",
           4,
           2,
@@ -751,6 +756,7 @@
       ],
       "description": "State t2 replacement timing. Follows t1: pullback at Bars 15-16 identifies new active P3 (tentative low at Bar 14, price 1.132) on Bar 16 close. New fingerprint (CH 13, CL 7, P3 14) replaces Set 1, emitting an outgoing-set cancellation intent.",
       "feed_id": "FEED_GBPUSD_H1",
+      "source_engine_id": "ENGINE_GBPUSD_H1",
       "source_timeframe": "H1",
       "direction": "DOWNWARD",
       "start_candle_time": "2026-10-01T00:00:00Z",
@@ -930,14 +936,14 @@
       "expected_state": {
         "is_current_set_replaced": true,
         "replaced_set_fingerprint": [
-          "FEED_GBPUSD_H1",
+          "ENGINE_GBPUSD_H1",
           "DOWNWARD",
           4,
           2,
           7
         ],
         "new_set_fingerprint": [
-          "FEED_GBPUSD_H1",
+          "ENGINE_GBPUSD_H1",
           "DOWNWARD",
           13,
           7,
@@ -945,7 +951,7 @@
         ],
         "outgoing_cancellation_intent": true,
         "cancelled_set_fingerprint": [
-          "FEED_GBPUSD_H1",
+          "ENGINE_GBPUSD_H1",
           "DOWNWARD",
           4,
           2,
@@ -954,13 +960,14 @@
         "eligibility_availability_time": "2026-10-01T17:00:00Z"
       }
     },
-    "tjl_07_persistent_level_identity_across_replacement": {
+    "tjl_07a_point_promotion_to_confirmed_tjl": {
       "category": [
         "end_to_end_msm_derived",
         "source_settled"
       ],
-      "description": "Demonstrates stable engineering level identity (symbol_feed_id, source_timeframe, source_open_time, HIGH|LOW). Point CL at Bar 7 was tentative point P3 in Set 1, and becomes Confirmed Low TJL1 in Set 2. Its Level ID remains 100% identical and its prior usage does not reset. Outgoing cancellation intent applies to Set 1 as a whole.",
+      "description": "Case A (Point Provenance Promotion): Point 7 was Tentative Low P3 in Set 1 (not a TJL zone in Set 1). At Bar 14 continuation break, Point 7 is confirmed as CL2 and first becomes a TJL member (TJL1) with low-side zone [1.140, 1.140]. Demonstrates point provenance and promotion to confirmed TJL status.",
       "feed_id": "FEED_GBPUSD_H1",
+      "source_engine_id": "ENGINE_GBPUSD_H1",
       "source_timeframe": "H1",
       "point_source_open_time": "2026-10-01T07:00:00Z",
       "point_side": "LOW",
@@ -970,19 +977,91 @@
         "2026-10-01T07:00:00Z",
         "LOW"
       ],
-      "set_1_role": "P3_SOURCE",
-      "set_2_role": "TJL1",
-      "identity_invariance": true,
-      "usage_status_preserved": true,
-      "outgoing_cancellation_intent_emitted": true
+      "status_in_set_1": "TENTATIVE_P3_NOT_TJL_ZONE",
+      "status_at_t1_continuation": "CONFIRMED_CL_FIRST_BECOMES_TJL1",
+      "zone": {
+        "lower_price": 1.14,
+        "upper_price": 1.14,
+        "side": "LOW_SIDE",
+        "is_zero_width": true
+      }
+    },
+    "tjl_07b_persistent_confirmed_member_across_replacement": {
+      "category": [
+        "synthetic_lifecycle_specification",
+        "source_settled"
+      ],
+      "description": "Case B & C: A confirmed TJL member (CL_1 at Bar 7) remains unbroken and persists across set replacement into Set 2 as an actual confirmed TJL member. Level ID remains 100% identical and prior usage survives without resetting. Set 2 replacement emits outgoing cancellation intent that invalidates Set 1 as a whole despite surviving member CL_1; surviving member in Set 2 requires a fresh tap.",
+      "feed_id": "FEED_EURUSD_H1",
+      "source_engine_id": "ENGINE_EURUSD_H1",
+      "source_timeframe": "H1",
+      "direction": "UPWARD",
+      "surviving_member_open_time": "2026-10-01T07:00:00Z",
+      "surviving_member_side": "LOW",
+      "expected_level_id": [
+        "FEED_EURUSD_H1",
+        "H1",
+        "2026-10-01T07:00:00Z",
+        "LOW"
+      ],
+      "set_1": {
+        "fingerprint": [
+          "ENGINE_EURUSD_H1",
+          "UPWARD",
+          4,
+          7,
+          9
+        ],
+        "tjl1_id": [
+          "FEED_EURUSD_H1",
+          "H1",
+          "2026-10-01T04:00:00Z",
+          "HIGH"
+        ],
+        "tjl2_id": [
+          "FEED_EURUSD_H1",
+          "H1",
+          "2026-10-01T07:00:00Z",
+          "LOW"
+        ]
+      },
+      "set_2": {
+        "fingerprint": [
+          "ENGINE_EURUSD_H1",
+          "UPWARD",
+          12,
+          7,
+          15
+        ],
+        "tjl1_id": [
+          "FEED_EURUSD_H1",
+          "H1",
+          "2026-10-01T12:00:00Z",
+          "HIGH"
+        ],
+        "tjl2_id": [
+          "FEED_EURUSD_H1",
+          "H1",
+          "2026-10-01T07:00:00Z",
+          "LOW"
+        ]
+      },
+      "contract_assertions": {
+        "is_confirmed_member_shared": true,
+        "level_id_invariance": true,
+        "usage_status_preserved_contract": true,
+        "outgoing_cancellation_intent_emitted": true,
+        "requires_fresh_tap_in_replacement_set": true
+      }
     },
     "tjl_08_idempotent_reobservation_same_fingerprint": {
       "category": [
         "end_to_end_msm_derived",
         "source_settled"
       ],
-      "description": "Re-evaluating engine across Bars 9, 10, 11 in Bearish structure where P3 remains Bar 7 and no break occurs. Re-observation of same fingerprint is idempotent: produces zero set replacements and zero cancellation intents.",
+      "description": "Re-evaluating engine across Bars 9, 10, 11 in Bearish structure where P3 remains Bar 7 and no break occurs. Re-observation of same fingerprint is idempotent: produces zero set replacements and zero cancellation intents, and does not refresh availability timestamp.",
       "feed_id": "FEED_GBPUSD_H1",
+      "source_engine_id": "ENGINE_GBPUSD_H1",
       "source_timeframe": "H1",
       "direction": "DOWNWARD",
       "start_candle_time": "2026-10-01T00:00:00Z",
@@ -1115,21 +1194,21 @@
       ],
       "expected_state": {
         "fingerprint_bar_9": [
-          "FEED_GBPUSD_H1",
+          "ENGINE_GBPUSD_H1",
           "DOWNWARD",
           4,
           2,
           7
         ],
         "fingerprint_bar_10": [
-          "FEED_GBPUSD_H1",
+          "ENGINE_GBPUSD_H1",
           "DOWNWARD",
           4,
           2,
           7
         ],
         "fingerprint_bar_11": [
-          "FEED_GBPUSD_H1",
+          "ENGINE_GBPUSD_H1",
           "DOWNWARD",
           4,
           2,
@@ -1137,7 +1216,9 @@
         ],
         "is_idempotent": true,
         "replacements_count": 0,
-        "cancellation_intents_count": 0
+        "cancellation_intents_count": 0,
+        "availability_timestamp_refreshed": false,
+        "original_availability_time": "2026-10-01T10:00:00Z"
       }
     },
     "tjl_09_source_choch_eligibility_invalidation_and_gap": {
@@ -1145,8 +1226,9 @@
         "end_to_end_msm_derived",
         "source_settled"
       ],
-      "description": "Main Bearish CHOCH confirmed on source timeframe at Bar 11 (2 consecutive closes below last support 1.105). Source CHOCH immediately invalidates old Bullish TJL trading eligibility, emitting cancellation intent for active Bullish set. Transition gap has zero eligible sets in either direction until new structure forms.",
+      "description": "Main Bearish CHOCH confirmed on source timeframe at Bar 9 (2 consecutive closes below last support 1.105). Source CHOCH immediately invalidates old Bullish TJL trading eligibility, emitting cancellation intent for active Bullish set. Transition gap has zero eligible sets in either direction until new structure forms.",
       "feed_id": "FEED_EURUSD_H1",
+      "source_engine_id": "ENGINE_EURUSD_H1",
       "source_timeframe": "H1",
       "direction": "UPWARD",
       "start_candle_time": "2026-10-01T00:00:00+00:00",
@@ -1252,10 +1334,18 @@
           "close_time": "2026-10-02T16:00:00+00:00"
         }
       ],
-      "evaluated_prefix_bar": 11,
+      "evaluated_prefix_bar": 9,
       "expected_state": {
         "main_choch_confirmed": true,
         "choch_type": "BEARISH_CHOCH",
+        "choch_confirmation_bar_index": 9,
+        "pre_choch_active_set_fingerprint": [
+          "ENGINE_EURUSD_H1",
+          "UPWARD",
+          1,
+          4,
+          5
+        ],
         "old_direction_eligibility_invalidated": true,
         "outgoing_cancellation_intent": true,
         "current_set_post_choch": null,
@@ -1270,9 +1360,10 @@
       ],
       "description": "Monday 00:00 boundary arrives without a new 3-point set forming. Existing set and levels are retained. Used status on level remains used (never resets). Native broker MT5 calendar used.",
       "feed_id": "FEED_EURUSD_H1",
+      "source_engine_id": "ENGINE_EURUSD_H1",
       "source_timeframe": "H1",
       "initial_set_fingerprint": [
-        "FEED_EURUSD_H1",
+        "ENGINE_EURUSD_H1",
         "UPWARD",
         1,
         4,
@@ -1284,7 +1375,7 @@
       "expected_state": {
         "is_set_retained": true,
         "retained_fingerprint": [
-          "FEED_EURUSD_H1",
+          "ENGINE_EURUSD_H1",
           "UPWARD",
           1,
           4,
@@ -1320,10 +1411,11 @@
         "synthetic_lifecycle_specification",
         "source_settled"
       ],
-      "description": "Validates deterministic prefix consistency and arbitrary source feed identifiers (e.g. FEED_ALPHA_H4, DEMO_XAUUSD_D1). Replaying identical prefixes produces identical fingerprints and level identities.",
+      "description": "Validates deterministic prefix consistency and arbitrary source engine identifiers (e.g. ENGINE_ALPHA_H4, DEMO_XAUUSD_D1). Replaying identical prefixes produces identical fingerprints and level identities.",
       "test_cases": [
         {
           "feed_id": "FEED_ALPHA_H4",
+          "source_engine_id": "ENGINE_ALPHA_H4",
           "source_timeframe": "H4",
           "open_time": "2026-10-01T04:00:00Z",
           "side": "HIGH",
@@ -1336,6 +1428,7 @@
         },
         {
           "feed_id": "DEMO_XAUUSD_D1",
+          "source_engine_id": "ENGINE_XAUUSD_D1",
           "source_timeframe": "D1",
           "open_time": "2026-10-01T00:00:00Z",
           "side": "LOW",

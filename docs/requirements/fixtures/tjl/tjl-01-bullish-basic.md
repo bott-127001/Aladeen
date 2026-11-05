@@ -4,9 +4,13 @@
 **Structure Direction**: `BULLISH` (`UPWARD`)  
 **Timeframe**: `H1`  
 **Feed ID**: `FEED_EURUSD_H1`  
+**Source Engine ID**: `ENGINE_EURUSD_H1`  
 
 ## 1. Description & Strategy Context
-End-to-end Bullish market structure derived from actual MSM execution. At Bar 4, MSM confirms CH (Bar 1, price 1.1350) and CL (Bar 4, price 1.1050). At Bar 7, a 2-candle pullback completes, identifying active Tentative High P3 (Bar 5, price 1.1550). At Bar 7 close, the first eligible current TJL set is created.
+End-to-end Bullish market structure derived from actual MSM execution.
+- At Bar 4, MSM confirms CH (Bar 1, price 1.1350) and CL (Bar 4, price 1.1050).
+- At Bar 7, a 2-candle pullback completes, identifying active Tentative High P3 (Bar 5, price 1.1550).
+- At Bar 7 close, the first eligible current TJL set is created.
 
 ## 2. Directional Point-to-Label Mapping
 - **TJL1**: Confirmed High (`CH`) at Bar 1 (price 1.1350)
@@ -20,6 +24,6 @@ End-to-end Bullish market structure derived from actual MSM execution. At Bar 4,
 
 ## 3. Set Lifecycle & Timing (OPEN-02)
 - **Bar 4 (Labels Only)**: Confirmed points receive TJL1 and TJL2 labels, but current set is `None` because active P3 is not yet identified.
-- **Bar 7 (First Set Creation)**: Pullback completes at Bar 7. Current set forms with fingerprint `("FEED_EURUSD_H1", "UPWARD", 1, 4, 5)`.
+- **Bar 7 (First Set Creation)**: Pullback completes at Bar 7. Current set forms with fingerprint `("ENGINE_EURUSD_H1", "UPWARD", 1, 4, 5)`.
 - **Member Eligibility Availability**: Bar 7 close time (`2026-10-02T00:00:00Z`).
 - **Non-Replacement**: First set creation emits `outgoing_cancellation_intent = false`.
