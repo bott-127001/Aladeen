@@ -370,8 +370,14 @@ def generate_chart_and_status_from_snapshot(
                         )
                     else:
                         choch_cnt = len(msm_res.confirmed_choch_events)
-                        choch_str = f", {choch_cnt} CHOCH" if ctx.calculation_mode == "INTEGRATED_MSM_CHOCH" else ""
-                        msm_status_suffix = f" | 📐 MSM: {msm_res.snapshot.trend_status} ({len(msm_res.snapshot.confirmed_pairs)} pairs{choch_str})"
+                        iss_cnt = len(msm_res.confirmed_iss_events)
+                        if ctx.calculation_mode == "INTEGRATED_MSM_CHOCH":
+                            extra_str = f", {choch_cnt} CHOCH"
+                        elif ctx.calculation_mode == "INTEGRATED_MSM_CHOCH_ISS":
+                            extra_str = f", {choch_cnt} CHOCH, {iss_cnt} ISS"
+                        else:
+                            extra_str = ""
+                        msm_status_suffix = f" | 📐 MSM: {msm_res.snapshot.trend_status} ({len(msm_res.snapshot.confirmed_pairs)} pairs{extra_str})"
                 else:
                     msm_status_suffix = f" | ⚠️ MSM Error: {msm_res.error}"
             except Exception as e:

@@ -16,6 +16,8 @@ from typing import Any, Optional
 import pandas as pd
 import plotly.graph_objects as go
 
+from aladeen.strategy import Direction, ISSLifecycleStatus
+
 
 def create_candlestick_chart(
     df: pd.DataFrame,
@@ -492,6 +494,238 @@ def create_candlestick_chart(
                                         y=[mid_y, mid_y],
                                         mode="lines",
                                         name=f"Zone: {z_type_str}",
+                                        line=dict(color=border_color, width=1, dash="dot"),
+                                        hovertext=[hover_z, hover_z],
+                                        hoverinfo="text",
+                                        showlegend=False,
+                                    )
+                                )
+
+            # 10. ISS Structural Overlays, Confirmation Markers & Zones
+            iss_snap = getattr(msm_result, "iss_snapshot", None)
+            confirmed_iss_events = getattr(msm_result, "confirmed_iss_events", ())
+            show_iss_markers = getattr(ctx, "show_iss_markers", True) if ctx else True
+            show_iss_zones = getattr(ctx, "show_iss_zones", True) if ctx else True
+            show_iss_points = getattr(ctx, "show_iss_points", True) if ctx else True
+
+            if iss_snap is not None:
+                # Add ISS lifecycle status summary to title
+                status_val = iss_snap.lifecycle_status.value if hasattr(iss_snap.lifecycle_status, "value") else str(iss_snap.lifecycle_status)
+                title_parts.append(
+                    f"<span style='color: #a7ffeb;'>ISS: {status_val} ({len(confirmed_iss_events)} confirmed)</span>"
+                )
+
+                # Frozen boundary guidelines (when boundary is captured)
+                b = iss_snap.captured_boundary
+                if b is not None and iss_snap.lifecycle_status in (
+                    ISSLifecycleStatus.ELIGIBLE_SEARCH,
+                    ISSLifecycleStatus.OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY,
+                    ISSLifecycleStatus.CONFIRMED,
+                ):
+                    b_x0 = df.index[0]
+                    b_x1 = last_chart_time
+                    shapes.append(
+                        dict(
+                            type="line",
+                            x0=b_x0,
+                            x1=b_x1,
+                            y0=b.min_price,
+                            y1=b.min_price,
+                            line=dict(color="#26a69a", width=1, dash="dot"),
+                        )
+                    )
+                    shapes.append(
+                        dict(
+                            type="line",
+                            x0=b_x0,
+                            x1=b_x1,
+                            y0=b.max_price,
+                            y1=b.max_price,
+                            line=dict(color="#26a69a", width=1, dash="dot"),
+                        )
+                    )
+
+                # Internal structural points
+                if show_iss_points:
+                    # In ELIGIBLE_SEARCH or CONFIRMED: render visible internal points
+                    if iss_snap.lifecycle_status in (
+                        ISSLifecycleStatus.ELIGIBLE_SEARCH,
+                        ISSLifecycleStatus.CONFIRMED,
+                    ):
+                        for pt in iss_snap.internal_points:
+                            pt_time = pt.candle_open_time
+                            if pt_time in df.index:
+                                is_high_pt = "H" in pt.role or "CH" in pt.role
+                                pt_sym = "circle" if pt.is_confirmed else "circle-open"
+                                pt_color = "#69f0ae" if is_high_pt else "#ffab91"
+                                pt_pos = "top center" if is_high_pt else "bottom center"
+                                pt_hover = (
+                                    f"<b>Internal Point {pt.point_number} ({pt.role})</b><br>"
+                                    f"Price: {pt.body_edge_price:.4f} (Bar #{pt.source_candle_index})<br>"
+                                    f"Status: {'Confirmed' if pt.is_confirmed else 'Tentative'}<br>"
+                                    f"Inside Boundary: {pt.is_inside_boundary}"
+                                )
+                                fig.add_trace(
+                                    go.Scatter(
+                                        x=[pt_time],
+                                        y=[pt.body_edge_price],
+                                        mode="markers+text",
+                                        name=f"Internal {pt.role}",
+                                        marker=dict(symbol=pt_sym, size=9, color=pt_color, line=dict(width=1.5, color="#ffffff")),
+                                        text=[f"P{pt.point_number}:{pt.role}"],
+                                        textposition=pt_pos,
+                                        textfont=dict(color=pt_color, size=10),
+                                        hovertext=[pt_hover],
+                                        hoverinfo="text",
+                                        showlegend=False,
+                                    )
+                                )
+
+                    # In OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY: render attempted points and ongoing tracking points separately
+                    elif iss_snap.lifecycle_status == ISSLifecycleStatus.OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY:
+                        if iss_snap.attempted_points:
+                            for pt in iss_snap.attempted_points:
+                                pt_time = pt.candle_open_time
+                                if pt_time in df.index:
+                                    pt_hover = (
+                                        f"<b>Attempted Point {pt.point_number} ({pt.role}) [Tracking Only — Not Eligible]</b><br>"
+                                        f"Price: {pt.body_edge_price:.4f} (Bar #{pt.source_candle_index})<br>"
+                                        f"Status: Attempted Sequence Retained for Audit"
+                                    )
+                                    fig.add_trace(
+                                        go.Scatter(
+                                            x=[pt_time],
+                                            y=[pt.body_edge_price],
+                                            mode="markers+text",
+                                            name="Attempted (Tracking Only)",
+                                            marker=dict(symbol="x", size=8, color="#9e9e9e"),
+                                            text=[f"Att-P{pt.point_number}"],
+                                            textposition="top center",
+                                            textfont=dict(color="#9e9e9e", size=9),
+                                            hovertext=[pt_hover],
+                                            hoverinfo="text",
+                                            showlegend=False,
+                                        )
+                                    )
+
+                        if iss_snap.tracking_points:
+                            for pt in iss_snap.tracking_points:
+                                pt_time = pt.candle_open_time
+                                if pt_time in df.index:
+                                    pt_hover = (
+                                        f"<b>Ongoing Tracking Point {pt.point_number} ({pt.role}) [Tracking Only — Not Eligible]</b><br>"
+                                        f"Price: {pt.body_edge_price:.4f} (Bar #{pt.source_candle_index})"
+                                    )
+                                    fig.add_trace(
+                                        go.Scatter(
+                                            x=[pt_time],
+                                            y=[pt.body_edge_price],
+                                            mode="markers",
+                                            name="Tracking Swing (Tracking Only)",
+                                            marker=dict(symbol="diamond-dot", size=7, color="#78909c"),
+                                            hovertext=[pt_hover],
+                                            hoverinfo="text",
+                                            showlegend=False,
+                                        )
+                                    )
+
+            # Confirmed ISS Confirmation Markers & Zones
+            if confirmed_iss_events:
+                candles_seq = getattr(msm_result, "candles", ())
+                for ev in confirmed_iss_events:
+                    c_conf_idx = ev.confirmation_candle_index
+                    conf_candles = [c for c in candles_seq if c.index == c_conf_idx]
+                    conf_candle = conf_candles[0] if conf_candles else None
+                    conf_time = conf_candle.open_time if conf_candle else None
+
+                    if show_iss_markers and conf_time is not None and conf_time in df.index:
+                        is_bearish_main = ev.main_direction == Direction.DOWNWARD
+                        m_sym = "star"
+                        m_color = "#64ffda" if is_bearish_main else "#ffd740"
+                        m_pos = "top center" if is_bearish_main else "bottom center"
+
+                        if ev.confirmation_time is not None:
+                            conf_avail_str = f"Confirmed At: {ev.confirmation_time.strftime('%Y-%m-%d %H:%M UTC')} (Candle Close)"
+                        else:
+                            conf_avail_str = f"Confirmation Availability: Unknown — confirmed on completion of candle Bar #{ev.confirmation_candle_index}"
+
+                        iss_hover = (
+                            f"<b>Confirmed ISS Event [Structural Event — Not Order Entry Signal]</b><br>"
+                            f"Candidate ID: {ev.candidate_id}<br>"
+                            f"Main Direction: {ev.main_direction.value}<br>"
+                            f"Confirmation Candle: Bar #{ev.confirmation_candle_index} (Open: {conf_time.strftime('%Y-%m-%d %H:%M UTC')})<br>"
+                            f"Completion Close: {ev.completion_close_price:.4f}<br>"
+                            f"Frozen Boundary: [{ev.captured_boundary.min_price:.4f}, {ev.captured_boundary.max_price:.4f}]<br>"
+                            f"{conf_avail_str}<br>"
+                            f"Level 3 Zone: {ev.level_3_zone.zone_type.value} [{ev.level_3_zone.lower_price:.4f}, {ev.level_3_zone.upper_price:.4f}]<br>"
+                            f"Level 4 Zone: {ev.level_4_zone.zone_type.value} [{ev.level_4_zone.lower_price:.4f}, {ev.level_4_zone.upper_price:.4f}]"
+                        )
+                        fig.add_trace(
+                            go.Scatter(
+                                x=[conf_time],
+                                y=[ev.completion_close_price],
+                                mode="markers+text",
+                                name="ISS Confirmed",
+                                marker=dict(symbol=m_sym, size=14, color=m_color, line=dict(width=1.5, color="#ffffff")),
+                                text=["ISS"],
+                                textposition=m_pos,
+                                textfont=dict(color=m_color, size=11, family="Segoe UI, sans-serif"),
+                                hovertext=[iss_hover],
+                                hoverinfo="text",
+                            )
+                        )
+
+                    # Zones
+                    if show_iss_zones:
+                        for z in [ev.level_3_zone, ev.level_4_zone]:
+                            if z.confirmation_availability_time is not None:
+                                x0_zone = z.confirmation_availability_time
+                                conf_avail_label = f"Structural zone available from: {z.confirmation_availability_time.strftime('%Y-%m-%d %H:%M UTC')}"
+                                x1_zone = max(last_chart_time, x0_zone)
+                                z_type_str = z.zone_type.value if hasattr(z.zone_type, "value") else str(z.zone_type)
+
+                                if "RBS" in z_type_str or "BUYING" in z_type_str:
+                                    border_color, fill_color = "#00e676", "rgba(0, 230, 118, 0.15)"
+                                else:
+                                    border_color, fill_color = "#ff5252", "rgba(255, 82, 82, 0.15)"
+
+                                if z.is_line:
+                                    shapes.append(
+                                        dict(
+                                            type="line",
+                                            x0=x0_zone,
+                                            x1=x1_zone,
+                                            y0=z.lower_price,
+                                            y1=z.lower_price,
+                                            line=dict(color=border_color, width=1.5, dash="dash"),
+                                        )
+                                    )
+                                else:
+                                    shapes.append(
+                                        dict(
+                                            type="rect",
+                                            x0=x0_zone,
+                                            x1=x1_zone,
+                                            y0=z.lower_price,
+                                            y1=z.upper_price,
+                                            fillcolor=fill_color,
+                                            line=dict(color=border_color, width=1),
+                                        )
+                                    )
+
+                                mid_y = (z.lower_price + z.upper_price) / 2.0
+                                hover_z = (
+                                    f"<b>ISS Zone: {z_type_str} [Structural Zone — Not Order Execution]</b><br>"
+                                    f"Price: {z.lower_price:.4f} – {z.upper_price:.4f}{' (Line)' if z.is_line else ''}<br>"
+                                    f"Source Candle: Bar #{z.source_candle_index} (Point {z.source_point_number}: {z.source_point_role})<br>"
+                                    f"{conf_avail_label}"
+                                )
+                                fig.add_trace(
+                                    go.Scatter(
+                                        x=[x0_zone, x1_zone],
+                                        y=[mid_y, mid_y],
+                                        mode="lines",
+                                        name=f"ISS Zone: {z_type_str}",
                                         line=dict(color=border_color, width=1, dash="dot"),
                                         hovertext=[hover_z, hover_z],
                                         hoverinfo="text",

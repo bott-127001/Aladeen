@@ -248,9 +248,14 @@ class ISSEngine:
 
         if candle.index in self._received_indices:
             raise ValueError(f"Duplicate candle source index detected: {candle.index}")
-        if self._last_processed_open_time is not None and candle.open_time <= self._last_processed_open_time:
+        latest_received_time = (
+            self._last_received_open_time
+            if self._last_received_open_time is not None
+            else self._last_processed_open_time
+        )
+        if latest_received_time is not None and candle.open_time <= latest_received_time:
             raise ValueError(
-                f"Non-chronological candle open_time: {candle.open_time} <= {self._last_processed_open_time}"
+                f"Non-chronological candle open_time: {candle.open_time} <= {latest_received_time}"
             )
 
         # -------------------------------------------------------------

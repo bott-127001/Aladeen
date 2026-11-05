@@ -22,6 +22,14 @@ import pandas as pd
 from .coordinator import CoordinatorSnapshot, MSMChochCoordinator
 from .choch_types import ChochDiagnostic, ConfirmedChoch
 from .engine import MSMEngine
+from .iss_engine import ISSEngine
+from .iss_types import (
+    ConfirmedISSEvent,
+    ISSConfig,
+    ISSLifecycleStatus,
+    ISSSnapshot,
+    ISSZone,
+)
 from .types import (
     Direction,
     EngineState,
@@ -43,6 +51,7 @@ class CalculationMode(str, Enum):
     """Strategy calculation mode."""
     STANDALONE_MSM = "STANDALONE_MSM"
     INTEGRATED_MSM_CHOCH = "INTEGRATED_MSM_CHOCH"
+    INTEGRATED_MSM_CHOCH_ISS = "INTEGRATED_MSM_CHOCH_ISS"
 
 
 def validate_candle_completion(row_pos: int, row: Any) -> Tuple[bool, str]:
@@ -124,6 +133,9 @@ class MSMContext:
     calculation_mode: str = CalculationMode.STANDALONE_MSM.value
     show_choch_zones: bool = True
     show_choch_markers: bool = True
+    show_iss_markers: bool = True
+    show_iss_zones: bool = True
+    show_iss_points: bool = True
 
     def __post_init__(self) -> None:
         if not isinstance(self.data_source, str) or not self.data_source.strip():
@@ -156,12 +168,19 @@ class MSMContext:
         else:
             raise TypeError(f"enabled must be bool, got {type(self.enabled).__name__} ({self.enabled})")
 
-        valid_modes = {CalculationMode.STANDALONE_MSM.value, CalculationMode.INTEGRATED_MSM_CHOCH.value}
+        valid_modes = {
+            CalculationMode.STANDALONE_MSM.value,
+            CalculationMode.INTEGRATED_MSM_CHOCH.value,
+            CalculationMode.INTEGRATED_MSM_CHOCH_ISS.value,
+        }
         if self.calculation_mode not in valid_modes:
             raise ValueError(f"Unknown calculation_mode '{self.calculation_mode}'. Must be one of {valid_modes}")
 
         object.__setattr__(self, "show_choch_zones", bool(self.show_choch_zones))
         object.__setattr__(self, "show_choch_markers", bool(self.show_choch_markers))
+        object.__setattr__(self, "show_iss_markers", bool(self.show_iss_markers))
+        object.__setattr__(self, "show_iss_zones", bool(self.show_iss_zones))
+        object.__setattr__(self, "show_iss_points", bool(self.show_iss_points))
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize context to a JSON-compatible dictionary."""
@@ -176,6 +195,9 @@ class MSMContext:
             "calculation_mode": self.calculation_mode,
             "show_choch_zones": self.show_choch_zones,
             "show_choch_markers": self.show_choch_markers,
+            "show_iss_markers": self.show_iss_markers,
+            "show_iss_zones": self.show_iss_zones,
+            "show_iss_points": self.show_iss_points,
         }
 
     @classmethod
@@ -211,6 +233,9 @@ class MSMContext:
         calc_mode = data.get("calculation_mode", CalculationMode.STANDALONE_MSM.value)
         show_zones = bool(data.get("show_choch_zones", True))
         show_markers = bool(data.get("show_choch_markers", True))
+        show_iss_markers = bool(data.get("show_iss_markers", True))
+        show_iss_zones = bool(data.get("show_iss_zones", True))
+        show_iss_points = bool(data.get("show_iss_points", True))
 
         return cls(
             data_source=data["data_source"],
@@ -223,12 +248,15 @@ class MSMContext:
             calculation_mode=calc_mode,
             show_choch_zones=show_zones,
             show_choch_markers=show_markers,
+            show_iss_markers=show_iss_markers,
+            show_iss_zones=show_iss_zones,
+            show_iss_points=show_iss_points,
         )
 
 
 @dataclass(frozen=True)
 class MSMServiceResult:
-    """Immutable result structure of an MSM / CHOCH service calculation."""
+    """Immutable result structure of an MSM / CHOCH / ISS service calculation."""
     context: MSMContext
     snapshot: Optional[MSMSnapshot]
     candles: Tuple[StrategyCandle, ...]
@@ -237,6 +265,8 @@ class MSMServiceResult:
     start_candle_found: bool
     coordinator_snapshot: Optional[CoordinatorSnapshot] = None
     confirmed_choch_events: Tuple[ConfirmedChoch, ...] = ()
+    iss_snapshot: Optional[ISSSnapshot] = None
+    confirmed_iss_events: Tuple[ConfirmedISSEvent, ...] = ()
     is_unresolved: bool = False
     unresolved_diagnostic: Optional[ChochDiagnostic] = None
     unresolved_candle_index: Optional[int] = None
@@ -404,7 +434,57 @@ def calculate_msm(df: pd.DataFrame, context: MSMContext) -> MSMServiceResult:
             start_candle_time=context.start_candle_time,
             direction=context.direction,
         )
-        if context.calculation_mode == CalculationMode.INTEGRATED_MSM_CHOCH.value:
+        if context.calculation_mode == CalculationMode.INTEGRATED_MSM_CHOCH_ISS.value:
+            iss_config = ISSConfig(
+                start_candle_time=context.start_candle_time,
+                main_direction=context.direction,
+            )
+            iss_engine = ISSEngine(iss_config)
+            iss_snap = iss_engine.process_candles(candles)
+
+            # Expose the single authoritative coordinator snapshot from the ISS engine
+            coord_snap = iss_engine._main_coordinator.get_snapshot()
+            snapshot = coord_snap.msm_snapshot
+            pair_count = len(snapshot.confirmed_pairs) if snapshot else 0
+            choch_count = len(coord_snap.confirmed_choch_events)
+            iss_event_count = len(iss_snap.confirmed_events)
+
+            if iss_snap.is_unresolved or coord_snap.is_unresolved:
+                unres_dep = iss_snap.unresolved_dependency or "Main CHOCH ambiguity"
+                status_msg = (
+                    f"Integrated ISS unresolved: {unres_dep} | "
+                    f"Last Authoritative State: {snapshot.trend_status if snapshot else 'None'} (Bar #{iss_snap.last_processed_index}) | "
+                    f"Received through Bar #{iss_snap.last_received_index} | "
+                    f"Pairs: {pair_count} | CHOCH: {choch_count} | ISS: {iss_snap.lifecycle_status.value}"
+                )
+            else:
+                applied_dir_str = iss_engine.direction.value
+                status_msg = (
+                    f"MSM+CHOCH+ISS Applied: {applied_dir_str} | "
+                    f"Pairs: {pair_count} | CHOCH: {choch_count} | "
+                    f"ISS: {iss_snap.lifecycle_status.value} ({iss_event_count} confirmed) | "
+                    f"Trend: {snapshot.trend_status if snapshot else 'None'}"
+                )
+
+            return MSMServiceResult(
+                context=context,
+                snapshot=snapshot,
+                candles=tuple(candles),
+                status_message=status_msg,
+                candle_count=len(candles),
+                start_candle_found=True,
+                coordinator_snapshot=coord_snap,
+                confirmed_choch_events=coord_snap.confirmed_choch_events,
+                iss_snapshot=iss_snap,
+                confirmed_iss_events=iss_snap.confirmed_events,
+                is_unresolved=iss_snap.is_unresolved or coord_snap.is_unresolved,
+                unresolved_diagnostic=coord_snap.unresolved_diagnostic,
+                unresolved_candle_index=coord_snap.unresolved_candle_index,
+                last_processed_index=iss_snap.last_processed_index,
+                last_received_index=iss_snap.last_received_index,
+                error=None,
+            )
+        elif context.calculation_mode == CalculationMode.INTEGRATED_MSM_CHOCH.value:
             coordinator = MSMChochCoordinator(config)
             coord_snap = coordinator.process_candles(candles)
             snapshot = coord_snap.msm_snapshot

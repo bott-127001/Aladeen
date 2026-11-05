@@ -21,6 +21,14 @@ logger = logging.getLogger(__name__)
 
 from aladeen.data.fixtures import DEMO_SYMBOL, SUPPORTED_TIMEFRAMES, load_fixture
 from aladeen.data.market_snapshot import MarketDataSnapshot
+from aladeen.strategy.iss_types import (
+    ConfirmedISSEvent,
+    ISSLifecycleStatus,
+    ISSSnapshot,
+    ISSZone,
+    ISSZoneType,
+    InternalPoint,
+)
 from aladeen.strategy.service import (
     MSMContext,
     MSMServiceResult,
@@ -250,6 +258,14 @@ def render_msm_inspection_table(
             html.Span([html.B("Confirmed CHOCH: "), html.Span(str(len(msm_result.confirmed_choch_events)), style={"color": "#ff4081", "fontWeight": "bold"})], style={"fontSize": "12px", "color": "#ccc"})
         )
 
+    if msm_result is not None and msm_result.iss_snapshot is not None:
+        summary_items.append(
+            html.Span([html.B("ISS Status: "), html.Span(msm_result.iss_snapshot.lifecycle_status.value, style={"color": "#00e5ff", "fontWeight": "bold"})], style={"fontSize": "12px", "color": "#ccc"})
+        )
+        summary_items.append(
+            html.Span([html.B("Confirmed ISS: "), html.Span(str(len(msm_result.confirmed_iss_events)), style={"color": "#b388ff", "fontWeight": "bold"})], style={"fontSize": "12px", "color": "#ccc"})
+        )
+
     if snapshot.last_support is not None:
         summary_items.append(
             html.Span(
@@ -405,6 +421,9 @@ def render_msm_inspection_table(
     if unresolved_banner is not None:
         container_children.append(unresolved_banner)
     container_children.append(summary_bar)
+    if msm_result is not None:
+        iss_elements = _build_iss_inspection_elements(msm_result)
+        container_children.extend(iss_elements)
     if choch_events_table is not None:
         container_children.append(choch_events_table)
     if choch_zones_table is not None:
@@ -418,6 +437,365 @@ def render_msm_inspection_table(
     )
 
     return html.Div(container_children)
+
+
+def _build_iss_inspection_elements(msm_result: MSMServiceResult) -> list[html.Div]:
+    elements: list[html.Div] = []
+    if msm_result.iss_snapshot is None and not msm_result.confirmed_iss_events:
+        return elements
+
+    iss_snap = msm_result.iss_snapshot
+
+    status_colors = {
+        ISSLifecycleStatus.CONFIRMED: ("#1b5e20", "#a5d6a7"),
+        ISSLifecycleStatus.ELIGIBLE_SEARCH: ("#0d47a1", "#90caf9"),
+        ISSLifecycleStatus.OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY: ("#e65100", "#ffb74d"),
+        ISSLifecycleStatus.OUT_OF_BOUNDS_REJECTED: ("#b71c1c", "#ef9a9a"),
+        ISSLifecycleStatus.MAIN_CONTINUATION_CANCELLED: ("#4a148c", "#ce93d8"),
+        ISSLifecycleStatus.MAIN_CHOCH_CANCELLED: ("#3e2723", "#d7ccc8"),
+        ISSLifecycleStatus.PENDING_PREREQUISITES: ("#212121", "#9e9e9e"),
+    }
+
+    if iss_snap is not None:
+        cand = iss_snap.candidate_identity
+        lifecycle = iss_snap.lifecycle_status
+        bg, fg = status_colors.get(lifecycle, ("#212121", "#e0e0e0"))
+        status_label = lifecycle.value
+        if lifecycle == ISSLifecycleStatus.OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY:
+            status_label = "OUTSIDE RANGE COMPLETION (TRACKING ONLY — NOT ELIGIBLE)"
+
+        badge = html.Span(
+            status_label,
+            style={
+                "padding": "3px 8px",
+                "borderRadius": "4px",
+                "background": bg,
+                "color": fg,
+                "fontWeight": "bold",
+                "fontSize": "11px",
+            },
+        )
+
+        id_details = []
+        if cand is not None:
+            id_details.extend([
+                html.Span([html.B("Candidate ID: "), html.Code(cand.candidate_id, style={"color": "#00e5ff"})], style={"fontSize": "12px", "color": "#ccc"}),
+                html.Span([html.B("Direction: "), html.Span(cand.main_direction.value, style={"color": "#ff80ab"})], style={"fontSize": "12px", "color": "#ccc"}),
+                html.Span([html.B("Main Level 2: "), html.Span(f"{cand.main_level_2_price:.4f} (Bar #{cand.main_level_2_index})", style={"color": "#b388ff"})], style={"fontSize": "12px", "color": "#ccc"}),
+                html.Span([html.B("Main Level 3: "), html.Span(f"{cand.main_level_3_price:.4f} (Bar #{cand.main_level_3_index})", style={"color": "#b388ff"})], style={"fontSize": "12px", "color": "#ccc"}),
+            ])
+            if iss_snap.captured_boundary is not None:
+                b = iss_snap.captured_boundary
+                id_details.append(
+                    html.Span([html.B("Boundary: "), html.Span(f"[{b.min_price:.4f}, {b.max_price:.4f}]", style={"color": "#ffd54f", "fontWeight": "bold"})], style={"fontSize": "12px", "color": "#ccc"})
+                )
+        else:
+            id_details.append(
+                html.Span("No active candidate identity (waiting for Main Level 3 identification).", style={"fontSize": "12px", "color": "#888"})
+            )
+
+        diag_children = []
+        if iss_snap.diagnostic_message:
+            diag_children.append(
+                html.P(f"Diagnostic: {iss_snap.diagnostic_message}", style={"fontSize": "12px", "color": "#aaa", "margin": "4px 0 0 0"})
+            )
+
+        progress_bar = html.Div(
+            style={"fontSize": "11px", "color": "#888", "marginTop": "4px"},
+            children=[
+                html.Span(f"Authoritative Processed Bar: #{iss_snap.last_processed_index} | "),
+                html.Span(f"Latest Received Input: Bar #{iss_snap.last_received_index}"),
+            ],
+        )
+
+        elements.append(
+            html.Div(
+                style={
+                    "background": "#161626",
+                    "border": "1px solid #2a2a44",
+                    "borderRadius": "6px",
+                    "padding": "10px 14px",
+                    "marginBottom": "14px",
+                },
+                children=[
+                    html.Div(
+                        style={"display": "flex", "alignItems": "center", "justifyContent": "space-between", "marginBottom": "8px"},
+                        children=[
+                            html.H5("🎯 Internal Structure Shift (ISS) Candidate & Engine Status", style={"color": "#00e5ff", "margin": 0}),
+                            badge,
+                        ],
+                    ),
+                    html.Div(
+                        style={"display": "flex", "gap": "14px", "alignItems": "center", "flexWrap": "wrap", "marginBottom": "4px"},
+                        children=id_details,
+                    ),
+                    *diag_children,
+                    progress_bar,
+                ],
+            )
+        )
+
+        # 2. Internal Points Table
+        if iss_snap.internal_points:
+            pt_rows = []
+            for pt in iss_snap.internal_points:
+                b_color = "#00e676" if pt.is_inside_boundary else "#ff5252"
+                b_text = "Inside Range" if pt.is_inside_boundary else "Out of Bounds"
+                conf_text = f"Bar #{pt.confirmed_bar_index}" if pt.confirmed_bar_index is not None else ("Pending Break" if pt.point_number == 5 else "—")
+                st_bg = "#1b5e20" if pt.is_confirmed else "#f57f17"
+                st_text = "CONFIRMED" if pt.is_confirmed else "TENTATIVE"
+
+                pt_rows.append(
+                    html.Tr(
+                        style={"borderBottom": "1px solid #232338", "fontSize": "12px", "color": "#e0e0e0"},
+                        children=[
+                            html.Td(f"Point {pt.point_number}", style={"padding": "6px 12px", "fontWeight": "bold", "color": "#00e5ff"}),
+                            html.Td(pt.role, style={"padding": "6px 12px"}),
+                            html.Td(f"{pt.body_edge_price:.4f}", style={"padding": "6px 12px", "fontWeight": "bold", "color": "#00e676"}),
+                            html.Td(f"{pt.candle_open_time.strftime('%Y-%m-%d %H:%M UTC')} (Bar #{pt.source_candle_index})", style={"padding": "6px 12px"}),
+                            html.Td(f"Bar #{pt.identified_bar_index}", style={"padding": "6px 12px"}),
+                            html.Td(conf_text, style={"padding": "6px 12px"}),
+                            html.Td(html.Span(b_text, style={"color": b_color, "fontWeight": "bold"}), style={"padding": "6px 12px"}),
+                            html.Td(html.Span(st_text, style={"padding": "2px 6px", "borderRadius": "3px", "background": st_bg, "color": "#fff", "fontSize": "10px", "fontWeight": "bold"}), style={"padding": "6px 12px"}),
+                        ],
+                    )
+                )
+
+            elements.append(
+                html.Div(
+                    style={"marginBottom": "16px"},
+                    children=[
+                        html.H5("🔍 ISS Internal 5-Point Structure", style={"color": "#00e5ff", "margin": "12px 0 6px 0"}),
+                        html.Table(
+                            [
+                                html.Thead(
+                                    html.Tr(
+                                        style={"background": "#1e1e30", "color": "#a0a0b8", "fontSize": "12px", "textAlign": "left"},
+                                        children=[
+                                            html.Th("Point #", style={"padding": "8px 12px"}),
+                                            html.Th("Role", style={"padding": "8px 12px"}),
+                                            html.Th("Body Edge Price", style={"padding": "8px 12px"}),
+                                            html.Th("Source Candle (UTC)", style={"padding": "8px 12px"}),
+                                            html.Th("Identified At", style={"padding": "8px 12px"}),
+                                            html.Th("Confirmed At", style={"padding": "8px 12px"}),
+                                            html.Th("Boundary Check", style={"padding": "8px 12px"}),
+                                            html.Th("Status", style={"padding": "8px 12px"}),
+                                        ],
+                                    )
+                                ),
+                                html.Tbody(pt_rows),
+                            ],
+                            style={"width": "100%", "borderCollapse": "collapse", "background": "#12121c"},
+                        ),
+                    ],
+                )
+            )
+
+        # 3. Attempted & Ongoing Tracking Points (for tracking-only candidates)
+        if iss_snap.is_tracking_only or iss_snap.lifecycle_status == ISSLifecycleStatus.OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY:
+            if iss_snap.attempted_points:
+                att_rows = []
+                for pt in iss_snap.attempted_points:
+                    att_rows.append(
+                        html.Tr(
+                            style={"borderBottom": "1px solid #232338", "fontSize": "12px", "color": "#e0e0e0"},
+                            children=[
+                                html.Td(f"Point {pt.point_number}", style={"padding": "6px 12px", "fontWeight": "bold", "color": "#ffb74d"}),
+                                html.Td(pt.role, style={"padding": "6px 12px"}),
+                                html.Td(f"{pt.body_edge_price:.4f}", style={"padding": "6px 12px", "fontWeight": "bold"}),
+                                html.Td(f"{pt.candle_open_time.strftime('%Y-%m-%d %H:%M UTC')} (Bar #{pt.source_candle_index})", style={"padding": "6px 12px"}),
+                                html.Td(f"Bar #{pt.identified_bar_index}", style={"padding": "6px 12px"}),
+                                html.Td(html.Span("TRACKING ONLY — NOT ELIGIBLE", style={"padding": "2px 6px", "borderRadius": "3px", "background": "#e65100", "color": "#ffe0b2", "fontSize": "10px", "fontWeight": "bold"}), style={"padding": "6px 12px"}),
+                            ],
+                        )
+                    )
+                elements.append(
+                    html.Div(
+                        style={"marginBottom": "16px"},
+                        children=[
+                            html.H5("⚠️ Attempted Internal Points (Tracking Only — Not Eligible)", style={"color": "#ffb74d", "margin": "12px 0 6px 0"}),
+                            html.Table(
+                                [
+                                    html.Thead(
+                                        html.Tr(
+                                            style={"background": "#1e1e30", "color": "#a0a0b8", "fontSize": "12px", "textAlign": "left"},
+                                            children=[
+                                                html.Th("Point #", style={"padding": "8px 12px"}),
+                                                html.Th("Role", style={"padding": "8px 12px"}),
+                                                html.Th("Body Edge Price", style={"padding": "8px 12px"}),
+                                                html.Th("Source Candle (UTC)", style={"padding": "8px 12px"}),
+                                                html.Th("Identified At", style={"padding": "8px 12px"}),
+                                                html.Th("Tracking Status", style={"padding": "8px 12px"}),
+                                            ],
+                                        )
+                                    ),
+                                    html.Tbody(att_rows),
+                                ],
+                                style={"width": "100%", "borderCollapse": "collapse", "background": "#12121c"},
+                            ),
+                        ],
+                    )
+                )
+
+            if iss_snap.tracking_points:
+                trk_rows = []
+                for pt in iss_snap.tracking_points:
+                    trk_rows.append(
+                        html.Tr(
+                            style={"borderBottom": "1px solid #232338", "fontSize": "12px", "color": "#e0e0e0"},
+                            children=[
+                                html.Td(f"Point {pt.point_number}", style={"padding": "6px 12px", "fontWeight": "bold", "color": "#ffb74d"}),
+                                html.Td(pt.role, style={"padding": "6px 12px"}),
+                                html.Td(f"{pt.body_edge_price:.4f}", style={"padding": "6px 12px", "fontWeight": "bold"}),
+                                html.Td(f"{pt.candle_open_time.strftime('%Y-%m-%d %H:%M UTC')} (Bar #{pt.source_candle_index})", style={"padding": "6px 12px"}),
+                                html.Td(f"Bar #{pt.identified_bar_index}", style={"padding": "6px 12px"}),
+                                html.Td(html.Span("TRACKING ONLY — NOT ELIGIBLE", style={"padding": "2px 6px", "borderRadius": "3px", "background": "#e65100", "color": "#ffe0b2", "fontSize": "10px", "fontWeight": "bold"}), style={"padding": "6px 12px"}),
+                            ],
+                        )
+                    )
+                elements.append(
+                    html.Div(
+                        style={"marginBottom": "16px"},
+                        children=[
+                            html.H5("📡 Ongoing Tracking Points (Tracking Only — Not Eligible)", style={"color": "#ffb74d", "margin": "12px 0 6px 0"}),
+                            html.Table(
+                                [
+                                    html.Thead(
+                                        html.Tr(
+                                            style={"background": "#1e1e30", "color": "#a0a0b8", "fontSize": "12px", "textAlign": "left"},
+                                            children=[
+                                                html.Th("Point #", style={"padding": "8px 12px"}),
+                                                html.Th("Role", style={"padding": "8px 12px"}),
+                                                html.Th("Body Edge Price", style={"padding": "8px 12px"}),
+                                                html.Th("Source Candle (UTC)", style={"padding": "8px 12px"}),
+                                                html.Th("Identified At", style={"padding": "8px 12px"}),
+                                                html.Th("Tracking Status", style={"padding": "8px 12px"}),
+                                            ],
+                                        )
+                                    ),
+                                    html.Tbody(trk_rows),
+                                ],
+                                style={"width": "100%", "borderCollapse": "collapse", "background": "#12121c"},
+                            ),
+                        ],
+                    )
+                )
+
+        # 4. Active Zones Table
+        if iss_snap.active_zones:
+            cand_id_str = iss_snap.candidate_identity.candidate_id if iss_snap.candidate_identity else "Unknown"
+            zone_rows = []
+            for z in iss_snap.active_zones:
+                if z.confirmation_availability_time is not None:
+                    avail_str = f"Available from {z.confirmation_availability_time.strftime('%Y-%m-%d %H:%M UTC')}"
+                    avail_color = "#80d8ff"
+                else:
+                    avail_str = f"Unknown — confirmed on completion of candle Bar #{iss_snap.last_processed_index}"
+                    avail_color = "#ffb74d"
+
+                price_str = f"{z.lower_price:.4f} – {z.upper_price:.4f}" if not z.is_line else f"{z.lower_price:.4f}"
+                geom_str = "Line (Thickness 0)" if z.is_line else "Box / Area"
+
+                zone_rows.append(
+                    html.Tr(
+                        style={"borderBottom": "1px solid #232338", "fontSize": "12px", "color": "#e0e0e0"},
+                        children=[
+                            html.Td(html.Code(cand_id_str, style={"color": "#00e5ff"}), style={"padding": "6px 12px"}),
+                            html.Td(
+                                html.Span(
+                                    z.zone_type.value,
+                                    style={"padding": "2px 6px", "borderRadius": "3px", "background": "#311b92", "color": "#b388ff", "fontSize": "10px", "fontWeight": "bold"},
+                                ),
+                                style={"padding": "6px 12px"},
+                            ),
+                            html.Td(f"Point {z.source_point_number} ({z.source_point_role})", style={"padding": "6px 12px"}),
+                            html.Td(price_str, style={"padding": "6px 12px", "fontWeight": "bold", "color": "#b388ff"}),
+                            html.Td(geom_str, style={"padding": "6px 12px", "color": "#aaa"}),
+                            html.Td(f"{z.source_candle_open_time.strftime('%Y-%m-%d %H:%M UTC')} (Bar #{z.source_candle_index})", style={"padding": "6px 12px"}),
+                            html.Td(avail_str, style={"padding": "6px 12px", "color": avail_color}),
+                        ],
+                    )
+                )
+
+            elements.append(
+                html.Div(
+                    style={"marginBottom": "16px"},
+                    children=[
+                        html.H5("📐 Active ISS Structural Zones (Available from Confirmation Time)", style={"color": "#b388ff", "margin": "12px 0 6px 0"}),
+                        html.Table(
+                            [
+                                html.Thead(
+                                    html.Tr(
+                                        style={"background": "#1e1e30", "color": "#a0a0b8", "fontSize": "12px", "textAlign": "left"},
+                                        children=[
+                                            html.Th("Candidate ID", style={"padding": "8px 12px"}),
+                                            html.Th("Zone Type", style={"padding": "8px 12px"}),
+                                            html.Th("Source Point", style={"padding": "8px 12px"}),
+                                            html.Th("Price Bounds", style={"padding": "8px 12px"}),
+                                            html.Th("Geometry", style={"padding": "8px 12px"}),
+                                            html.Th("Source Candle (UTC)", style={"padding": "8px 12px"}),
+                                            html.Th("Structural Availability", style={"padding": "8px 12px"}),
+                                        ],
+                                    )
+                                ),
+                                html.Tbody(zone_rows),
+                            ],
+                            style={"width": "100%", "borderCollapse": "collapse", "background": "#12121c"},
+                        ),
+                    ],
+                )
+            )
+
+    # 5. Confirmed ISS History Table
+    if msm_result.confirmed_iss_events:
+        hist_rows = []
+        for ev in msm_result.confirmed_iss_events:
+            conf_time_str = ev.confirmation_time.strftime('%Y-%m-%d %H:%M UTC') if ev.confirmation_time else f"Unknown — confirmed on completion of candle Bar #{ev.confirmation_candle_index}"
+            hist_rows.append(
+                html.Tr(
+                    style={"borderBottom": "1px solid #232338", "fontSize": "12px", "color": "#e0e0e0"},
+                    children=[
+                        html.Td(html.Code(ev.candidate_id, style={"color": "#00e5ff"}), style={"padding": "6px 12px"}),
+                        html.Td(ev.main_direction.value, style={"padding": "6px 12px", "color": "#ff80ab"}),
+                        html.Td(f"Bar #{ev.confirmation_candle_index}", style={"padding": "6px 12px"}),
+                        html.Td(conf_time_str, style={"padding": "6px 12px"}),
+                        html.Td(f"{ev.completion_close_price:.4f}", style={"padding": "6px 12px", "fontWeight": "bold", "color": "#00e676"}),
+                        html.Td(f"[{ev.captured_boundary.min_price:.4f}, {ev.captured_boundary.max_price:.4f}]", style={"padding": "6px 12px"}),
+                        html.Td(f"{ev.level_3_zone.zone_type.value} & {ev.level_4_zone.zone_type.value}", style={"padding": "6px 12px", "color": "#b388ff"}),
+                    ],
+                )
+            )
+
+        elements.append(
+            html.Div(
+                style={"marginBottom": "16px"},
+                children=[
+                    html.H5("⚡ Confirmed Internal Structure Shift (ISS) History", style={"color": "#00e5ff", "margin": "12px 0 6px 0"}),
+                    html.Table(
+                        [
+                            html.Thead(
+                                html.Tr(
+                                    style={"background": "#1e1e30", "color": "#a0a0b8", "fontSize": "12px", "textAlign": "left"},
+                                    children=[
+                                        html.Th("Candidate ID", style={"padding": "8px 12px"}),
+                                        html.Th("Main Dir", style={"padding": "8px 12px"}),
+                                        html.Th("Confirmation Bar", style={"padding": "8px 12px"}),
+                                        html.Th("Confirmation Time", style={"padding": "8px 12px"}),
+                                        html.Th("Completion Close", style={"padding": "8px 12px"}),
+                                        html.Th("Boundary", style={"padding": "8px 12px"}),
+                                        html.Th("Zones", style={"padding": "8px 12px"}),
+                                    ],
+                                )
+                            ),
+                            html.Tbody(hist_rows),
+                        ],
+                        style={"width": "100%", "borderCollapse": "collapse", "background": "#12121c"},
+                    ),
+                ],
+            )
+        )
+
+    return elements
 
 
 def evaluate_msm_for_snapshot(
@@ -555,18 +933,26 @@ def evaluate_msm_for_snapshot(
     # 6. Success: check unapplied draft edits
     pair_cnt = len(res.snapshot.confirmed_pairs)
     choch_cnt = len(res.confirmed_choch_events)
+    iss_cnt = len(res.confirmed_iss_events)
     has_unapplied_draft = False
     if draft_direction and draft_direction != ctx.direction.value:
         has_unapplied_draft = True
-    if draft_start_candle and draft_start_candle != ctx.start_candle_time.isoformat():
-        has_unapplied_draft = True
+    if draft_start_candle:
+        try:
+            norm_draft = pd.to_datetime(draft_start_candle, utc=True).to_pydatetime()
+            if norm_draft != ctx.start_candle_time:
+                has_unapplied_draft = True
+        except Exception:
+            if draft_start_candle != ctx.start_candle_time.isoformat():
+                has_unapplied_draft = True
 
     if res.is_unresolved:
+        iss_unres_str = f" | ISS: {iss_cnt}" if ctx.calculation_mode == "INTEGRATED_MSM_CHOCH_ISS" else ""
         status_text = (
             f"⚠️ Integrated structure unresolved: ambiguous at candle {res.unresolved_candle_index} | "
             f"Last Authoritative State: {res.snapshot.trend_status} (Bar #{res.last_processed_index}) | "
             f"Received through Bar #{res.last_received_index} | "
-            f"Pairs: {pair_cnt} | CHOCH: {choch_cnt} (rev: {snapshot.revision_id})"
+            f"Pairs: {pair_cnt} | CHOCH: {choch_cnt}{iss_unres_str} (rev: {snapshot.revision_id})"
         )
         status_style = {"marginTop": "10px", "fontSize": "12px", "color": "#ff9800", "fontWeight": "bold"}
     elif has_unapplied_draft:
@@ -581,10 +967,15 @@ def evaluate_msm_for_snapshot(
             if res.coordinator_snapshot
             else ctx.direction.value
         )
-        choch_info = f" | {choch_cnt} CHOCH confirmed" if ctx.calculation_mode == "INTEGRATED_MSM_CHOCH" else ""
+        if ctx.calculation_mode == "INTEGRATED_MSM_CHOCH":
+            extra_info = f" | {choch_cnt} CHOCH confirmed"
+        elif ctx.calculation_mode == "INTEGRATED_MSM_CHOCH_ISS":
+            extra_info = f" | {choch_cnt} CHOCH confirmed | {iss_cnt} ISS confirmed"
+        else:
+            extra_info = ""
         status_text = (
             f"🟢 Applied: {applied_dir} from {ctx.start_candle_time.strftime('%Y-%m-%d %H:%M UTC')} | "
-            f"{pair_cnt} pairs confirmed{choch_info} | {res.snapshot.trend_status} (rev: {snapshot.revision_id})"
+            f"{pair_cnt} pairs confirmed{extra_info} | {res.snapshot.trend_status} (rev: {snapshot.revision_id})"
         )
         status_style = {"marginTop": "10px", "fontSize": "12px", "color": "#00e676", "fontWeight": "bold"}
 
@@ -604,6 +995,7 @@ def process_msm_controls_update(
     active_req_data: dict | None = None,
     calculation_mode_val: str | None = None,
     display_toggles_val: list[str] | None = None,
+    iss_display_toggles_val: list[str] | None = None,
 ) -> tuple[dict | None, str, dict, Any]:
     """Pure coordinator function for MSM controls, application, and unapplied edit detection.
 
@@ -735,11 +1127,38 @@ def process_msm_controls_update(
             )
             return updated_applied, status_text, status_style, panel
 
+    if triggered_id == "iss-display-toggles":
+        if applied_data and applied_data.get("enabled", False):
+            show_m = "markers" in (iss_display_toggles_val if iss_display_toggles_val is not None else ["markers", "zones", "points"])
+            show_z = "zones" in (iss_display_toggles_val if iss_display_toggles_val is not None else ["markers", "zones", "points"])
+            show_p = "points" in (iss_display_toggles_val if iss_display_toggles_val is not None else ["markers", "zones", "points"])
+            updated_applied = dict(applied_data)
+            updated_applied["show_iss_markers"] = show_m
+            updated_applied["show_iss_zones"] = show_z
+            updated_applied["show_iss_points"] = show_p
+            _, status_text, status_style, panel = evaluate_msm_for_snapshot(
+                snapshot=snapshot,
+                applied_data=updated_applied,
+                draft_direction=direction_val,
+                draft_start_candle=start_candle_val,
+                current_context=active_ctx,
+                active_request_token=active_token,
+            )
+            return updated_applied, status_text, status_style, panel
+
     # 5. Detect unapplied edits without silently recalculating
     if triggered_id in {"msm-direction-selector", "msm-start-candle-dropdown", "strategy-calculation-mode"}:
         if applied_data and applied_data.get("enabled", False):
             dir_diff = applied_data.get("direction") != direction_val
-            start_diff = applied_data.get("start_candle_time") != start_candle_val
+            start_diff = False
+            app_start = applied_data.get("start_candle_time")
+            if app_start and start_candle_val:
+                try:
+                    start_diff = pd.to_datetime(app_start, utc=True) != pd.to_datetime(start_candle_val, utc=True)
+                except Exception:
+                    start_diff = app_start != start_candle_val
+            elif app_start != start_candle_val:
+                start_diff = True
             mode_diff = (
                 calculation_mode_val is not None
                 and applied_data.get("calculation_mode", "STANDALONE_MSM") != calculation_mode_val
@@ -793,6 +1212,9 @@ def process_msm_controls_update(
             calc_mode = calculation_mode_val or "STANDALONE_MSM"
             show_m = "markers" in (display_toggles_val or [])
             show_z = "zones" in (display_toggles_val or [])
+            show_iss_m = "markers" in (iss_display_toggles_val if iss_display_toggles_val is not None else ["markers", "zones", "points"])
+            show_iss_z = "zones" in (iss_display_toggles_val if iss_display_toggles_val is not None else ["markers", "zones", "points"])
+            show_iss_p = "points" in (iss_display_toggles_val if iss_display_toggles_val is not None else ["markers", "zones", "points"])
             msm_ctx = MSMContext(
                 data_source=snapshot.data_source,
                 symbol=snapshot.symbol,
@@ -803,19 +1225,24 @@ def process_msm_controls_update(
                 calculation_mode=calc_mode,
                 show_choch_markers=show_m,
                 show_choch_zones=show_z,
+                show_iss_markers=show_iss_m,
+                show_iss_zones=show_iss_z,
+                show_iss_points=show_iss_p,
             )
             df = snapshot.to_dataframe()
             res = calculate_msm(df, msm_ctx)
             if res.is_valid and res.snapshot is not None:
                 pair_cnt = len(res.snapshot.confirmed_pairs)
                 choch_cnt = len(res.confirmed_choch_events)
+                iss_cnt = len(res.confirmed_iss_events)
                 if res.is_unresolved:
+                    iss_unres_str = f" | ISS: {iss_cnt}" if calc_mode == "INTEGRATED_MSM_CHOCH_ISS" else ""
                     status_style = {"marginTop": "10px", "fontSize": "12px", "color": "#ff9800", "fontWeight": "bold"}
                     status_text = (
                         f"⚠️ Integrated structure unresolved: ambiguous at candle {res.unresolved_candle_index} | "
                         f"Last Authoritative State: {res.snapshot.trend_status} (Bar #{res.last_processed_index}) | "
                         f"Received through Bar #{res.last_received_index} | "
-                        f"Pairs: {pair_cnt} | CHOCH: {choch_cnt} (rev: {snapshot.revision_id})"
+                        f"Pairs: {pair_cnt} | CHOCH: {choch_cnt}{iss_unres_str} (rev: {snapshot.revision_id})"
                     )
                 else:
                     applied_dir = (
@@ -823,12 +1250,17 @@ def process_msm_controls_update(
                         if res.coordinator_snapshot
                         else msm_ctx.direction.value
                     )
-                    choch_info = f" | {choch_cnt} CHOCH confirmed" if calc_mode == "INTEGRATED_MSM_CHOCH" else ""
+                    if calc_mode == "INTEGRATED_MSM_CHOCH":
+                        extra_info = f" | {choch_cnt} CHOCH confirmed"
+                    elif calc_mode == "INTEGRATED_MSM_CHOCH_ISS":
+                        extra_info = f" | {choch_cnt} CHOCH confirmed | {iss_cnt} ISS confirmed"
+                    else:
+                        extra_info = ""
                     status_style = {"marginTop": "10px", "fontSize": "12px", "color": "#00e676", "fontWeight": "bold"}
                     status_text = (
                         f"🟢 Applied: {applied_dir} from "
                         f"{msm_ctx.start_candle_time.strftime('%Y-%m-%d %H:%M UTC')} | "
-                        f"{pair_cnt} pairs confirmed{choch_info} | {res.snapshot.trend_status} (rev: {snapshot.revision_id})"
+                        f"{pair_cnt} pairs confirmed{extra_info} | {res.snapshot.trend_status} (rev: {snapshot.revision_id})"
                     )
                 panel = render_msm_inspection_table(res.snapshot, msm_ctx, snapshot.revision_id, msm_result=res)
                 return (msm_ctx.to_dict(), status_text, status_style, panel)
@@ -895,6 +1327,7 @@ def register_msm_callbacks(app: Dash, adapter: Any = None) -> tuple[Any, Any]:
         Input("msm-enable-toggle", "value"),
         Input("strategy-calculation-mode", "value"),
         Input("choch-display-toggles", "value"),
+        Input("iss-display-toggles", "value"),
         Input("msm-direction-selector", "value"),
         Input("msm-start-candle-dropdown", "value"),
         Input("market-data-store", "data"),
@@ -906,6 +1339,7 @@ def register_msm_callbacks(app: Dash, adapter: Any = None) -> tuple[Any, Any]:
         enable_toggle_val: list[str],
         calculation_mode_val: str | None,
         display_toggles_val: list[str] | None,
+        iss_display_toggles_val: list[str] | None,
         direction_val: str | None,
         start_candle_val: str | None,
         market_snapshot_data: dict | None,
@@ -924,6 +1358,7 @@ def register_msm_callbacks(app: Dash, adapter: Any = None) -> tuple[Any, Any]:
             active_req_data=active_req_data,
             calculation_mode_val=calculation_mode_val,
             display_toggles_val=display_toggles_val,
+            iss_display_toggles_val=iss_display_toggles_val,
         )
 
     return update_msm_dropdown_options, handle_msm_controls

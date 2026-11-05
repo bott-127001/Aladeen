@@ -65,29 +65,41 @@ Last Updated: 2026-11-05 (MSM Dashboard Milestone Accepted — Transition to CHO
 
 ---
 
-## 6. Current Task: Pure Offline ISS Strategy Engine Implementation & Coordination
-- **Active Branch**: `feature/iss-engine`
-- **Objective**: Implement pure domain types, progressive point detection, boundary validation, and lifecycle coordination for Internal Structure Shift (ISS).
-- **Scope Boundary**: Pure offline strategy logic. **Strictly zero UI, zero MT5 dependencies, zero TJL, zero zone activations, zero trade entry signals, zero automated trading, and zero merging to `main`**.
+## 6. Milestone Acceptance: Pure Offline ISS Strategy Engine Implementation
+- **Accepted Milestone**: Pure Offline ISS Strategy Engine Implementation (`HANDOFF-030`).
+- **Accepted Commit Hash**: `4948ea5c326f65cc4d58b95c196801408f7dd7ef`
+- **Reviewer Status**: **ACCEPTED** by Perplexity with instruction to proceed directly to offline and dashboard integration.
+- **Accepted Implementations**:
+  1. Terminal precedence (R29.1): main continuation break taking place on the 5th-point candle takes precedence over ISS confirmation.
+  2. Clean cancellation cleanup (R29.2): zero residual markings or zones on cancelled/rejected candidates.
+  3. Unresolved progress reporting (R29.3): frozen authoritative `last_processed_index` alongside advancing `last_received_index`.
+  4. Modular tracking extraction (`src/aladeen/strategy/iss_tracking.py`).
+
+---
+
+## 7. Current Milestone: ISS Dashboard Integration (HANDOFF-031)
+- **Active Branch**: `feature/iss-dashboard`
+- **Objective**: Integrate the accepted offline ISS Engine into the Aladeen / TopG read-only dashboard.
+- **Scope Boundary**: Pure offline strategy calculation and read-only dashboard presentation. **Strictly zero UI order execution, zero MT5 trading calls, zero TJL, zero zone activations, zero trade entry signals, zero automated trading, and zero merging to `main`**.
 - **Completed Deliverables**:
-  1. `src/aladeen/strategy/iss_types.py`:
-     - Immutable value objects (`FrozenBoundary`, `CandidateIdentity`, `InternalPoint`, `InternalFivePointStructure`, `ISSZone`, `ConfirmedISSEvent`, `ISSSnapshot`, `ISSConfig`).
-     - Distinct lifecycle states (`PENDING_PREREQUISITES`, `ELIGIBLE_SEARCH`, `CONFIRMED`, `OUT_OF_BOUNDS_REJECTED`, `OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY`, `MAIN_CONTINUATION_CANCELLED`, `MAIN_CHOCH_CANCELLED`).
-     - Exact zone geometry: high-side $[UB, \text{high}]$ and low-side $[\text{low}, LB]$; zero-width price lines (`is_line = True`).
-     - Exact floating-point boundaries without artificial rounding.
-     - Separate `last_processed_index` (authoritative) and `last_received_index` (input tracking).
-  2. `src/aladeen/strategy/iss_tracking.py`:
-     - Modular functional point extraction (`extract_internal_points`, `extract_tracking_points`).
-     - Pure functional extraction of structural swing points and ongoing tracking points.
-  3. `src/aladeen/strategy/iss_engine.py`:
-     - Deterministic sequential coordinator linking `MSMChochCoordinator` (main path) and internal `MSMEngine` (opposite direction with delayed forward-scan boundary).
-     - R29.1 Precedence: If internal Point 5 identification occurs on a candle that breaks Main Level 3, main continuation break takes precedence $\implies$ `MAIN_CONTINUATION_CANCELLED` with zero ISS events.
-     - R29.2 Clean Cancellation Cleanup: On cancellation (`MAIN_CONTINUATION_CANCELLED`, `MAIN_CHOCH_CANCELLED`, `OUT_OF_BOUNDS_REJECTED`), resets `is_tracking_only = False`, `tracking_points = ()`, `attempted_points = None`, `internal_points = ()`, and `active_zones = ()`.
-     - R29.3 Unresolved Progress Reporting: Unresolved main conditions freeze `last_processed_index` at the pre-ambiguity evaluation candle while `last_received_index` advances monotonically.
-     - Dynamic direction tracking across completed main CHOCH reversals.
-     - Transactional transitions on staged working copies with complete rollback safety.
-  4. `tests/test_iss_engine.py`:
-     - 31 comprehensive tests including all 7 review regressions requested in R29.
-  5. `docs/development/iss-engine-api.md`:
-     - Complete API architecture, terminal-state semantics, and progress reporting guarantees.
-- **Current Status**: Complete and verified across 311 offline tests (0 failures). Ready for HANDOFF-030 review.
+  1. `src/aladeen/strategy/service.py`:
+     - Added `CalculationMode.INTEGRATED_MSM_CHOCH_ISS = "INTEGRATED_MSM_CHOCH_ISS"`.
+     - Added `show_iss_markers`, `show_iss_zones`, `show_iss_points` to `MSMContext`.
+     - Integrated `ISSEngine` in `calculate_msm()` as single source of truth for main MSM, CHOCH, and ISS state/events.
+  2. `src/aladeen/ui/chart.py`:
+     - Section 10 ISS confirmation markers on 5th-point identification candle.
+     - Level 3 (RBS/SBR) and Level 4 (Buying/Selling A+) structural zones with exact price lines/areas.
+     - Known zone availability strictly begins at `confirmation_availability_time`; unknown remains Unknown (no speculative chart extension).
+     - Visible internal points for `ELIGIBLE_SEARCH` / `CONFIRMED`.
+     - Attempted and ongoing tracking points for `OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY` labeled "Tracking Only — Not Eligible".
+     - All hover tooltips explicitly designated as structural events, not entry signals.
+  3. `src/aladeen/ui/layout.py`:
+     - Added `Integrated MSM + CHOCH + ISS` mode selector.
+     - Added `iss-display-toggles` (`markers`, `zones`, `points`).
+  4. `src/aladeen/ui/msm_callbacks.py`:
+     - Wired `iss-display-toggles` and `strategy-calculation-mode`.
+     - Rendered Candidate Identity card, Lifecycle Status badge, 5-Point Structure table, Tracking Points table, Active Zones table, and Confirmed ISS History table.
+     - Unapplied draft edits isolation and unresolved ambiguity containment.
+  5. `tests/test_iss_dashboard_integration.py`:
+     - 13 comprehensive, deterministic offline integration tests covering service calculations, chart overlays, inspection panel tables, display toggle invariance, draft isolation, and unresolved state presentation.
+- **Verification**: Full suite of 326 tests passing in 8.62s. Ready for HANDOFF-031 review.

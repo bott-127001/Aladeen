@@ -330,6 +330,7 @@ def _build_msm_controls() -> html.Div:
                             options=[
                                 {"label": " Standalone MSM", "value": "STANDALONE_MSM"},
                                 {"label": " Integrated MSM + CHOCH", "value": "INTEGRATED_MSM_CHOCH"},
+                                {"label": " Integrated MSM + CHOCH + ISS", "value": "INTEGRATED_MSM_CHOCH_ISS"},
                             ],
                             value="STANDALONE_MSM",
                             inline=True,
@@ -374,6 +375,22 @@ def _build_msm_controls() -> html.Div:
                                 {"label": " Zones", "value": "zones"},
                             ],
                             value=["markers", "zones"],
+                            inline=True,
+                            style={"color": "#e0e0e0", "fontSize": "13px"},
+                            inputStyle={"marginRight": "4px", "marginLeft": "8px"},
+                        ),
+                    ]),
+                    # ISS Display Toggles
+                    html.Div([
+                        html.Label("ISS Display", style={"color": "#aaa", "fontSize": "12px", "display": "block", "marginBottom": "4px"}),
+                        dcc.Checklist(
+                            id="iss-display-toggles",
+                            options=[
+                                {"label": " Markers", "value": "markers"},
+                                {"label": " Zones", "value": "zones"},
+                                {"label": " Points", "value": "points"},
+                            ],
+                            value=["markers", "zones", "points"],
                             inline=True,
                             style={"color": "#e0e0e0", "fontSize": "13px"},
                             inputStyle={"marginRight": "4px", "marginLeft": "8px"},
@@ -439,7 +456,7 @@ def _build_msm_inspection_panel() -> html.Div:
             ),
             # Strategy Scope Boundaries Disclaimer
             html.Div(
-                "ℹ️ Scope boundary: ISS, TJL, zone activations, and entry signals are strictly out of scope (MSM + CHOCH read-only structure phase). No automated trading, no order execution.",
+                "ℹ️ Scope boundary: TJL, zone activations, and entry signals are strictly out of scope (MSM + CHOCH + ISS read-only structure phase). No automated trading, no order execution.",
                 style={"fontSize": "11px", "color": "#555", "marginTop": "12px", "borderTop": "1px solid #222233", "paddingTop": "6px"},
             ),
         ],

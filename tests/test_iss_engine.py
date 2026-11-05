@@ -759,3 +759,74 @@ class TestISSEngineAPIAndSafety:
         assert snap.last_received_index == 11
         assert engine.last_processed_index == 9
         assert engine.last_received_index == 11
+
+    def test_unresolved_containment_rejects_duplicate_and_out_of_order_receipt(self, iss_fixtures) -> None:
+        """After unresolved containment, incoming receipt chronology validates against last_received_time and rejects duplicates."""
+        fix = iss_fixtures["iss_01_bearish_basic_end_to_end"]
+        start_time = datetime.fromisoformat(fix["candles"][0]["time"])
+        engine = ISSEngine(ISSConfig(main_direction=Direction.DOWNWARD, start_candle_time=start_time))
+        engine.process_candles(fix["candles"][:10])
+
+        # Force coordinator into unresolved state
+        engine._main_coordinator._is_unresolved = True
+        engine._is_unresolved = True
+        engine._unresolved_dependency = "MAIN_CHOCH_IDENTIFICATION_CLOSE_AMBIGUITY"
+
+        # Ingest bar 10 while unresolved
+        snap = engine.process_candle(dict(fix["candles"][10], index=10))
+        assert snap.last_received_index == 10
+        assert snap.last_processed_index == 9
+
+        # 1. Duplicate index 10 rejected fail-closed
+        with pytest.raises(ValueError, match="Duplicate candle source index detected: 10"):
+            engine.process_candle(dict(fix["candles"][10], index=10))
+
+        # 2. Out-of-order timestamp relative to last_received_open_time rejected fail-closed
+        bad_candle = dict(fix["candles"][10], index=11)
+        with pytest.raises(ValueError, match="Non-chronological candle open_time"):
+            engine.process_candle(bad_candle)
+
+        # 3. State remains safe, intact, and frozen
+        assert engine.last_processed_index == 9
+        assert engine.last_received_index == 10
+
+    def test_genuine_tracking_only_distinct_from_continuation_cancellation(self, iss_fixtures) -> None:
+        """Genuine tracking-only case where completion close is outside boundary but Main L3 remains intact."""
+        fix = iss_fixtures["iss_01_bearish_basic_end_to_end"]
+        start_time = datetime.fromisoformat(fix["candles"][0]["time"])
+        engine = ISSEngine(ISSConfig(main_direction=Direction.DOWNWARD, start_candle_time=start_time))
+        candles = [dict(c, index=i) for i, c in enumerate(fix["candles"][:20])]
+
+        # Process through bar 19
+        engine.process_candles(candles)
+        cand = engine._active_candidate
+        assert cand is not None
+        assert cand.lifecycle_status == ISSLifecycleStatus.ELIGIBLE_SEARCH
+
+        # Genuine tracking-only: candidate completed outside range while Main L3 was NOT invalidated
+        cand.lifecycle_status = ISSLifecycleStatus.OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY
+        cand.diagnostic_type = ISSDiagnosticType.COMPLETION_CLOSE_OUTSIDE_RANGE
+        cand.diagnostic_message = "Completion candle close outside boundary. Tracking only."
+        cand.is_tracking_only = True
+        cand.attempted_points = list(cand.internal_points) + [cand.internal_points[0]]
+        cand.tracking_points = list(cand.internal_points)
+
+        snap = engine.get_snapshot()
+        # Explicit distinction from continuation cancellation:
+        assert snap.lifecycle_status == ISSLifecycleStatus.OUTSIDE_RANGE_COMPLETION_TRACKING_ONLY
+        assert snap.is_tracking_only is True
+        assert len(snap.attempted_points) == 5
+        assert len(snap.tracking_points) >= 4
+        assert len(snap.confirmed_events) == 0
+        assert len(snap.active_zones) == 0
+
+        # Contrast with continuation cancellation:
+        # In continuation cancellation, candidate is cancelled, tracking is False, attempted_points is None
+        last_t = datetime.fromisoformat(candles[19]["time"])
+        c_cancel = dict(time=(last_t + timedelta(hours=1)).isoformat(), open=1.145, high=1.146, low=1.134, close=1.135, is_forming=False, bar_status="CONFIRMED_COMPLETED", index=20)
+        snap_cancelled = engine.process_candle(c_cancel)
+
+        assert snap_cancelled.lifecycle_status == ISSLifecycleStatus.MAIN_CONTINUATION_CANCELLED
+        assert snap_cancelled.is_tracking_only is False
+        assert snap_cancelled.attempted_points is None
+        assert snap_cancelled.tracking_points == ()

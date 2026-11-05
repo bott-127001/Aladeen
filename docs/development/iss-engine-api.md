@@ -140,3 +140,25 @@ engine = ISSEngine(ISSConfig(main_direction=Direction.DOWNWARD, start_candle_tim
    - `last_received_index` advances monotonically as incoming candles are received and validated, preventing unverified input from being presented as authoritative ISS evaluations.
 7. **Batch / Sequential / Replay Parity**: 100% snapshot, internal point, and zone equivalence across all three execution modes.
 8. **Forming Candle Isolation**: Candles with `is_forming=True` or `bar_status != "CONFIRMED_COMPLETED"` are safely ignored without mutating settled history.
+
+---
+
+## 6. Dashboard Integration Architecture (`HANDOFF-031`)
+1. **Calculation Mode**: Added `CalculationMode.INTEGRATED_MSM_CHOCH_ISS = "INTEGRATED_MSM_CHOCH_ISS"` in `src/aladeen/strategy/service.py`. When active, `calculate_msm()` invokes `ISSEngine`, exposing its internal coordinator snapshot for MSM and CHOCH history to ensure 100% synchronization without coordinator drift.
+2. **Context Configuration**: `MSMContext` contains immutable visual flags:
+   - `show_iss_markers`: Controls rendering of 5th-point confirmation star markers on the chart.
+   - `show_iss_zones`: Controls rendering of RBS/SBR and Buying/Selling A+ zone areas and lines.
+   - `show_iss_points`: Controls rendering of internal 5-point structure markers.
+3. **Presentation Invariance**: Display toggles (`iss-display-toggles`) are purely visual. Toggling them updates `msm-applied-store` and re-renders chart traces without recalculating strategy parameters or resetting active directions.
+4. **Draft Edit Isolation**: Modifying strategy controls (`strategy-calculation-mode`, `msm-direction-selector`, `msm-start-candle-dropdown`) puts the UI into an unapplied draft state ("🟡 Unapplied changes"), preserving the applied strategy until the user clicks Apply.
+5. **Chart Overlay Semantics**:
+   - ISS confirmation markers display on the 5th-point identification candle.
+   - All tooltips explicitly state: `"Confirmed ISS Event [Structural Event — Not Order Entry Signal]"`.
+   - Structural zones start at `confirmation_availability_time`. If unknown, zero time-extended boxes are plotted.
+   - Attempted and ongoing tracking points for tracking-only candidates are visually marked `"Tracking Only — Not Eligible"`.
+6. **Inspection Panel**:
+   - Candidate Identity & Status Box (Candidate ID, direction, Level 2/3 references, boundary `[min, max]`, authoritative processed bar vs latest received bar).
+   - Internal 5-Point Structure table with boundary checks and confirmation statuses.
+   - Attempted & Ongoing Tracking Points tables.
+   - Active ISS Structural Zones table.
+   - Confirmed ISS History table.
