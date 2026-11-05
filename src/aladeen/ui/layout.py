@@ -426,13 +426,11 @@ def build_layout() -> html.Div:
                 id="mt5-connection-store",
                 data={"state": "DISCONNECTED", "symbols": []},
             ),
+            # Candidate Fetch Result Envelope Store (R14.2)
             dcc.Store(
-                id="candidate-market-data-store",
+                id="market-candidate-envelope-store",
                 data=None,
-            ),
-            dcc.Store(
-                id="candidate-loss-trigger",
-                data=None,
+                storage_type="session",
             ),
             dcc.Store(
                 id="connection-loss-trigger",
@@ -441,6 +439,7 @@ def build_layout() -> html.Div:
             dcc.Store(
                 id="market-data-store",
                 data=None,
+                storage_type="session",
             ),
             dcc.Store(
                 id="active-request-store",
@@ -449,10 +448,12 @@ def build_layout() -> html.Div:
                     "counter": 0,
                     "context": {"data_source": "demo", "symbol": DEMO_SYMBOL, "timeframe": "H4", "candle_count": 100},
                 },
+                storage_type="session",
             ),
             dcc.Store(
                 id="msm-applied-store",
                 data=None,
+                storage_type="session",
             ),
             # Title bar
             html.Div(
@@ -832,13 +833,12 @@ def register_callbacks(app: Dash, adapter: Any = None) -> tuple[Any, Any]:
             candle_count=candle_count,
             store_data=store_data,
         )
-        cand_snap, cand_loss = on_active_request_fetch(
+        cand_envelope = on_active_request_fetch(
             active_req_data=req,
             store_data=store_data,
         )
         acc_snap, acc_loss = accept_candidate(
-            candidate_data=cand_snap,
-            candidate_loss=cand_loss,
+            candidate_envelope=cand_envelope,
             active_req_data=req,
         )
         fig, status = render_chart_from_snapshot(

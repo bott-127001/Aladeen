@@ -1203,9 +1203,9 @@ class TestHandoff014ControlledRequestFlowAndBoundaryRegressions:
         thread_a_result = {}
 
         def run_fetch_a():
-            snap_a, trig_a = fetch_market_data_for_request(req_a, store_data, adapter=mock_adapter)
-            thread_a_result["snap"] = snap_a
-            thread_a_result["trig"] = trig_a
+            cand_a = fetch_market_data_for_request(req_a, store_data, adapter=mock_adapter)
+            thread_a_result["snap"] = cand_a["snapshot"]
+            thread_a_result["trig"] = cand_a["connection_event"]
 
         thread_a = threading.Thread(target=run_fetch_a)
         thread_a.start()
@@ -1242,7 +1242,9 @@ class TestHandoff014ControlledRequestFlowAndBoundaryRegressions:
         assert "Cannot apply MSM while a market data request is pending" in status_pending
 
         # 3. Complete B and verify it becomes current
-        snap_b_dict, trig_b = fetch_market_data_for_request(req_b, store_data, adapter=mock_adapter)
+        cand_b = fetch_market_data_for_request(req_b, store_data, adapter=mock_adapter)
+        snap_b_dict = cand_b["snapshot"]
+        trig_b = cand_b["connection_event"]
         assert snap_b_dict["request_token"] == req_b["token"]
         assert snap_b_dict["timeframe"] == "D1"
 
@@ -1359,8 +1361,8 @@ class TestHandoff014ControlledRequestFlowAndBoundaryRegressions:
         thread_a_res = {}
 
         def fetch_a():
-            snap, trig = fetch_market_data_for_request(req_a, store_data, adapter=mock_adapter)
-            thread_a_res["snap"] = snap
+            cand = fetch_market_data_for_request(req_a, store_data, adapter=mock_adapter)
+            thread_a_res["snap"] = cand["snapshot"]
 
         t = threading.Thread(target=fetch_a)
         t.start()
@@ -1372,7 +1374,8 @@ class TestHandoff014ControlledRequestFlowAndBoundaryRegressions:
         assert req_b["token"] != req_a["token"]
 
         # 3. Complete B
-        snap_b_dict, _ = fetch_market_data_for_request(req_b, store_data, adapter=mock_adapter)
+        cand_b = fetch_market_data_for_request(req_b, store_data, adapter=mock_adapter)
+        snap_b_dict = cand_b["snapshot"]
         assert snap_b_dict["request_token"] == req_b["token"]
 
         fig_b, status_b = generate_chart_and_status_from_snapshot(
@@ -1589,16 +1592,16 @@ class TestHandoff015AcceptanceGateAndPublicationRegressions:
         req_b = issue_market_data_request("mt5", "EURUSD", "D1", 15, store_data, current_active_req=req_a)
 
         # Candidate B fetch completes
-        cand_b_dict, cand_b_loss = fetch_market_data_for_request(req_b, store_data, adapter=mock_adapter)
+        cand_b_env = fetch_market_data_for_request(req_b, store_data, adapter=mock_adapter)
         # Acceptance gate for B
-        acc_b_dict, acc_b_loss = accept_market_data_candidate(cand_b_dict, cand_b_loss, active_req_data=req_b)
+        acc_b_dict, acc_b_loss = accept_market_data_candidate(cand_b_env, active_req_data=req_b)
         assert acc_b_dict is not dash.no_update
         assert acc_b_dict["timeframe"] == "D1"
         accepted_store = acc_b_dict  # Simulates market-data-store holding B
 
         # Step 3: Candidate A completes LAST and arrives at acceptance gate
-        cand_a_dict, cand_a_loss = fetch_market_data_for_request(req_a, store_data, adapter=mock_adapter)
-        gate_a_result, gate_a_loss = accept_market_data_candidate(cand_a_dict, cand_a_loss, active_req_data=req_b)
+        cand_a_env = fetch_market_data_for_request(req_a, store_data, adapter=mock_adapter)
+        gate_a_result, gate_a_loss = accept_market_data_candidate(cand_a_env, active_req_data=req_b)
 
         # Acceptance gate REJECTS stale candidate A
         assert gate_a_result is dash.no_update
@@ -1636,7 +1639,7 @@ class TestHandoff015AcceptanceGateAndPublicationRegressions:
             "context": {"data_source": "mt5", "symbol": "EURUSD", "timeframe": "D1"},
         }
 
-        # Stale candidate A arrives with a terminal disconnection failure
+        # Stale candidate envelope A arrives with a terminal disconnection failure
         stale_failed_candidate = {
             "revision_id": "rev-stale",
             "data_source": "mt5",
@@ -1651,10 +1654,14 @@ class TestHandoff015AcceptanceGateAndPublicationRegressions:
             "candles_data": [],
         }
         stale_loss_trigger = {"state_change": "DISCONNECTED", "error": "Connection lost"}
+        stale_envelope = {
+            "request_token": "req-1",
+            "snapshot": stale_failed_candidate,
+            "connection_event": stale_loss_trigger,
+        }
 
         gate_res, gate_loss = accept_market_data_candidate(
-            candidate_data=stale_failed_candidate,
-            candidate_loss=stale_loss_trigger,
+            candidate_envelope=stale_envelope,
             active_req_data=req_b,
         )
 

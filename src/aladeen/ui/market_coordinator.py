@@ -51,28 +51,39 @@ function(dataSource, symbol, timeframe, candleCount, nClicks, storeData, activeR
 """
 
 CLIENTSIDE_ACCEPTANCE_GATE_JS = """
-function(candidateData, candidateLoss, activeReq) {
-    if (!candidateData || !activeReq) {
+function(candidateEnvelope, activeReq) {
+    if (!candidateEnvelope || !activeReq) {
         return [window.dash_clientside.no_update, window.dash_clientside.no_update];
     }
     var activeToken = activeReq.token;
     var activeCtx = activeReq.context || {};
-    var candToken = candidateData.request_token;
+    var candToken = candidateEnvelope.request_token;
+    var snapshot = candidateEnvelope.snapshot;
+
+    console.log("[GATE_JS] Checking candidate token:", candToken, "against active token:", activeToken);
 
     // Strict token check
     if (!candToken || candToken !== activeToken) {
+        console.warn("[GATE_JS] REJECTED stale candidate token:", candToken, "!= active:", activeToken);
         return [window.dash_clientside.no_update, window.dash_clientside.no_update];
     }
 
     // Strict context check
-    if ((activeCtx.data_source && candidateData.data_source !== activeCtx.data_source) ||
-        (activeCtx.symbol && candidateData.symbol !== activeCtx.symbol) ||
-        (activeCtx.timeframe && candidateData.timeframe !== activeCtx.timeframe)) {
-        return [window.dash_clientside.no_update, window.dash_clientside.no_update];
+    if (snapshot) {
+        if ((activeCtx.data_source && snapshot.data_source !== activeCtx.data_source) ||
+            (activeCtx.symbol && snapshot.symbol !== activeCtx.symbol) ||
+            (activeCtx.timeframe && snapshot.timeframe !== activeCtx.timeframe)) {
+            console.warn("[GATE_JS] REJECTED mismatched context:", snapshot.symbol, snapshot.timeframe, "!= active:", activeCtx.symbol, activeCtx.timeframe);
+            return [window.dash_clientside.no_update, window.dash_clientside.no_update];
+        }
     }
 
-    var lossOut = (candidateLoss !== null && candidateLoss !== undefined) ? candidateLoss : window.dash_clientside.no_update;
-    return [candidateData, lossOut];
+    console.log("[GATE_JS] ACCEPTED candidate token:", candToken);
+    var lossOut = (candidateEnvelope.connection_event !== null && candidateEnvelope.connection_event !== undefined)
+        ? candidateEnvelope.connection_event
+        : window.dash_clientside.no_update;
+
+    return [snapshot, lossOut];
 }
 """
 
@@ -87,7 +98,7 @@ def issue_market_data_request(
 ) -> dict:
     """Issue a unique market data request identity and context prior to fetching (R13.1, R14.1).
 
-    Generates a guaranteed unique token combining high-resolution timestamp and random hex.
+    Generates unique request identifiers combining high-resolution timestamp and random hex.
     Does NOT perform fetching.
     """
     prev_counter = current_active_req.get("counter", 0) if current_active_req else 0
@@ -113,13 +124,20 @@ def fetch_market_data_for_request(
     active_req_data: dict | None,
     store_data: dict | None = None,
     adapter: Any = None,
-) -> tuple[dict, Any]:
+) -> dict | Any:
     """Execute market data fetch for an issued request (R13.1, R14.2).
 
-    A fetch response writes to candidate stores and NEVER writes to active-request-store or market-data-store.
+    A fetch response writes a candidate envelope to market-candidate-envelope-store
+    and NEVER writes to active-request-store or market-data-store.
+    Candidate data and its side effect travel together in a single envelope:
+    {
+        "request_token": req_token,
+        "snapshot": snapshot.to_dict(),
+        "connection_event": loss_trigger or None,
+    }
     """
     if not active_req_data:
-        return dash.no_update, dash.no_update
+        return dash.no_update
 
     if not store_data:
         store_data = {}
@@ -143,22 +161,25 @@ def fetch_market_data_for_request(
         current_state=current_state,
         request_token=req_token,
     )
-    trigger_output = loss_trigger if loss_trigger is not None else dash.no_update
-    return snapshot.to_dict(), trigger_output
+    return {
+        "request_token": req_token,
+        "snapshot": snapshot.to_dict(),
+        "connection_event": loss_trigger if loss_trigger is not None else None,
+    }
 
 
 def accept_market_data_candidate(
-    candidate_data: dict | None,
-    candidate_loss: Any = None,
+    candidate_envelope: dict | None,
     active_req_data: dict | None = None,
 ) -> tuple[Any, Any]:
     """Acceptance gate: validates candidate token and context against active request (R14.3).
 
-    - If candidate token matches active request token: ACCEPT and publish to market-data-store.
+    - If candidate token matches active request token: ACCEPT and publish snapshot to
+      market-data-store and connection_event to connection-loss-trigger.
     - If candidate token is stale or does not match: REJECT and return dash.no_update!
       The accepted market-data-store and connection-loss-trigger are untouched.
     """
-    if candidate_data is None:
+    if candidate_envelope is None:
         return dash.no_update, dash.no_update
 
     if not active_req_data:
@@ -168,10 +189,9 @@ def accept_market_data_candidate(
     active_token = active_req_data.get("token")
     active_ctx = active_req_data.get("context", {})
 
-    cand_token = candidate_data.get("request_token")
-    cand_src = candidate_data.get("data_source")
-    cand_sym = candidate_data.get("symbol")
-    cand_tf = candidate_data.get("timeframe")
+    cand_token = candidate_envelope.get("request_token")
+    snapshot = candidate_envelope.get("snapshot")
+    conn_event = candidate_envelope.get("connection_event")
 
     # Strict token matching
     if not cand_token or cand_token != active_token:
@@ -181,19 +201,23 @@ def accept_market_data_candidate(
         return dash.no_update, dash.no_update
 
     # Context matching
-    if (
-        (active_ctx.get("data_source") and cand_src != active_ctx.get("data_source"))
-        or (active_ctx.get("symbol") and cand_sym != active_ctx.get("symbol"))
-        or (active_ctx.get("timeframe") and cand_tf != active_ctx.get("timeframe"))
-    ):
-        logger.warning(
-            f"Acceptance gate REJECTED mismatched context candidate: ({cand_sym} {cand_tf}) != active ({active_ctx.get('symbol')} {active_ctx.get('timeframe')})"
-        )
-        return dash.no_update, dash.no_update
+    if snapshot:
+        cand_src = snapshot.get("data_source")
+        cand_sym = snapshot.get("symbol")
+        cand_tf = snapshot.get("timeframe")
+        if (
+            (active_ctx.get("data_source") and cand_src != active_ctx.get("data_source"))
+            or (active_ctx.get("symbol") and cand_sym != active_ctx.get("symbol"))
+            or (active_ctx.get("timeframe") and cand_tf != active_ctx.get("timeframe"))
+        ):
+            logger.warning(
+                f"Acceptance gate REJECTED mismatched context candidate: ({cand_sym} {cand_tf}) != active ({active_ctx.get('symbol')} {active_ctx.get('timeframe')})"
+            )
+            return dash.no_update, dash.no_update
 
-    logger.info(f"Acceptance gate ACCEPTED candidate for token '{cand_token}' ({cand_sym} {cand_tf})")
-    loss_out = candidate_loss if candidate_loss is not None else dash.no_update
-    return candidate_data, loss_out
+    logger.info(f"Acceptance gate ACCEPTED candidate for token '{cand_token}'")
+    loss_out = conn_event if conn_event is not None else dash.no_update
+    return snapshot, loss_out
 
 
 def _get_triggered_id() -> str:
@@ -391,17 +415,16 @@ def register_market_coordinator_callbacks(app: Dash, adapter: Any = None) -> tup
             State("active-request-store", "data"),
         )
 
-    # Callback 2b: Market Data Fetch -> Candidate Stores (R14.2)
+    # Callback 2b: Market Data Fetch -> Candidate Envelope Store (R14.2)
     @app.callback(
-        Output("candidate-market-data-store", "data"),
-        Output("candidate-loss-trigger", "data"),
+        Output("market-candidate-envelope-store", "data"),
         Input("active-request-store", "data"),
         State("mt5-connection-store", "data"),
     )
     def on_active_request_fetch(
         active_req_data: dict | None,
         store_data: dict | None,
-    ) -> tuple[dict, Any]:
+    ) -> dict | Any:
         return fetch_market_data_for_request(
             active_req_data=active_req_data,
             store_data=store_data,
@@ -414,8 +437,7 @@ def register_market_coordinator_callbacks(app: Dash, adapter: Any = None) -> tup
             CLIENTSIDE_ACCEPTANCE_GATE_JS,
             Output("market-data-store", "data"),
             Output("connection-loss-trigger", "data"),
-            Input("candidate-market-data-store", "data"),
-            Input("candidate-loss-trigger", "data"),
+            Input("market-candidate-envelope-store", "data"),
             State("active-request-store", "data"),
         )
 

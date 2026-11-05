@@ -229,7 +229,7 @@ class TestActualCallbackSettling:
 
         store = {"state": "CONNECTED_TO_BROKER", "symbols": ["EURUSD", "GBPUSD"]}
 
-        # Pass 1: update_chart catches error, disconnects adapter, and emits connection_loss
+        # Pass 1: update_chart catches error, does NOT disconnect adapter before gate, and emits connection_loss
         fig1, status1, trigger1 = update_chart(
             data_source="mt5",
             symbol="EURUSD",
@@ -241,9 +241,10 @@ class TestActualCallbackSettling:
         assert trigger1 is not dash.no_update
         assert trigger1["type"] == "connection_loss"
         assert "Connection Lost" in status1
-        mock_adapter.disconnect.assert_called()
+        # Adapter must not be disconnected prior to acceptance/handling (R14.2)
+        mock_adapter.disconnect.assert_not_called()
 
-        # Pass 2: handle_conn sets state to DISCONNECTED
+        # Pass 2: handle_conn receives accepted loss trigger and disconnects adapter cleanly
         res2 = handle_conn(
             _connect_clicks=0,
             _disconnect_clicks=0,
@@ -261,6 +262,7 @@ class TestActualCallbackSettling:
         assert new_store["symbols"] == []
         assert badge_text == "Disconnected"
         assert "🔴 MT5 DISCONNECTED" in banner_text
+        mock_adapter.disconnect.assert_called_once()
 
         # Pass 3: update_chart receives DISCONNECTED
         fig3, status3, trigger3 = update_chart(

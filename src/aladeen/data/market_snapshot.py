@@ -566,7 +566,7 @@ def fetch_market_snapshot(
         ), loss_trigger
 
     except MT5ConnectionError as e:
-        adapter.disconnect()
+        # Note: Do not disconnect shared adapter here; stale-capable fetch work must not disconnect newer sessions (R14.2)
         loss_trigger = {"type": "connection_loss", "error": str(e), "timestamp": now_utc}
         return MarketDataSnapshot(
             revision_id=rev_id,
