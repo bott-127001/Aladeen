@@ -154,6 +154,7 @@ class TestMSMAcceptanceFixtures:
         assert pair.high.candle_index == 3
         assert pair.low.price == 102.0
         assert pair.low.candle_index == 6
+        assert snapshot.search_start_index == 6
 
     def test_msm_06_waiting_lockout(self, acceptance_data):
         fix = acceptance_data["fixtures"]["MSM-06"]
@@ -182,6 +183,7 @@ class TestMSMAcceptanceFixtures:
         assert pair.low.price == 100.0
         assert pair.low.candle_index == 0
         assert pair.confirmation_bar_index == 6
+        assert s6.search_start_index == 0
 
     def test_msm_07_forming_bar_exclusion(self, acceptance_data):
         fix = acceptance_data["fixtures"]["MSM-07"]
@@ -260,6 +262,7 @@ class TestMSMAcceptanceFixtures:
         assert pair.high.candle_index == 1
         assert pair.low.price == 102.0
         assert pair.low.candle_index == 4
+        assert snapshot.search_start_index == 4
 
     def test_msm_11a_red_candle_upward_break(self, acceptance_data):
         fix = acceptance_data["fixtures"]["MSM-11A"]
@@ -277,6 +280,7 @@ class TestMSMAcceptanceFixtures:
         assert pair.low.price == 100.0
         assert pair.low.candle_index == 2
         assert pair.confirmation_bar_index == 3
+        assert snapshot.search_start_index == 2
 
     def test_msm_11b_green_candle_downward_break(self, acceptance_data):
         fix = acceptance_data["fixtures"]["MSM-11B"]
@@ -294,6 +298,7 @@ class TestMSMAcceptanceFixtures:
         assert pair.high.price == 200.0
         assert pair.high.candle_index == 2
         assert pair.confirmation_bar_index == 3
+        assert snapshot.search_start_index == 2
 
     def test_msm_12_two_pairs_and_trend_status(self, acceptance_data):
         fix = acceptance_data["fixtures"]["MSM-12"]
@@ -311,6 +316,7 @@ class TestMSMAcceptanceFixtures:
         assert p1.low.price == 101.0 and p1.low.candle_index == 3
         assert p2.high.price == 111.0 and p2.high.candle_index == 5
         assert p2.low.price == 105.0 and p2.low.candle_index == 7
+        assert snapshot.search_start_index == 7
         assert snapshot.trend_status == TrendStatus.UPWARD_TREND.value
 
     def test_msm_13a_missing_start_candle_rejection(self, acceptance_data):
@@ -856,6 +862,24 @@ class TestMSMFocusedRegressions:
         naive = datetime(2026, 10, 1, 0, 0)
         with pytest.raises(ValueError, match="must be timezone-aware"):
             StrategyCandle(0, naive, 100.0, 105.0, 99.0, 104.0, is_forming=False, bar_status="CONFIRMED_COMPLETED")
+
+        # Timezone object where utcoffset() returns None
+        from datetime import tzinfo
+        class NoneOffsetTZ(tzinfo):
+            def utcoffset(self, dt):
+                return None
+            def tzname(self, dt):
+                return "NoneOffset"
+            def dst(self, dt):
+                return None
+
+        bad_tz = NoneOffsetTZ()
+        dt_bad_tz = datetime(2026, 10, 1, 0, 0, tzinfo=bad_tz)
+        with pytest.raises(ValueError, match="must be timezone-aware"):
+            StrategyCandle(0, dt_bad_tz, 100.0, 105.0, 99.0, 104.0, is_forming=False, bar_status="CONFIRMED_COMPLETED")
+
+        with pytest.raises(ValueError, match="must be timezone-aware"):
+            MSMConfig(start_candle_time=dt_bad_tz, direction=Direction.UPWARD)
 
         # Close time earlier than open time
         with pytest.raises(ValueError, match="strictly later than open_time"):

@@ -19,6 +19,13 @@ from .types import (
 )
 from .validator import adapt_candles, validate_start_candle
 from .engine import MSMEngine
+from .service import (
+    MSMContext,
+    MSMServiceResult,
+    adapt_chart_dataframe,
+    calculate_msm,
+    is_context_compatible,
+)
 
 __all__ = [
     "CandleColor",
@@ -33,4 +40,9 @@ __all__ = [
     "adapt_candles",
     "validate_start_candle",
     "MSMEngine",
+    "MSMContext",
+    "MSMServiceResult",
+    "adapt_chart_dataframe",
+    "calculate_msm",
+    "is_context_compatible",
 ]

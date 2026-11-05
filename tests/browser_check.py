@@ -49,6 +49,34 @@ def main():
         assert "DEMO MODE" in banner_text
         assert "Disconnected" in badge_text
 
+        # Verify MSM Controls & Enable MSM Overlay in Demo Mode
+        print("1b. Testing MSM Strategy Controls in Demo Mode...")
+        assert page.locator("#msm-controls-panel").is_visible()
+        assert page.locator("#msm-inspection-container").is_visible()
+
+        # Enable MSM
+        print("   Checking Enable MSM Overlay...")
+        page.locator("#msm-enable-toggle input[value='enabled']").check()
+        time.sleep(1)
+
+        # Apply MSM
+        print("   Clicking Apply / Calculate MSM...")
+        page.locator("#msm-apply-btn").click()
+        page.wait_for_function(
+            "() => document.querySelector('#msm-edit-status') && document.querySelector('#msm-edit-status').innerText.includes('Applied: UPWARD')",
+            timeout=10000,
+        )
+        msm_status = page.locator("#msm-edit-status").inner_text()
+        print(f"   MSM Edit Status: {msm_status}")
+        assert "Applied: UPWARD" in msm_status
+
+        # Verify MSM Inspection Table rendered
+        page.wait_for_selector("#msm-inspection-panel table")
+        inspection_text = page.locator("#msm-inspection-panel").inner_text()
+        print(f"   Inspection Summary: {inspection_text.splitlines()[0] if inspection_text else ''}")
+        assert "Engine State:" in inspection_text
+        assert "Trend Status:" in inspection_text
+
         # Switch data source to MT5
         print("2. Switching Data Source to MT5...")
         page.locator("input[value='mt5']").check()

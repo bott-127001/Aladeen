@@ -1,11 +1,17 @@
 """Candlestick chart construction.
 
-Builds a Plotly candlestick figure from an OHLC DataFrame.
-No strategy overlays are added here — this module is purely chart rendering.
+Builds a Plotly candlestick figure from an OHLC DataFrame and optionally
+renders Market Structure Marking (MSM) overlays:
+- Confirmed Swing Highs (triangle-up, pair label, provenance tooltip)
+- Confirmed Swing Lows (triangle-down, pair label, provenance tooltip)
+- Tentative Swing Level (diamond-open, horizontal threshold guideline)
+- Market Structure Path (interconnecting confirmed swing points)
+- Starting candle annotation
 """
 
 from __future__ import annotations
 
+from typing import Any, Optional
 import pandas as pd
 import plotly.graph_objects as go
 
@@ -20,8 +26,9 @@ def create_candlestick_chart(
     is_stale: bool = False,
     last_fetch_time: str | None = None,
     candle_count: int | None = None,
+    msm_result: Any | None = None,
 ) -> go.Figure:
-    """Create a Plotly candlestick figure from OHLC *df*.
+    """Create a Plotly candlestick figure from OHLC *df* with optional MSM overlays.
 
     Parameters
     ----------
@@ -42,6 +49,8 @@ def create_candlestick_chart(
         Timestamp of the last fetch.
     candle_count : int | None
         Number of candles in the dataset.
+    msm_result : MSMServiceResult | None, optional
+        Applied MSM calculation result to render on the chart.
 
     Returns
     -------
@@ -87,9 +96,10 @@ def create_candlestick_chart(
         ]
     )
 
-    # Highlight latest unconfirmed candle if present
     shapes = []
     annotations = []
+
+    # Highlight latest unconfirmed candle if present
     if "is_forming" in df.columns and len(df) > 0 and df["is_forming"].iloc[-1]:
         last_time = df.index[-1]
         annotations.append(
@@ -106,16 +116,179 @@ def create_candlestick_chart(
             )
         )
 
+    # -----------------------------------------------------------------------
+    # MSM Overlays (Confirmed Highs/Lows, Tentative Level, Structure Lines)
+    # -----------------------------------------------------------------------
+    if msm_result is not None:
+        if getattr(msm_result, "error", None):
+            title_parts.append(f"<span style='color: #ff5252;'>MSM: {msm_result.error}</span>")
+        elif getattr(msm_result, "snapshot", None) is not None:
+            snapshot = msm_result.snapshot
+            title_parts.append(
+                f"<span style='color: #00e5ff;'>MSM: {snapshot.trend_status} "
+                f"({len(snapshot.confirmed_pairs)} pairs)</span>"
+            )
+
+            pairs = snapshot.confirmed_pairs
+            points_for_path = []
+
+            # 1. Starting candle annotation
+            start_dt = msm_result.context.start_candle_time
+            if start_dt in df.index:
+                row_at_start = df.loc[start_dt]
+                y_pos = float(row_at_start["low"]) if msm_result.context.direction.value == "UPWARD" else float(row_at_start["high"])
+                annotations.append(
+                    dict(
+                        x=start_dt,
+                        y=y_pos,
+                        text=f"📍 MSM Start ({msm_result.context.direction.value})",
+                        showarrow=True,
+                        arrowhead=2,
+                        arrowsize=1,
+                        arrowcolor="#29b6f6",
+                        font=dict(color="#29b6f6", size=10),
+                        yshift=-15 if msm_result.context.direction.value == "UPWARD" else 15,
+                    )
+                )
+
+            # 2. Confirmed Highs
+            if pairs:
+                x_highs = [p.high.candle_open_time for p in pairs]
+                y_highs = [p.high.price for p in pairs]
+                text_highs = [f"H{p.pair_index + 1}" for p in pairs]
+                hover_highs = []
+                for p in pairs:
+                    h = p.high
+                    id_time_str = h.identified_time.strftime("%Y-%m-%d %H:%M UTC") if h.identified_time else "Unknown"
+                    conf_time_str = h.confirmed_time.strftime("%Y-%m-%d %H:%M UTC") if h.confirmed_time else "Unknown"
+                    hover_highs.append(
+                        f"<b>Confirmed Swing High (Pair #{p.pair_index + 1})</b><br>"
+                        f"Price: {h.price:.4f}<br>"
+                        f"Source Candle: {h.candle_open_time.strftime('%Y-%m-%d %H:%M UTC')} (Index: {h.candle_index})<br>"
+                        f"Identified: {id_time_str} (Bar: {h.identified_bar_index})<br>"
+                        f"Confirmed: {conf_time_str} (Bar: {h.confirmed_bar_index})"
+                    )
+                    points_for_path.append((h.candle_open_time, h.price))
+
+                fig.add_trace(
+                    go.Scatter(
+                        x=x_highs,
+                        y=y_highs,
+                        mode="markers+text",
+                        name="Confirmed High",
+                        marker=dict(symbol="triangle-up", size=13, color="#00e676", line=dict(width=1, color="#ffffff")),
+                        text=text_highs,
+                        textposition="top center",
+                        textfont=dict(color="#00e676", size=11, family="Segoe UI, sans-serif"),
+                        hovertext=hover_highs,
+                        hoverinfo="text",
+                    )
+                )
+
+                # 3. Confirmed Lows
+                x_lows = [p.low.candle_open_time for p in pairs]
+                y_lows = [p.low.price for p in pairs]
+                text_lows = [f"L{p.pair_index + 1}" for p in pairs]
+                hover_lows = []
+                for p in pairs:
+                    low = p.low
+                    id_time_str = low.identified_time.strftime("%Y-%m-%d %H:%M UTC") if low.identified_time else "Unknown"
+                    conf_time_str = low.confirmed_time.strftime("%Y-%m-%d %H:%M UTC") if low.confirmed_time else "Unknown"
+                    hover_lows.append(
+                        f"<b>Confirmed Swing Low (Pair #{p.pair_index + 1})</b><br>"
+                        f"Price: {low.price:.4f}<br>"
+                        f"Source Candle: {low.candle_open_time.strftime('%Y-%m-%d %H:%M UTC')} (Index: {low.candle_index})<br>"
+                        f"Identified: {id_time_str} (Bar: {low.identified_bar_index})<br>"
+                        f"Confirmed: {conf_time_str} (Bar: {low.confirmed_bar_index})"
+                    )
+                    points_for_path.append((low.candle_open_time, low.price))
+
+                fig.add_trace(
+                    go.Scatter(
+                        x=x_lows,
+                        y=y_lows,
+                        mode="markers+text",
+                        name="Confirmed Low",
+                        marker=dict(symbol="triangle-down", size=13, color="#ff5252", line=dict(width=1, color="#ffffff")),
+                        text=text_lows,
+                        textposition="bottom center",
+                        textfont=dict(color="#ff5252", size=11, family="Segoe UI, sans-serif"),
+                        hovertext=hover_lows,
+                        hoverinfo="text",
+                    )
+                )
+
+            # 4. Market Structure Path (interconnecting swing points chronologically)
+            if len(points_for_path) >= 2:
+                points_for_path.sort(key=lambda pt: pt[0])
+                fig.add_trace(
+                    go.Scatter(
+                        x=[pt[0] for pt in points_for_path],
+                        y=[pt[1] for pt in points_for_path],
+                        mode="lines",
+                        name="Market Structure",
+                        line=dict(color="#00b0ff", width=2, dash="dashdot"),
+                        hoverinfo="skip",
+                    )
+                )
+
+            # 5. Tentative Level
+            if snapshot.tentative_point is not None:
+                tent = snapshot.tentative_point
+                id_time_str = tent.identified_time.strftime("%Y-%m-%d %H:%M UTC") if tent.identified_time else "Unknown"
+                tent_hover = (
+                    f"<b>Tentative Swing Level (Pending Break)</b><br>"
+                    f"Price: {tent.price:.4f}<br>"
+                    f"Source Candle: {tent.candle_open_time.strftime('%Y-%m-%d %H:%M UTC')} (Index: {tent.candle_index})<br>"
+                    f"Identified: {id_time_str} (Bar: {tent.identified_bar_index})<br>"
+                    f"Status: Waiting for Candle Body Break"
+                )
+                fig.add_trace(
+                    go.Scatter(
+                        x=[tent.candle_open_time],
+                        y=[tent.price],
+                        mode="markers+text",
+                        name="Tentative Level",
+                        marker=dict(symbol="diamond-open", size=13, color="#ffd600", line=dict(width=2, color="#ffd600")),
+                        text=["Tentative"],
+                        textposition="top right",
+                        textfont=dict(color="#ffd600", size=11),
+                        hovertext=[tent_hover],
+                        hoverinfo="text",
+                    )
+                )
+
+                # Horizontal line for break threshold
+                last_chart_time = df.index[-1]
+                shapes.append(
+                    dict(
+                        type="line",
+                        x0=tent.candle_open_time,
+                        y0=tent.price,
+                        x1=last_chart_time,
+                        y1=tent.price,
+                        line=dict(color="#ffd600", width=1.5, dash="dot"),
+                    )
+                )
+
     fig.update_layout(
         title=" | ".join(title_parts),
         yaxis_title="Price",
         xaxis_title="Time (UTC)",
         xaxis_rangeslider_visible=False,
         template="plotly_dark",
-        height=560,
+        height=580,
         margin=dict(l=60, r=30, t=60, b=40),
         shapes=shapes,
         annotations=annotations,
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1,
+            font=dict(size=11),
+        ),
     )
 
     return fig
@@ -130,7 +303,7 @@ def create_empty_chart(message: str, title: str = "No Chart Data") -> go.Figure:
     fig.update_layout(
         title=title,
         template="plotly_dark",
-        height=560,
+        height=580,
         margin=dict(l=60, r=30, t=60, b=40),
         xaxis=dict(visible=False),
         yaxis=dict(visible=False),
