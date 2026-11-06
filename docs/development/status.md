@@ -1071,7 +1071,7 @@ Last Updated: 2026-11-06 (Activation Engine Pure Offline Milestone Accepted — 
 
 ### HANDOFF-065: Service Diagnostic Notice Delineation, Canonical Activation ID Formatting, and Enforceable Architecture Safeguards
 - **Active Branch**: `requirements/activation-dashboard-acceptance`
-- **Immediate Parent Commit**: `77645caa0a12e2dfebcf4096052be53612ce24e5` (HANDOFF-064)
+- **Immediate Parent Commit**: `77645ca3d7e20e82a28e12ecc71bc98066e17e7f` (HANDOFF-064)
 - **Root Baseline Engine Commit**: `0867c740352297fb43e781fb654706218771d533` (Milestone 25 / HANDOFF-061)
 - **Objective**: Address Perplexity's review of HANDOFF-064:
   1. *Observation vs. Cursor Delineation*: Clarify that `ActivationSnapshot.last_processed_sequence` is an engine cursor advancing for all events (registrations, coverage, cancellations), not an observation counter. Omit unverified observation-count claims unless explicit service diagnostic `exact_observation_count` is supplied. Delineate observation lifecycle cases.
@@ -1095,6 +1095,40 @@ Last Updated: 2026-11-06 (Activation Engine Pure Offline Milestone Accepted — 
   - Activation dashboard fixture integrity suite: **9 / 9 passed** in 0.69s (`pytest tests/test_activation_dashboard_fixture_integrity.py -q`).
   - Full offline repository test suite: **518 / 518 passed** in 15.96s (`pytest -q tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py`).
   - Runtime modification audit: Exactly zero runtime files modified (`git diff 3aed45bb9e0e3b9f61bb8d02cd40cff39a5f5bae..HEAD src/` is empty).
+- **Scope Compliance & Standing Invariants**:
+  1. *Requirements Phase Only*: Zero runtime modifications to strategy engine, adapter, or UI files.
+  2. *Offline Only*: Strictly zero UI order execution, zero MT5 trading calls, zero live account modification.
+  3. *Downstream Invariant*: Strictly zero usage ledger implementation, zero confirmation arbitration, zero trade entry signals.
+  4. *Core Ambiguities Preserved*: Upstream $c_1 == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
+  5. *Branch Boundary*: Committed and pushed strictly on `requirements/activation-dashboard-acceptance`. No merging into `main`.
+
+### HANDOFF-066: Offline Evidence Boundary Restoration, Canonical Member Keys, and Executed Lifecycle Reactivation
+- **Active Branch**: `requirements/activation-dashboard-acceptance`
+- **Immediate Parent Commit**: `213137d00d03f91b1edcbccf677344197f31082b` (HANDOFF-065)
+- **Root Baseline Engine Commit**: `0867c740352297fb43e781fb654706218771d533` (Milestone 25 / HANDOFF-061)
+- **Objective**: Address Perplexity's review of HANDOFF-065:
+  1. *Restore Explicit Offline Evidence-Source Boundary (§4.1)*: Re-codified explicit input boundary clauses: (a) zero synthesis/interpolation of candle OHLC into prints; (b) fail-closed usage default to `UNKNOWN` rendering untouched members `INACTIVE_INELIGIBLE`; (c) coverage derived exclusively from supplied batch coverage declarations; (d) external commit events supplied strictly through offline test inputs.
+  2. *Canonical Member Key Enforcement*: Formatted every member key across fixtures catalog (v1.4) and integrity tests using canonical length-prefixed `format_member_key(set_id, role)` (`MK[5:SET_1][4:TJL1]`, `MK[5:SET_1][11:TJL2_A_PLUS]`, `MK[5:SET_2][4:TJL1]`), verifying joins across membership, active activations, controllers, and history.
+  3. *Controller Next-Generation Values*: Corrected rearm controller generation sequences in Scenarios 9 and 10 to `generation_seq = 2` (`cancelled_record.generation_seq + 1`), adding consistency assertions against linked terminal generation.
+  4. *Executed Engine Lifecycle Reactivation*: Separated formatter validation (`test_canonical_identifier_and_key_formatters`) from real executed engine lifecycle (`test_requirements_domain_consistency_against_engine_types`), executing full sequence through `ActivationEngine`: untouched default gating -> in-zone print fails closed -> register UNUSED -> in-zone touch to gen 1 -> external commit cancels to terminal history and initializes `RearmController(generation_seq=2)` -> outside departure print arms controller -> in-zone retouch executes reactivation into generation 2 (`REARMED_PENDING`, `prior_activation_id = gen1_id`).
+  5. *Corrected Lineage Metadata*: Corrected HANDOFF-065 parent hash in development status to `77645ca3d7e20e82a28e12ecc71bc98066e17e7f`.
+- **Completed Deliverables**:
+  1. [`docs/requirements/activation-dashboard-acceptance.md`](file:///docs/requirements/activation-dashboard-acceptance.md) (157 lines):
+     - Section 4.1: Restored explicit 4-point offline evidence-source and injection boundaries alongside observation lifecycle rules.
+     - Section 5: Updated Scenarios 9 & 10 controller generation sequence (`generation_seq = 2`) and consistency assertions.
+  2. [`tests/fixtures/activation_dashboard_acceptance.json`](file:///tests/fixtures/activation_dashboard_acceptance.json):
+     - Version 1.4 with canonical `format_member_key()` outputs across all 16 scenarios, membership, active records, rearm controllers, and terminal history.
+     - Scenarios 9 & 10 rearm controllers updated to `generation_seq = 2`.
+  3. [`tests/test_activation_dashboard_fixture_integrity.py`](file:///tests/test_activation_dashboard_fixture_integrity.py) (430+ lines):
+     - Updated fixture catalog version assertion to 1.4.
+     - Added `test_all_fixture_member_keys_canonical_format` verifying `MK[...]` format and join consistency across all display groups.
+     - Updated Scenario 9 and 10 assertions for controller next-generation consistency (`controller.generation_seq == term_rec.generation_seq + 1`).
+     - Added dedicated `test_canonical_identifier_and_key_formatters` validating pure formatters.
+     - Executed full reactivation lifecycle through accepted engine in `test_requirements_domain_consistency_against_engine_types`.
+- **Verification Summary**:
+  - Activation dashboard fixture integrity suite: **11 / 11 passed** in 0.91s (`pytest tests/test_activation_dashboard_fixture_integrity.py -q`).
+  - Full offline repository test suite: **519 / 519 passed** in 16.05s (`pytest -q tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py`).
+  - Runtime modification audit: Exactly zero runtime files modified (`git diff 3aed45bb9e0e3b9f61bb8d02cd40cff39a5f5bae HEAD -- src/` is empty).
 - **Scope Compliance & Standing Invariants**:
   1. *Requirements Phase Only*: Zero runtime modifications to strategy engine, adapter, or UI files.
   2. *Offline Only*: Strictly zero UI order execution, zero MT5 trading calls, zero live account modification.

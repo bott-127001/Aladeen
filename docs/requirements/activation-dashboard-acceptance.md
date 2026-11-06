@@ -85,16 +85,21 @@ Every rendered field maps directly to public dataclass attributes without invent
 
 ## 4. Offline Service Evidence Boundary, Observation Lifecycle & Architecture Safeguards
 
-### 4.1 Offline Evidence Boundary & Observation Tracking
-1. **Engine Cursor vs. Observation Counter**:
+### 4.1 Offline Evidence-Source Boundary & Input Rules
+1. **Strict Offline Evidence-Source Boundary**:
+   - **No Candle OHLC Print Synthesis**: Candle OHLC values (open, high, low, close) must never be synthesized or interpolated into price prints. Exact price prints (`ExactPricePrint`) are sourced strictly from discrete offline tick/trade streams.
+   - **Fail-Closed Usage Default**: Usage evidence status defaults strictly to `UNKNOWN` in the absence of explicit authoritative usage evidence, rendering untouched members `INACTIVE_INELIGIBLE` (`USAGE_EVIDENCE_UNCERTAIN_FAIL_CLOSED`).
+   - **Supplied Batch Coverage Only**: Coverage status (`COMPLETE`, `INCOMPLETE`, `UNCERTAIN`) is derived exclusively from supplied batch coverage declarations (`CoverageEvidence`). The UI never assumes or alters coverage status.
+   - **Offline-Only External Commits**: External commit notifications (`ExternalCommitEvent`) are absent from normal live dashboard operation and are supplied strictly through explicit offline test inputs or simulated scenario streams.
+2. **Engine Cursor vs. Observation Counter**:
    - `ActivationSnapshot.last_processed_sequence` advances for registration events, cancellations, coverage declarations, commits, and candle evidence. It is **not** an observation counter.
    - The UI does **not** infer "zero observations processed" from `last_processed_sequence is None`.
    - If an explicit immutable service diagnostic `exact_observation_count: Optional[int]` is supplied by the service layer, the UI displays `f"Exact Observations Processed: {count}"`; otherwise, the panel omits any unverified observation-count claim.
-2. **Observation Lifecycle Cases**:
+3. **Observation Lifecycle Cases**:
    - *Non-observation events processed*: When registrations, coverage declarations, or cancellations advance sequence without price prints, members display in initial registered states with no observation count claim.
    - *Observation processed without touch*: An exact price print outside zone bounds advances engine sequence without changing `INACTIVE_ELIGIBLE` state or establishing a first touch.
    - *Existing evidence with no new prints*: Prior pending activations and terminal records remain fully visible; absence of new prints in a refresh cycle never clears or masks established evidence.
-3. **Session Reset Lifecycle**: On symbol, timeframe, data source, or recalculation changes, the service layer discards existing `ActivationEngine` and `TJLSynchronizer` instances and instantiates fresh, isolated instances. Zero cross-context state or cursor retention.
+4. **Session Reset Lifecycle**: On symbol, timeframe, data source, or recalculation changes, the service layer discards existing `ActivationEngine` and `TJLSynchronizer` instances and instantiates fresh, isolated instances. Zero cross-context state or cursor retention.
 
 ### 4.2 Architecture Safeguards & Enforceable Clauses
 1. **Rendering Purity**: Pure presentation projection (`build_activation_inspection_elements()`) must **never** invoke `process_event()`, `register_source_members()`, `reset()`, or `synchronizer.sync()`.
@@ -123,8 +128,8 @@ All 16 scenarios have execution status: `specified; not yet executed through the
 | `dash_act_06_unknown_availability` | Unknown availability blocks activation | `engine-derived`: Member registered with `eligibility_available_time = None` | State = `INACTIVE_INELIGIBLE`. Availability displayed as `"Unknown"`. Raw `blocked_reason == "UNKNOWN_AVAILABILITY_TIMING"`. Presentation text = `"Unknown Availability Timing"`. `inferred_time_used == False`. `is_actionable == False`. |
 | `dash_act_07_source_cancellation` | Source cancellation retires member | `engine-derived`: `SourceCancellationEvent(reason=SOURCE_CHOCH, target_set_id="SET_1")` | `active_member_count == 0`. Record in terminal history. `terminal_state == "CANCELLED_SOURCE_CHOCH"`. `is_actionable == False`. |
 | `dash_act_08_cancellation_unknown_time` | Cancellation unknown time | `synthetic`: Terminal record with `cancellation_time = None`, `seq = 125` | `cancellation_time_display == "Unknown"`. `sequence_ref_display == "#125"`. `timestamp_shown_as_unknown == True`. `sequence_shown_separately == True`. Zero wall-clock interpolation. `is_actionable == False`. |
-| `dash_act_09_external_cancellation_inside` | External cancellation inside zone | `engine-derived`: External commit arrives with level inside zone | Terminal record = `CANCELLED_EXTERNAL_ENTRY`. Rearm controller created with `rearm_armed == False`, status = `"Awaiting Departure Outside Zone"`. Decoupled from terminal record. `is_actionable == False`. |
-| `dash_act_10_armed_controller` | Armed controller | `engine-derived`: Print outside zone arms controller | Rearm controller state = `OUT_OF_ZONE_ARMED`. `rearm_armed == True`. `active_activations_count == 0` (arming is not a pending activation). `is_actionable == False`. |
+| `dash_act_09_external_cancellation_inside` | External cancellation inside zone | `engine-derived`: External commit arrives with level inside zone | Terminal record = `CANCELLED_EXTERNAL_ENTRY` (gen 1). Rearm controller created with `generation_seq == 2` (next generation), `rearm_armed == False`, status = `"Awaiting Departure Outside Zone"`. Decoupled from terminal record. `is_actionable == False`. |
+| `dash_act_10_armed_controller` | Armed controller | `engine-derived`: Print outside zone arms controller | Rearm controller state = `OUT_OF_ZONE_ARMED`, `generation_seq == 2`. `rearm_armed == True`. `active_activations_count == 0` (arming is not a pending activation). `is_actionable == False`. |
 | `dash_act_11_valid_reactivation` | Valid reactivation generation 2 | `engine-derived`: Retouch on armed controller activates generation 2 | Active state = `REARMED_PENDING`. `generation_seq == 2`. Canonical `prior_activation_id == "ACT_G01[16:ENGINE_EURUSD_H1][2:H1][6:EURUSD][5:SET_1][4:TJL1]"`. Provenance intact. |
 | `dash_act_12_successor_set_persistent_level` | Successor set, persistent level | `engine-derived`: Distinct `SET_2` registered containing same `StableLevelId` | `active_set_id == "SET_2"`. `distinct_set_identity == True`. `level_identity_continuous == True`. Zero activation inheritance from cancelled `SET_1`. `is_actionable == False`. |
 | `dash_act_13_unresolved_source_snapshot` | Unresolved source snapshot | `candle-pipeline-derived`: `planned/unverified` (Pipeline prefix producing ambiguous swing points) | Canonical banner: `"LAST AUTHORITATIVE EVIDENCE — SOURCE UNRESOLVED"`. `is_unresolved == True`. `processed_bar_index == 15`, `received_bar_index == 19`. Zero fresh eligibility. `is_actionable == False`. |

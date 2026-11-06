@@ -30,10 +30,12 @@ from aladeen.strategy.activation_types import (
     ActivationState,
     CoverageStatus,
     Direction,
+    ExternalCommitEvent,
     PriceBasis,
     TIMEFRAME_CONFIRMATION_MAP,
     UsageEvidenceStatus,
     format_activation_id,
+    format_member_key,
 )
 from aladeen.strategy.activation_engine import (
     ActivationEngine,
@@ -92,7 +94,7 @@ class TestActivationDashboardFixtureIntegrity:
 
     def test_schema_and_metadata(self, fixture_catalog: Dict[str, Any]) -> None:
         """Verifies top-level fixture metadata, authorities, and non-execution disclaimer."""
-        assert fixture_catalog.get("version") == "1.3"
+        assert fixture_catalog.get("version") == "1.4"
         assert len(fixture_catalog.get("authorities", [])) >= 3
 
         disclaimer = fixture_catalog.get("disclaimer", "")
@@ -101,6 +103,41 @@ class TestActivationDashboardFixtureIntegrity:
 
         categories = set(fixture_catalog.get("supported_evidence_categories", []))
         assert categories == ALLOWED_CATEGORIES
+
+    def test_all_fixture_member_keys_canonical_format(self, fixture_catalog: Dict[str, Any]) -> None:
+        """Validates that every member key across all fixtures adheres strictly to format_member_key().
+
+        Verifies:
+        1. All member keys start with 'MK[' length-prefixed format.
+        2. Membership member_keys match format_member_key(set_id, role).
+        3. Active activations, controllers, and terminal history keys match canonical format.
+        4. Joins across membership, active activations, and controllers are consistent.
+        """
+        for scenario_id, data in fixture_catalog["fixtures"].items():
+            inputs = data["presentation_inputs"]
+            membership_keys = set()
+            for m in inputs.get("membership", []):
+                mk = m.get("member_key")
+                expected_mk = format_member_key(m["set_id"], m["role"])
+                assert mk == expected_mk, f"Scenario {scenario_id} membership key mismatch: {mk} vs {expected_mk}"
+                assert mk.startswith("MK["), f"Scenario {scenario_id} membership key {mk} missing MK prefix"
+                membership_keys.add(mk)
+
+            for act in inputs.get("active_activations", []):
+                mk = act["member_key"]
+                assert mk.startswith("MK["), f"Scenario {scenario_id} active activation member_key {mk} missing MK prefix"
+                if membership_keys:
+                    assert mk in membership_keys, f"Scenario {scenario_id} active activation key {mk} not in membership"
+
+            for ctrl in inputs.get("rearm_controllers", []):
+                mk = ctrl["member_key"]
+                assert mk.startswith("MK["), f"Scenario {scenario_id} controller member_key {mk} missing MK prefix"
+                if membership_keys:
+                    assert mk in membership_keys, f"Scenario {scenario_id} controller key {mk} not in membership"
+
+            for term in inputs.get("terminal_history", []):
+                mk = term["member_key"]
+                assert mk.startswith("MK["), f"Scenario {scenario_id} terminal member_key {mk} missing MK prefix"
 
     def test_scenario_inventory_completeness(self, fixture_catalog: Dict[str, Any]) -> None:
         """Verifies exactly all 16 required scenario IDs exist in the catalog."""
@@ -227,11 +264,27 @@ class TestActivationDashboardFixtureIntegrity:
         sc9 = fixtures["dash_act_09_external_cancellation_inside"]
         assert sc9["assertions"]["rearm_armed"] is False
         assert sc9["assertions"]["rearm_controller_present"] is True
+        assert sc9["assertions"]["controller_generation_seq"] == 2
+        assert sc9["assertions"]["linked_terminal_generation_seq"] == 1
+        assert sc9["assertions"]["generation_consistency"] is True
+        assert sc9["presentation_inputs"]["rearm_controllers"][0]["generation_seq"] == 2
+        assert (
+            sc9["presentation_inputs"]["rearm_controllers"][0]["generation_seq"]
+            == sc9["presentation_inputs"]["terminal_history"][0]["generation_seq"] + 1
+        )
 
         # Scenario 10: Armed controller
         sc10 = fixtures["dash_act_10_armed_controller"]
         assert sc10["assertions"]["rearm_armed"] is True
         assert sc10["assertions"]["active_activations_count"] == 0
+        assert sc10["assertions"]["controller_generation_seq"] == 2
+        assert sc10["assertions"]["linked_terminal_generation_seq"] == 1
+        assert sc10["assertions"]["generation_consistency"] is True
+        assert sc10["presentation_inputs"]["rearm_controllers"][0]["generation_seq"] == 2
+        assert (
+            sc10["presentation_inputs"]["rearm_controllers"][0]["generation_seq"]
+            == sc10["presentation_inputs"]["terminal_history"][0]["generation_seq"] + 1
+        )
 
         # Scenario 11: Valid reactivation
         sc11 = fixtures["dash_act_11_valid_reactivation"]
@@ -275,16 +328,32 @@ class TestActivationDashboardFixtureIntegrity:
         assert sc16["assertions"]["engine_state_unmutated"] is True
         assert sc16["assertions"]["synchronizer_cursor_unmutated"] is True
 
+    def test_canonical_identifier_and_key_formatters(self) -> None:
+        """Validates canonical formatting functions for activation IDs and member keys."""
+        mk1 = format_member_key("SET_1", "TJL1")
+        assert mk1 == "MK[5:SET_1][4:TJL1]"
+        mk2 = format_member_key("SET_1", "TJL2_A_PLUS")
+        assert mk2 == "MK[5:SET_1][11:TJL2_A_PLUS]"
+
+        aid1 = format_activation_id("ENGINE_EURUSD_H1", "H1", "EURUSD", "SET_1", "TJL1", 1)
+        assert aid1 == "ACT_G01[16:ENGINE_EURUSD_H1][2:H1][6:EURUSD][5:SET_1][4:TJL1]"
+        aid2 = format_activation_id("ENGINE_EURUSD_H1", "H1", "EURUSD", "SET_1", "TJL1", 2)
+        assert aid2 == "ACT_G02[16:ENGINE_EURUSD_H1][2:H1][6:EURUSD][5:SET_1][4:TJL1]"
+
     def test_requirements_domain_consistency_against_engine_types(self) -> None:
-        """Verifies requirements-phase domain invariants directly against accepted engine types.
+        """Verifies requirements-phase domain invariants and full lifecycle through accepted engine.
 
         Validates:
         1. Untouched member with default usage defaults to UNKNOWN -> INACTIVE_INELIGIBLE
            with blocked_reason == 'USAGE_EVIDENCE_UNCERTAIN_FAIL_CLOSED'.
-        2. Explicit UNUSED evidence transitions untouched member to INACTIVE_ELIGIBLE.
-        3. Initial UNKNOWN usage fails closed on price print (produces 0 activations).
-        4. Preserved pending uncertainty follows UNUSED -> touch -> UNKNOWN sequence.
-        5. Canonical reactivation ID linkage check via format_activation_id.
+        2. Initial UNKNOWN usage fails closed on price print (produces 0 activations).
+        3. Explicit UNUSED evidence transitions untouched member to INACTIVE_ELIGIBLE.
+        4. First in-zone touch produces PENDING_ACTIVATION (generation 1).
+        5. Preserved pending uncertainty follows UNUSED -> touch -> UNKNOWN sequence.
+        6. Full lifecycle reactivation execution:
+           External commit cancels record to CANCELLED_EXTERNAL_ENTRY and creates RearmController(generation_seq=2).
+           Outside departure print arms controller (OUT_OF_ZONE_ARMED, rearm_armed=True).
+           In-zone retouch print activates generation 2 (REARMED_PENDING, prior_activation_id=gen1_id, generation_seq=2).
         """
         domain = SequenceDomain(feed_id="FEED_EURUSD_H1", run_id="RUN_DOM_CHECK")
         config = ActivationEngineConfig(
@@ -309,7 +378,6 @@ class TestActivationDashboardFixtureIntegrity:
             is_line=False,
             direction=Direction.UPWARD,
             eligibility_available_time=datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc),
-            # usage_evidence_status omitted; defaults to UNKNOWN
         )
         assert m_default.usage_evidence_status == UsageEvidenceStatus.UNKNOWN
         snap1 = engine.register_source_member(m_default)
@@ -353,13 +421,14 @@ class TestActivationDashboardFixtureIntegrity:
         assert rec3.state == ActivationState.INACTIVE_ELIGIBLE
         assert rec3.blocked_reason is None
 
-        # 4. Touch transitions to PENDING_ACTIVATION
+        # 4. Touch transitions to PENDING_ACTIVATION (generation 1)
         snap4 = engine.process_event(print_in_zone)
         rec4 = snap4.active_activations[m_unused.member_key]
         assert rec4.state == ActivationState.PENDING_ACTIVATION
         assert rec4.first_touch_price == 1.1370
         assert rec4.trigger_observation_id == "OBS_01"
-        orig_act_id = rec4.activation_id
+        assert rec4.generation_seq == 1
+        gen1_act_id = rec4.activation_id
 
         # 5. Subsequent UNKNOWN usage preserves pending provenance while gating
         m_unknown = SourceMemberReference(
@@ -379,16 +448,75 @@ class TestActivationDashboardFixtureIntegrity:
         snap5 = engine.register_source_member(m_unknown)
         rec5 = snap5.active_activations[m_unknown.member_key]
         assert rec5.state == ActivationState.PENDING_ACTIVATION
-        assert rec5.activation_id == orig_act_id
+        assert rec5.activation_id == gen1_act_id
         assert rec5.first_touch_price == 1.1370
-        assert rec5.trigger_observation_id == "OBS_01"
         assert rec5.generation_seq == 1
         assert rec5.blocked_reason == "USAGE_EVIDENCE_UNCERTAIN_FAIL_CLOSED"
         assert rec5.usage_evidence_status == UsageEvidenceStatus.UNKNOWN
 
-        # 6. Canonical reactivation ID linkage check
-        gen1_id = format_activation_id("ENGINE_EURUSD_H1", "H1", "EURUSD", "SET_1", "TJL1", 1)
-        gen2_id = format_activation_id("ENGINE_EURUSD_H1", "H1", "EURUSD", "SET_1", "TJL1", 2)
-        assert orig_act_id == gen1_id
-        assert gen2_id.startswith("ACT_G02[16:ENGINE_EURUSD_H1][2:H1][6:EURUSD][5:SET_1][4:TJL1]")
-        assert gen1_id.startswith("ACT_G01[16:ENGINE_EURUSD_H1][2:H1][6:EURUSD][5:SET_1][4:TJL1]")
+        # 6. Full lifecycle reactivation execution through engine:
+        # Restore UNUSED usage
+        engine.register_source_member(m_unused)
+
+        # External commit cancels level while inside zone
+        commit_evt = ExternalCommitEvent(
+            event_id="COMMIT_01",
+            timestamp=datetime(2026, 10, 2, 9, 45, tzinfo=timezone.utc),
+            sequence_domain=domain,
+            sequence_ref=130,
+            winning_engine_id="ENGINE_OTHER",
+            winning_set_id="SET_OTHER",
+            winning_role="TJL1",
+            target_symbol="EURUSD",
+            target_source_timeframe="H1",
+        )
+        snap_cancel = engine.process_event(commit_evt)
+        assert m_unused.member_key not in snap_cancel.active_activations
+        assert len(snap_cancel.terminal_activations) == 1
+        term_rec = snap_cancel.terminal_activations[0]
+        assert term_rec.activation_id == gen1_act_id
+        assert term_rec.generation_seq == 1
+        assert term_rec.state == ActivationState.CANCELLED_EXTERNAL_ENTRY
+
+        # RearmController initialized with generation_seq = 2 (cancelled_record.generation_seq + 1)
+        ctrl = snap_cancel.rearm_controllers[m_unused.member_key]
+        assert ctrl.generation_seq == 2
+        assert ctrl.generation_seq == term_rec.generation_seq + 1
+        assert ctrl.prior_activation_id == gen1_act_id
+        assert ctrl.rearm_armed is False
+        assert ctrl.state == ActivationState.CANCELLED_EXTERNAL_ENTRY
+
+        # Departure print outside zone arms controller
+        print_outside = ExactPricePrint(
+            observation_id="OBS_DEPART",
+            price=1.1450,
+            price_basis=PriceBasis.BID,
+            timestamp=datetime(2026, 10, 2, 10, 0, tzinfo=timezone.utc),
+            sequence_domain=domain,
+            sequence_ref=135,
+        )
+        snap_armed = engine.process_event(print_outside)
+        ctrl_armed = snap_armed.rearm_controllers[m_unused.member_key]
+        assert ctrl_armed.rearm_armed is True
+        assert ctrl_armed.state == ActivationState.OUT_OF_ZONE_ARMED
+        assert ctrl_armed.last_observed_position == "OUTSIDE"
+        assert ctrl_armed.generation_seq == 2
+
+        # Retouch print inside zone executes reactivation into generation 2
+        print_retouch = ExactPricePrint(
+            observation_id="OBS_RETOUCH",
+            price=1.1375,
+            price_basis=PriceBasis.BID,
+            timestamp=datetime(2026, 10, 2, 10, 15, tzinfo=timezone.utc),
+            sequence_domain=domain,
+            sequence_ref=140,
+        )
+        snap_reactivated = engine.process_event(print_retouch)
+        assert m_unused.member_key in snap_reactivated.active_activations
+        rec_gen2 = snap_reactivated.active_activations[m_unused.member_key]
+        assert rec_gen2.state == ActivationState.REARMED_PENDING
+        assert rec_gen2.generation_seq == 2
+        assert rec_gen2.prior_activation_id == gen1_act_id
+        expected_gen2_id = format_activation_id("ENGINE_EURUSD_H1", "H1", "EURUSD", "SET_1", "TJL1", 2)
+        assert rec_gen2.activation_id == expected_gen2_id
+        assert m_unused.member_key not in snap_reactivated.rearm_controllers
