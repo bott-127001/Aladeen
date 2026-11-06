@@ -1527,7 +1527,7 @@ class TestActivationDashboardIntegration:
         assert coord_b.engine.create_checkpoint() == cp_b_before
 
     def test_same_session_overlapping_operations_are_serialized(self) -> None:
-        """Directive HANDOFF-072: Event-driven verification that concurrent operations on the same session are strictly serialized."""
+        """Directive HANDOFF-073: Acknowledged instrumented lock contention verifies same-session operations are serialized."""
         import threading
         import time
         from aladeen.strategy.service import ActivationSessionRegistry
@@ -1535,54 +1535,86 @@ class TestActivationDashboardIntegration:
         reg = ActivationSessionRegistry(max_sessions=10)
         session_id = "session_concurrent_test"
 
+        # Prime the session and per-session lock in the registry
+        reg.get_or_create(session_id)
+        underlying_lock = reg._session_locks[session_id]
+
+        w2_acquisition_attempted = threading.Event()
         t1_entered = threading.Event()
         t1_can_release = threading.Event()
         t2_entered = threading.Event()
-        t2_completed = threading.Event()
+        execution_timeline = []
         worker_exceptions = []
+
+        class InstrumentedLock:
+            def acquire(self, *args, **kwargs):
+                if threading.current_thread() is th2:
+                    w2_acquisition_attempted.set()
+                return underlying_lock.acquire(*args, **kwargs)
+
+            def release(self):
+                return underlying_lock.release()
+
+            def __enter__(self):
+                return self.acquire()
+
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                return self.release()
+
+        reg._session_locks[session_id] = InstrumentedLock()
 
         def worker1() -> None:
             try:
                 with reg.session_operation(session_id) as coord:
+                    execution_timeline.append(("w1_enter", time.perf_counter()))
                     t1_entered.set()
                     if not t1_can_release.wait(timeout=4.0):
                         raise TimeoutError("worker1 timed out waiting for release signal")
+                    execution_timeline.append(("w1_exit", time.perf_counter()))
             except Exception as e:
                 worker_exceptions.append(("worker1", e))
 
         def worker2() -> None:
             try:
+                # Worker 2 attempts lease; will trigger w2_acquisition_attempted inside instrumented lock
                 with reg.session_operation(session_id) as coord:
+                    execution_timeline.append(("w2_enter", time.perf_counter()))
                     t2_entered.set()
-                t2_completed.set()
+                    execution_timeline.append(("w2_exit", time.perf_counter()))
             except Exception as e:
                 worker_exceptions.append(("worker2", e))
 
         th1 = threading.Thread(target=worker1, daemon=True)
         th2 = threading.Thread(target=worker2, daemon=True)
 
-        th1.start()
-        assert t1_entered.wait(timeout=2.0), "Worker 1 failed to acquire initial lease"
+        try:
+            th1.start()
+            assert t1_entered.wait(timeout=2.0), "Worker 1 failed to acquire initial lease"
 
-        # Worker 2 attempts to acquire the lease on the same session
-        th2.start()
+            th2.start()
+            # Explicitly wait for Worker 2 to reach the lock acquisition boundary and attempt acquisition
+            assert w2_acquisition_attempted.wait(timeout=2.0), "Worker 2 did not attempt lock acquisition"
 
-        # Deterministically assert Worker 2 CANNOT enter while Worker 1 is inside lease
-        time.sleep(0.05)
-        assert t2_entered.is_set() is False, "Worker 2 entered lease concurrently with Worker 1!"
+            # Assert Worker 2 has NOT entered the critical section while Worker 1 holds the lease
+            assert t2_entered.is_set() is False, "Worker 2 entered lease concurrently with Worker 1!"
+        finally:
+            # Reliable cleanup: ensure Worker 1 always releases so threads do not leak
+            t1_can_release.set()
 
-        # Signal Worker 1 to release lease
-        t1_can_release.set()
         th1.join(timeout=2.0)
-        assert not th1.is_alive()
+        assert not th1.is_alive(), "Worker 1 failed to terminate"
 
-        # Worker 2 must now unblock, acquire the lease, and complete
+        # Worker 2 now unblocks, acquires the released lock, and enters
         assert t2_entered.wait(timeout=2.0), "Worker 2 failed to acquire lease after Worker 1 release"
-        assert t2_completed.wait(timeout=2.0), "Worker 2 failed to complete execution"
         th2.join(timeout=2.0)
-        assert not th2.is_alive()
+        assert not th2.is_alive(), "Worker 2 failed to terminate"
 
         assert worker_exceptions == [], f"Worker threads encountered unexpected exceptions: {worker_exceptions}"
+
+        # Assert strict timeline serialization: Worker 1 exit must precede Worker 2 entry
+        w1_exit_time = [t for event, t in execution_timeline if event == "w1_exit"][0]
+        w2_enter_time = [t for event, t in execution_timeline if event == "w2_enter"][0]
+        assert w1_exit_time <= w2_enter_time, f"Execution overlapped: w1_exit={w1_exit_time}, w2_enter={w2_enter_time}"
 
     def test_capacity_pressure_cannot_reset_in_use_session(self) -> None:
         """Directive HANDOFF-071: Active in-use sessions are protected from LRU capacity eviction and reset."""
@@ -1763,10 +1795,10 @@ class TestActivationDashboardIntegration:
         assert c2.current_run_id != c1.current_run_id
 
     def test_application_boundary_session_initialization_and_refresh_retention(self) -> None:
-        """Directive HANDOFF-072: Real application initializes distinct session identities and retains identity across refresh."""
+        """Directive HANDOFF-073: Real application initializes distinct session identities and executes actual callback retention/normalization."""
         from aladeen.app import create_app
         from aladeen.ui.layout import build_layout
-        from aladeen.ui.msm_callbacks import register_msm_callbacks
+        from aladeen.ui.msm_callbacks import normalize_session_id, register_msm_callbacks
 
         app = create_app()
 
@@ -1789,19 +1821,89 @@ class TestActivationDashboardIntegration:
         assert sid2 is not None and isinstance(sid2, str) and sid2.startswith("session_")
         assert sid1 != sid2, f"Independent connections must have distinct session identities: {sid1} vs {sid2}"
 
-        # 3. Callback ensure_dashboard_session_id preserves existing session ID across steady refresh
-        # (Simulating Dash callback behavior during refresh)
-        update_opts, handle_ctrls = register_msm_callbacks(app)
-        # Find ensure_dashboard_session_id callback registered on app
+        # 3. Execute actual identity-normalization behavior (used by registered callback):
+        # Case A: Existing valid session ID -> strictly retained identically
+        assert normalize_session_id("session_user_tab_alpha") == "session_user_tab_alpha"
+        assert normalize_session_id(sid1) == sid1
+        assert normalize_session_id(sid2) == sid2
+
+        # Case B: Missing / blank session ID -> freshly generated valid session ID
+        fresh_none = normalize_session_id(None)
+        fresh_empty = normalize_session_id("")
+        fresh_spaces = normalize_session_id("   ")
+        assert fresh_none.startswith("session_") and len(fresh_none) > 10
+        assert fresh_empty.startswith("session_") and len(fresh_empty) > 10
+        assert fresh_spaces.startswith("session_") and len(fresh_spaces) > 10
+        assert fresh_none != fresh_empty, "Independent blank initializations must produce distinct session IDs"
+
+        # Case C: Verify registered callback delegates to normalize_session_id
         ensure_cb = None
         for callback_id, cb_obj in app.callback_map.items():
-            if "dashboard-session-id-store.data" in callback_id and "output" in callback_id:
+            if "dashboard-session-id-store.data" in callback_id:
                 ensure_cb = cb_obj.get("callback")
                 break
+        assert ensure_cb is not None, "ensure_dashboard_session_id callback not registered on Dash app"
+        cb_func = getattr(ensure_cb, "__wrapped__", ensure_cb)
+        assert cb_func(sid1) == sid1
+        assert cb_func(None).startswith("session_")
 
-        # Re-test ensure logic directly:
-        # Existing session ID sent from browser sessionStorage is retained exactly
-        retained_id = sid1
-        # Blank / missing session ID generates a fresh session ID
-        fresh_id = "session_fresh_test_uuid"
-        assert retained_id == sid1
+        # Note: Real browser sessionStorage persistence remains browser-unverified in this offline test.
+
+    def test_all_active_over_capacity_overflow_and_cleanup_after_release(self) -> None:
+        """Directive HANDOFF-073: Active in-use sessions temporarily exceed capacity target, then prune idle sessions on release."""
+        import threading
+        from aladeen.strategy.service import ActivationSessionRegistry
+
+        TARGET_CAPACITY = 2
+        reg = ActivationSessionRegistry(max_sessions=TARGET_CAPACITY)
+
+        s1_active = threading.Event()
+        s2_active = threading.Event()
+        s3_active = threading.Event()
+        can_release_all = threading.Event()
+        worker_errors = []
+
+        def active_holder(sid: str, ready_evt: threading.Event) -> None:
+            try:
+                with reg.session_operation(sid) as coord:
+                    ready_evt.set()
+                    if not can_release_all.wait(timeout=4.0):
+                        raise TimeoutError(f"{sid} timed out waiting for release")
+            except Exception as e:
+                worker_errors.append((sid, e))
+
+        t1 = threading.Thread(target=active_holder, args=("sess_act_1", s1_active), daemon=True)
+        t2 = threading.Thread(target=active_holder, args=("sess_act_2", s2_active), daemon=True)
+        t3 = threading.Thread(target=active_holder, args=("sess_act_3", s3_active), daemon=True)
+
+        try:
+            t1.start()
+            t2.start()
+            t3.start()
+
+            assert s1_active.wait(timeout=2.0)
+            assert s2_active.wait(timeout=2.0)
+            assert s3_active.wait(timeout=2.0)
+
+            # 1. While all 3 are actively inside their operational leases:
+            # Temporary active overflow beyond target capacity (3 > 2) is permitted because in-use sessions cannot be evicted.
+            assert reg.active_session_count == 3
+            assert len(reg._sessions) == 3
+            assert len(reg._session_locks) == 3
+            assert len(reg._active_leases) == 3
+        finally:
+            can_release_all.set()
+
+        t1.join(timeout=2.0)
+        t2.join(timeout=2.0)
+        t3.join(timeout=2.0)
+
+        assert worker_errors == [], f"Worker errors: {worker_errors}"
+
+        # 2. After all leases are released:
+        # Pruning runs upon release; idle sessions and their metadata are bounded down to target capacity.
+        assert reg.active_session_count <= TARGET_CAPACITY
+        assert len(reg._sessions) <= TARGET_CAPACITY
+        assert len(reg._session_locks) <= TARGET_CAPACITY
+        assert len(reg._active_leases) <= TARGET_CAPACITY
+        assert len(reg._session_incarnations) <= TARGET_CAPACITY

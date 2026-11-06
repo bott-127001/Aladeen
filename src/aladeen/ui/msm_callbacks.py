@@ -1397,6 +1397,20 @@ def _get_triggered_id() -> str:
     return ""
 
 
+def normalize_session_id(current_session_id: Optional[str]) -> str:
+    """Normalizes session ID: preserves existing non-empty string, or generates fresh unique UUID.
+
+    Rules:
+    - Existing valid non-blank session ID -> returned identically.
+    - Missing (None) or blank/whitespace string -> freshly generated UUID session_<hex16>.
+    - Distinct blank calls generate distinct UUIDs.
+    """
+    if current_session_id and isinstance(current_session_id, str) and current_session_id.strip():
+        return current_session_id
+    import uuid
+    return f"session_{uuid.uuid4().hex[:16]}"
+
+
 def register_msm_callbacks(app: Dash, adapter: Any = None) -> tuple[Any, Any]:
     """Register MSM-specific callbacks on *app* (observing active-request-store as Input, R13.1)."""
     # Callback 3: Update Starting Candle Dropdown Options from shared market-data snapshot
@@ -1426,10 +1440,7 @@ def register_msm_callbacks(app: Dash, adapter: Any = None) -> tuple[Any, Any]:
         Input("dashboard-session-id-store", "data"),
     )
     def ensure_dashboard_session_id(current_session_id: str | None) -> str:
-        if current_session_id and isinstance(current_session_id, str) and current_session_id.strip():
-            return current_session_id
-        import uuid
-        return f"session_{uuid.uuid4().hex[:16]}"
+        return normalize_session_id(current_session_id)
 
     # Callback 4: Handle MSM Controls, Application, and Inspection Panel
     @app.callback(

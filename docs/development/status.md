@@ -1418,3 +1418,44 @@ Last Updated: 2026-11-06 (Activation Engine Pure Offline Milestone Accepted — 
   3. *Engine Integrity*: Strictly zero modification to accepted strategy engines (`msm_engine`, `choch_engine`, `iss_engine`, `tjl_coordinator`, `activation_engine`, `activation_adapter`).
   4. *Core Ambiguities Preserved*: Upstream $c_1 == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
   5. *Branch Boundary*: Committed and pushed strictly on `feature/activation-dashboard`. No merging into `main`.
+
+
+### HANDOFF-073: Acknowledged Instrumented Lock Contention, Callback Session Normalization, and Active Capacity Overflow Tests
+- **Active Branch**: `feature/activation-dashboard`
+- **Immediate Parent Commit**: `ef7d2b974c891198eab745eefa68e5628dc305e3` (HANDOFF-072)
+- **Requirements Baseline Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d` (Milestone 26 / HANDOFF-066 accepted)
+- **Root Baseline Engine Commit**: `0867c740352297fb43e781fb654706218771d533` (Milestone 25 / HANDOFF-061)
+- **Objective**: Deliver complete closure of the three verification items requested by Perplexity for Milestone 27 acceptance:
+  1. *Callback Session Normalization Helper & Real Callback Delegation Execution (`src/aladeen/ui/msm_callbacks.py`, `tests/test_activation_dashboard_integration.py`)*:
+     - Extracted pure helper `normalize_session_id(current_session_id: Optional[str]) -> str` from callback closure.
+     - Callback `ensure_dashboard_session_id` directly delegates to `normalize_session_id`.
+     - Replaced session-retention tautology in `test_application_boundary_session_initialization_and_refresh_retention`: executes `normalize_session_id` directly across all valid and invalid cases (existing valid session ID preserved identically, None/empty/whitespace generates fresh UUID session, independent blank initializations yield distinct UUIDs) and executes unwrapped registered callback `cb_func(sid1)` and `cb_func(None)`.
+     - Layout callable dynamic initialization test (`app.layout()`) preserved.
+     - Live browser `sessionStorage` persistence explicitly acknowledged as browser-unverified in offline testing.
+  2. *Acknowledged Instrumented Lock Contention (`tests/test_activation_dashboard_integration.py`)*:
+     - Refactored `test_same_session_overlapping_operations_are_serialized` to eradicate sleep-based contention inference.
+     - Wrapped the session lock with `InstrumentedLock` which fires `w2_acquisition_attempted.set()` inside `acquire()` when Worker 2 attempts acquisition while Worker 1 holds the lease.
+     - Deterministically verified Worker 2 has not entered the critical section while Worker 1 holds the lease (`t2_entered.is_set() is False`).
+     - Installed robust thread cleanup in a `finally` block ensuring Worker 1 always signals release, avoiding thread leaks on assertion failures.
+     - Monitored monotonic timeline timestamps (`w1_exit`, `w2_enter`) and asserted strict serialization (`w1_exit <= w2_enter`).
+  3. *Active Leased Capacity Overflow & Release Pruning (`tests/test_activation_dashboard_integration.py`)*:
+     - Corrected capacity claim documentation: When all sessions are actively in-flight under operational leases, active sessions cannot be evicted; the registry temporarily accommodates in-use sessions beyond `max_sessions`. Idle sessions are pruned down to `max_sessions` upon lease release.
+     - Added `test_all_active_over_capacity_overflow_and_cleanup_after_release`: With target capacity 2, launches 3 concurrent threads holding active operational leases. Asserts that while all 3 are leased, active session count and metadata entries temporarily reach 3 without eviction. Upon release of all leases, asserts that pruning bounds active session count and all metadata collections (`_sessions`, `_session_locks`, `_active_leases`, `_session_incarnations`) back down to `TARGET_CAPACITY`.
+- **Completed Deliverables**:
+  1. [`src/aladeen/ui/msm_callbacks.py`](file:///src/aladeen/ui/msm_callbacks.py): Extracted `normalize_session_id()` pure helper and wired callback delegation.
+  2. [`tests/test_activation_dashboard_integration.py`](file:///tests/test_activation_dashboard_integration.py): 22 comprehensive integration tests (updated acknowledged lock contention, callback session normalization, and added all-active capacity overflow test).
+  3. [`docs/development/status.md`](file:///docs/development/status.md): HANDOFF-073 documentation.
+- **Verification Summary**:
+  - Activation dashboard integration suite: **22 / 22 passed** in 1.21s (`pytest tests/test_activation_dashboard_integration.py -q`).
+  - TJL dashboard integration suite: **32 / 32 passed** in 1.46s (`pytest tests/test_tjl_dashboard_integration.py -q`).
+  - App construction suite: **16 / 16 passed** in 1.26s (`pytest tests/test_app.py -q`).
+  - Full offline repository test suite: **542 / 542 passed** in 8.90s (`pytest -q tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py`).
+  - Reconciled Test Inventory: 520 baseline tests + 22 integration tests = 542 passing offline tests.
+  - Runtime Engine Modification Audit: Exactly zero modifications to strategy engines (`msm_engine`, `choch_engine`, `iss_engine`, `tjl_coordinator`, `activation_engine`, `activation_adapter`).
+  - Visual Limitation: Offline test suite verifies HTML DOM tree structure and Dash component properties; visual browser acceptance and browser `sessionStorage` remain unverified until live browser testing.
+- **Scope Compliance & Standing Invariants**:
+  1. *Pure Read-Only Presentation*: Strictly zero UI order execution, zero MT5 trading calls, zero live account modification.
+  2. *Downstream Invariant*: Strictly zero confirmation arbitration/selection, zero usage ledger writes, zero trade entry signals.
+  3. *Engine Integrity*: Strictly zero modification to accepted strategy engines (`msm_engine`, `choch_engine`, `iss_engine`, `tjl_coordinator`, `activation_engine`, `activation_adapter`).
+  4. *Core Ambiguities Preserved*: Upstream $c_1 == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
+  5. *Branch Boundary*: Committed and pushed strictly on `feature/activation-dashboard`. No merging into `main`.
