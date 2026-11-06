@@ -2835,3 +2835,37 @@ Last Updated: 2026-11-06 (Milestone 29 Release-Readiness Audit & Offline Runbook
   - Zero order execution, zero MT5 trading, zero live account modification, zero arbitration, zero usage ledger writes, zero final signal publication.
   - Core strategy engines (`msm_engine.py`, `choch_detector.py`, `iss_engine.py`, `tjl_coordinator.py`, `activation_engine.py`, `activation_adapter.py`) remain 100% untouched (0 diff against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`).
   - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
+
+
+---
+
+## 49. Milestone 33 — Bounded Offline Integration Proof for Source-to-Candidate Cases (HANDOFF-103)
+- **Active Branch**: `feature/confirmation-monitor`
+- **Parent Commit**: `3f7de9d7da935b3e05fcc4233a28555796486fb3` (Milestone 32 Accepted Baseline)
+- **Milestone Directive**: Implement and execute the proposed source-to-candidate integration proof cases against accepted engines on `feature/confirmation-monitor` in dedicated test suite `tests/test_source_to_candidate_integration.py`.
+- **Implementation & Architectural Proof Scope**:
+  1. *Genuine Source-to-Candidate Integration Chains*:
+     - `INT-03`: Genuine source level set and member emission from `TJLCoordinator` (`tjl_02_bearish_basic_end_to_end`) $\rightarrow$ atomic synchronization via `TJLSynchronizer.sync()` into `ActivationEngine` $\rightarrow$ exact physical `ExactPricePrint` touch at price 1.1825 within zone $\rightarrow$ independent continuous CHOCH detection via `MSMChochCoordinator` $\rightarrow$ confirming candle lookup + `ValidatedCandleStreamEnvelope` binding $\rightarrow$ `ConfirmationMatcher.match()` producing canonical `CandidateSetupRecord` with correct side (`SELL`), entry reference price, and length-prefixed canonical setup key.
+     - `INT-04`: Genuine source (`tjl_02_bearish_basic_end_to_end`) $\rightarrow$ `TJLSynchronizer.sync()` $\rightarrow$ exact `ExactPricePrint` touch $\rightarrow$ independent continuous ISS detection on canonical candles via `ISSEngine` $\rightarrow$ confirming candle lookup + `ValidatedCandleStreamEnvelope` binding $\rightarrow$ `ConfirmationMatcher.match()` producing canonical `CandidateSetupRecord`.
+  2. *Decisive Terminal Non-Revival Invariants*:
+     - `ACT-02`: Source set replacement (`tjl_06_pullback_t2_replacement_and_cancellation_intent`) $\rightarrow$ SET_1 touched to `PENDING_ACTIVATION` $\rightarrow$ bar 16 pullback completion transitions set to SET_2 with outgoing cancellation intent $\rightarrow$ `TJLSynchronizer.sync()` transitions SET_1 member activation to terminal `CANCELLED_SOURCE_REPLACEMENT` $\rightarrow$ `ConfirmationMatcher.match()` rejects fail-closed with `MEMBERSHIP_CANCELLED_OR_REPLACED`.
+     - `ACT-03`: Source Main CHOCH invalidation (`tjl_09_source_choch_eligibility_invalidation_and_gap`) $\rightarrow$ SET_1 touched to `PENDING_ACTIVATION` $\rightarrow$ bar 9 bearish CHOCH clears eligible set $\rightarrow$ `TJLSynchronizer.sync()` transitions activation to terminal `CANCELLED_SOURCE_CHOCH` $\rightarrow$ `ConfirmationMatcher.match()` rejects fail-closed with `INELIGIBLE_ACTIVATION_STATE`.
+  3. *Decoupled Rearm Controller and Generation 2 Lifecycle*:
+     - `ACT-01`: Rearm Path A (inside at cancel) $\rightarrow$ Gen 1 touch inside zone $\rightarrow$ external commit event while inside transitions Gen 1 `ActivationRecord` to terminal `CANCELLED_EXTERNAL_ENTRY` (permanently immutable in `terminal_activations`) and spawns decoupled `RearmController` in `last_observed_position="INSIDE"` $\rightarrow$ fresh physical outside observation strictly later than cancellation transitions controller to `OUT_OF_ZONE_ARMED` $\rightarrow$ fresh physical retouch print inside zone strictly later than departure spawns fresh linked Gen 2 `ActivationRecord` in `REARMED_PENDING` with `prior_activation_id` and `generation_seq=2` $\rightarrow$ stale Gen 1 confirmation rejected as `PRE_ACTIVATION_CONFIRMATION` $\rightarrow$ fresh Gen 2 confirmation matches producing canonical Gen 2 candidate.
+     - `ACT-04`: Rearm Path B (already outside at cancel) $\rightarrow$ Gen 1 touch inside $\rightarrow$ price moves outside zone $\rightarrow$ external commit event arrives when price is already outside $\rightarrow$ decoupled `RearmController` directly transitions to `OUT_OF_ZONE_ARMED` $\rightarrow$ fresh retouch print strictly later than cancellation creates Gen 2 `ActivationRecord` in `REARMED_PENDING`.
+  4. *Equal-Time Causal Ordering Matrix*:
+     - `ORD-01`: Timestamp tie ($T_{\text{confirm}} == T_{\text{touch}}$) without sequence reference rejects fail-closed as `UNKNOWN_ORDER`.
+     - `ORD-02`: Contradictory cross-domain sequence references reject as `CROSS_DOMAIN_ORDERING_REJECTED`.
+     - `ORD-03`: Sequence reference $\le$ touch sequence reference rejects as `PRE_ACTIVATION_CONFIRMATION`.
+     - `ORD-04`: Strictly later sequence reference in matching domain matches cleanly.
+  5. *Repeated Evaluation Determinism & Immutability*:
+     - Repeated evaluations under identical context yield identical candidate setup keys (`CSK`) and identical entry reference prices.
+     - Input mappings (`current_members`, `source_resolution_status`) remain strictly frozen and unmutated across match executions.
+- **Verification Summary**:
+  - Offline integration proof suite: **8 / 8 passed** in 0.70s (`pytest tests/test_source_to_candidate_integration.py -v`).
+  - Full offline repository test suite: **651 / 651 passed** in 13.30s (`pytest tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py --ignore=tests/test_activation_browser_controlled.py --ignore=tests/activation_browser_runner.py --ignore=tests/activation_browser_harness.py --ignore=tests/test_browser_race_controlled.py --ignore=tests/test_choch_browser_verification.py --ignore=tests/browser_check.py`).
+  - Core strategy engine purity: **0 diff** against `3f6689c194c95ca3761833f8831bb8a3f5b4740d` across `msm_engine.py`, `choch_detector.py`, `iss_engine.py`, `tjl_coordinator.py`, `activation_engine.py`, `activation_adapter.py`.
+- **Safety Boundary Maintained**:
+  - Pure offline read-only integration test proof. Zero MT5 live trading calls, zero order execution, zero account modification.
+  - Zero candidate arbitration, zero usage ledger writes, zero final signal publication, zero automated trading.
+  - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
