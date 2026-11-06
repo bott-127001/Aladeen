@@ -2524,3 +2524,26 @@ Last Updated: 2026-11-06 (Milestone 29 Release-Readiness Audit & Offline Runbook
   - *Demonstrated Continuous Detection*: `test_actual_candle_derived_choch_pattern_pre_tap_formation_post_tap_completion` proves that a genuine candle-derived CHOCH pattern beginning before activation tap (candle 1/4/5) and completing afterward (candle 9) matches against a valid H4 activation tapped at candle 7 without restarting pattern recognition.
   - *Authoritative ISS Branch*: Validated against genuine candle-derived `iss_02` fixture (2-candle internal pullbacks under accepted detector contract).
   - *Blocked ISS Branch*: Any ISS confirmation exhibiting unresolved dependencies (such as multi-candle pullback ambiguity) is strictly blocked fail-closed as `BLOCKED_UNRESOLVED_CONFIRMATION_GAP` without manufacturing completion records or introducing candle-count heuristics.
+
+
+---
+
+## 39. Milestone 31 — Offline Confirmation Matcher Hardening (HANDOFF-093)
+- **Active Branch**: eature/confirmation-monitor
+- **Parent Commit**: 2b0add94fb6f8c1621231675ef5edb359675378c (HANDOFF-092)
+- **Defects Addressed in HANDOFF-093 (Review Directives 1–8)**:
+  1. *Authoritative Domain Scoping for Sequence Comparison*: Required authoritative domain context for sequence evaluation; fail closed on absent/contradictory evidence domain or sequence domain.
+  2. *Complete Evidence Semantics for Duplicate Detection*: match_batch() validates duplicates using complete immutable equality (ev1 == ev2) across all fields (including completion, unresolved dependencies, isolated tracking, structural refs, domain, sequence, price provenance). Any mismatch under the same event_id fails closed as CONFLICTING_IDENTITY.
+  3. *Zero Arbitrary Float Tolerances & Strict Physical Level Identity*: Replaced all arbitrary 1e-6 price and identity tolerances with exact equality. Physical level identity (level_id) is strictly required on both activation and registered member.
+  4. *Preservation of Unknown Completion Time & Zero Wall-Clock*: Unknown completion time is preserved truthfully with close_timestamp=None and is_completed=False (no candle-open or epoch substitution). Zero wall-clock dependence across all adapters and matcher.
+  5. *Candle Interval Duration & Association Validation*: Validates confirming candle interval duration against declared timeframe (H1 = 1 hour, M5 = 5 min, M1 = 1 min). Rejects relabeling hourly candles as M5.
+  6. *Truthful MTF Candle Adaptation in Tests*: Tested candle-derived continuous CHOCH using truthful D1 source -> H1 confirmation mapping. Tested candle-derived ISS with truthful D1 source -> H1 confirmation while blocking unresolved multi-candle pullback gaps (BLOCKED_UNRESOLVED_CONFIRMATION_GAP).
+  7. *Retrievable Batch Match Result Separation*: BatchMatchResult provides unique_candidates: Tuple[CandidateSetupRecord, ...] separately from pair-level diagnostics, deterministically sorted and invariant to input order permutations.
+- **Verification Summary**:
+  - Focused confirmation matcher test suite: **32/32 passed in 0.66s** (pytest tests/test_confirmation_matcher.py).
+  - Full offline repository test suite: **607/607 passed in 8.22s** (pytest tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py --ignore=tests/test_activation_browser_controlled.py --ignore=tests/activation_browser_runner.py --ignore=tests/activation_browser_harness.py --ignore=tests/test_browser_race_controlled.py --ignore=tests/test_choch_browser_verification.py --ignore=tests/browser_check.py).
+- **Safety Boundary Maintained**:
+  - Pure offline matcher, adapters, and value objects only.
+  - Strategy engines (msm_engine.py, choch_detector.py, iss_engine.py, 	jl_coordinator.py, ctivation_engine.py, ctivation_adapter.py) remain 100% untouched (0 diff against 3f6689c194c95ca3761833f8831bb8a3f5b4740d).
+  - Zero live MT5 trading, zero UI order execution, zero arbitration, zero usage consumption, zero automated trading.
+  - Dedicated branch: eature/confirmation-monitor. Never merge into main.

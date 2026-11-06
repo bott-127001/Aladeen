@@ -12,8 +12,9 @@ Scope & Design Boundary:
 - Explicit diagnostic results for all rejected, blocked, or uncertain associations.
 - Strict authoritative gating: missing authority fails closed.
 - Strict causal ordering: cross-domain bare integers are rejected; evaluation availability enforced.
-- Batch consolidation validates conflicts, deduplicates identical evidence, and produces
-  unique candidates with deterministic output sorting invariant to input permutations.
+- Batch consolidation validates conflicts using complete evidence equality, deduplicates
+  identical evidence, and produces unique candidates with deterministic output sorting
+  invariant to input permutations.
 - Zero wall-clock dependence: evaluation time is an explicit required parameter.
 """
 
@@ -128,29 +129,27 @@ class ConfirmationMatcher:
                     f"Member {activation.member_key} is not registered in current eligible members"
                 )
             else:
-                # Full member-to-activation consistency verification
+                # Full member-to-activation consistency verification (exact equality without arbitrary tolerances)
                 if (
                     current_member.engine_id != activation.engine_id
                     or current_member.symbol != activation.symbol
                     or current_member.source_timeframe != activation.source_timeframe
                     or current_member.set_id != activation.set_id
                     or current_member.role != activation.role
-                    or abs(current_member.lower_edge - activation.lower_edge) > 1e-6
-                    or abs(current_member.upper_edge - activation.upper_edge) > 1e-6
+                    or current_member.lower_edge != activation.lower_edge
+                    or current_member.upper_edge != activation.upper_edge
                     or current_member.usage_evidence_status != activation.usage_evidence_status
                 ):
                     rejection_reasons.append(ConfirmationRejectionReason.CONTEXT_MISMATCH)
                     diagnostic_messages.append(
                         f"Activation {activation.activation_id} contradicts registered member {activation.member_key}"
                     )
-                if (
-                    current_member.level_id is not None
-                    and activation.level_id is not None
-                    and current_member.level_id != activation.level_id
-                ):
+
+                # Physical level identity must be present and identical
+                if current_member.level_id is None or activation.level_id is None or current_member.level_id != activation.level_id:
                     rejection_reasons.append(ConfirmationRejectionReason.CONTEXT_MISMATCH)
                     diagnostic_messages.append(
-                        f"Physical level mismatch between activation and registered member"
+                        f"Physical level mismatch or missing level identity between activation and registered member"
                     )
 
         # 2. Contradictory Explicit Association Fields Gating
@@ -173,17 +172,13 @@ class ConfirmationMatcher:
                 f"Config mismatch: expected {context.expected_confirmation_config_id}, got {evidence.confirmation_config_id}"
             )
 
-        if evidence.symbol is not None and evidence.symbol != activation.symbol:
+        if evidence.symbol != activation.symbol:
             rejection_reasons.append(ConfirmationRejectionReason.CONTEXT_MISMATCH)
             diagnostic_messages.append(
                 f"Symbol mismatch: activation has {activation.symbol}, evidence has {evidence.symbol}"
             )
 
-        if (
-            activation.level_id is not None
-            and evidence.feed_id is not None
-            and activation.level_id.symbol_feed_id != evidence.feed_id
-        ):
+        if activation.level_id is not None and evidence.feed_id != activation.level_id.symbol_feed_id:
             rejection_reasons.append(ConfirmationRejectionReason.CONTEXT_MISMATCH)
             diagnostic_messages.append(
                 f"Feed mismatch: activation has {activation.level_id.symbol_feed_id}, evidence has {evidence.feed_id}"
@@ -195,10 +190,7 @@ class ConfirmationMatcher:
                 f"Price basis mismatch: expected {context.expected_price_basis.value}, got {evidence.price_basis.value}"
             )
 
-        if (
-            evidence.sequence_domain is not None
-            and evidence.sequence_domain != context.matching_sequence_domain
-        ):
+        if evidence.sequence_domain != context.matching_sequence_domain:
             rejection_reasons.append(ConfirmationRejectionReason.CONTEXT_MISMATCH)
             diagnostic_messages.append(
                 f"Sequence domain mismatch: expected {context.matching_sequence_domain}, got {evidence.sequence_domain}"
@@ -214,7 +206,10 @@ class ConfirmationMatcher:
                 )
 
         # 5. Evaluation Availability Boundary Gating
-        if evidence.close_timestamp > context.evaluation_time:
+        if evidence.close_timestamp is None:
+            rejection_reasons.append(ConfirmationRejectionReason.INCOMPLETE_EVIDENCE)
+            diagnostic_messages.append(f"Evidence {evidence.event_id} has no completed close_timestamp")
+        elif evidence.close_timestamp > context.evaluation_time:
             rejection_reasons.append(ConfirmationRejectionReason.EVIDENCE_NOT_YET_AVAILABLE)
             diagnostic_messages.append(
                 f"Evidence close {evidence.close_timestamp.isoformat()} is in future relative to evaluation boundary {context.evaluation_time.isoformat()}"
@@ -277,7 +272,7 @@ class ConfirmationMatcher:
         if activation.first_touch_time is None:
             rejection_reasons.append(ConfirmationRejectionReason.INELIGIBLE_ACTIVATION_STATE)
             diagnostic_messages.append(f"Activation {activation.activation_id} has no first_touch_time")
-        else:
+        elif evidence.close_timestamp is not None:
             if evidence.close_timestamp < activation.first_touch_time:
                 # Completed strictly before tap cannot be reused (§7, sig_05)
                 rejection_reasons.append(ConfirmationRejectionReason.PRE_ACTIVATION_CONFIRMATION)
@@ -286,7 +281,7 @@ class ConfirmationMatcher:
                     f"first tap {activation.first_touch_time.isoformat()}"
                 )
             elif evidence.close_timestamp == activation.first_touch_time:
-                # Shared coarse interval / same timestamp: validate domain-scoped sequence ordering
+                # Shared coarse interval / same timestamp: require domain authority for sequence comparison
                 touch_ev: Optional[TouchSequenceEvidence] = None
                 if context.touch_sequence_evidence:
                     touch_ev = context.touch_sequence_evidence.get(activation.activation_id)
@@ -297,7 +292,7 @@ class ConfirmationMatcher:
                     # Validate domain comparability: cross-domain integers cannot establish order
                     if (
                         touch_ev.sequence_domain != context.matching_sequence_domain
-                        or (evidence.sequence_domain is not None and evidence.sequence_domain != context.matching_sequence_domain)
+                        or evidence.sequence_domain != context.matching_sequence_domain
                     ):
                         rejection_reasons.append(ConfirmationRejectionReason.CROSS_DOMAIN_ORDERING_REJECTED)
                         diagnostic_messages.append(
@@ -321,7 +316,7 @@ class ConfirmationMatcher:
 
         # 10. Fresh Evidence for Rearmed Generation (§9)
         if activation.state == ActivationState.REARMED_PENDING and activation.generation_seq > 1:
-            if activation.first_touch_time is not None and evidence.close_timestamp < activation.first_touch_time:
+            if activation.first_touch_time is not None and evidence.close_timestamp is not None and evidence.close_timestamp < activation.first_touch_time:
                 rejection_reasons.append(ConfirmationRejectionReason.STALE_EVIDENCE_FOR_GENERATION)
                 diagnostic_messages.append(
                     f"Confirmation close {evidence.close_timestamp.isoformat()} is stale for generation {activation.generation_seq}"
@@ -348,6 +343,7 @@ class ConfirmationMatcher:
             )
 
         # 11. Candidate Setup Construction (Milestone 30 §6.1, §6.4)
+        assert evidence.close_timestamp is not None
         setup_key = format_candidate_setup_key(
             domain_session_id=context.domain_session_id,
             revision_id=context.revision_id,
@@ -405,11 +401,11 @@ class ConfirmationMatcher:
     ) -> BatchMatchResult:
         """Evaluates associations across activations and confirmation evidences.
 
-        1. Validates input evidence identities: deduplicates identical events and
-           rejects conflicting identities fail-closed.
+        1. Validates input evidence identities: deduplicates identical events using complete
+           immutable evidence equality (ev1 == ev2), and rejects conflicting event IDs fail-closed.
         2. Evaluates all valid (activation, evidence) pairs.
-        3. Validates shared-setup consistency: checks for conflicting prices, sides, or
-           bases before consolidation.
+        3. Validates shared-setup consistency: checks for conflicting prices, sides, bases, or
+           close timestamps using exact equality before consolidation.
         4. Consolidates CHOCH + ISS evidence sharing identical CandidateSetupKey under OPEN-07.
         5. Returns unique candidate setups separately from pair-level diagnostics,
            sorted deterministically by setup_key (permutation invariant).
@@ -417,7 +413,7 @@ class ConfirmationMatcher:
         if not isinstance(context, MatchingContext):
             raise TypeError("context must be a valid MatchingContext instance")
 
-        # 1. Evidence Identity Validation & Deduplication
+        # 1. Complete Evidence Identity Validation & Deduplication
         evidences_by_id: Dict[str, List[ConfirmationEvidenceRecord]] = {}
         for ev in evidences:
             evidences_by_id.setdefault(ev.event_id, []).append(ev)
@@ -427,20 +423,8 @@ class ConfirmationMatcher:
 
         for evt_id, ev_list in sorted(evidences_by_id.items(), key=lambda x: x[0]):
             first = ev_list[0]
-            has_conflict = False
-            for other in ev_list[1:]:
-                if (
-                    other.pattern_type != first.pattern_type
-                    or other.confirmation_config_id != first.confirmation_config_id
-                    or other.confirmation_timeframe != first.confirmation_timeframe
-                    or other.confirmation_candle_id != first.confirmation_candle_id
-                    or other.close_timestamp != first.close_timestamp
-                    or abs(other.close_price - first.close_price) > 1e-6
-                    or other.price_basis != first.price_basis
-                    or other.direction != first.direction
-                ):
-                    has_conflict = True
-                    break
+            # Use complete immutable evidence equality across all fields
+            has_conflict = any(other != first for other in ev_list[1:])
             if has_conflict:
                 conflicted_event_ids.add(evt_id)
             else:
@@ -449,7 +433,7 @@ class ConfirmationMatcher:
         # 2. Pair Evaluation
         raw_results: List[ConfirmationMatchResult] = []
         for act in activations:
-            # First handle conflicted evidence events
+            # First emit explicit failure for conflicted duplicate events
             for evt_id in sorted(conflicted_event_ids):
                 match_id = f"MATCH[{len(act.activation_id)}:{act.activation_id}][{len(evt_id)}:{evt_id}]"
                 raw_results.append(
@@ -482,17 +466,16 @@ class ConfirmationMatcher:
 
         for k, cand_list in sorted(candidates_by_key.items(), key=lambda x: x[0]):
             first = cand_list[0]
-            # Validate consistency across all candidates sharing this setup key
-            has_setup_conflict = False
-            for other in cand_list[1:]:
-                if (
+            # Validate exact consistency across all candidates sharing this setup key (no 1e-6 tolerance)
+            has_setup_conflict = any(
+                (
                     other.signal_side != first.signal_side
                     or other.price_basis != first.price_basis
-                    or abs(other.entry_reference_price - first.entry_reference_price) > 1e-6
+                    or other.entry_reference_price != first.entry_reference_price
                     or other.confirmation_close_timestamp != first.confirmation_close_timestamp
-                ):
-                    has_setup_conflict = True
-                    break
+                )
+                for other in cand_list[1:]
+            )
 
             if has_setup_conflict:
                 conflicted_setup_keys.add(k)

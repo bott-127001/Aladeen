@@ -144,11 +144,14 @@ SUPPORTED_CONFIRMATION_TIMEFRAMES = frozenset({"H1", "M5", "M1"})
 class ConfirmationEvidenceRecord:
     """Authoritative, immutable evidence record emitted by a confirmation detector.
 
-    Observational fields:
+    Required context binding:
+    - symbol: Explicit market symbol (e.g. 'EURUSD').
+    - feed_id: Explicit market data feed identifier.
+    - sequence_domain: Explicit SequenceDomain ensuring causal comparability.
+    - close_timestamp: Explicit UTC close timestamp, or None if unknown (which enforces is_completed=False).
     - direction: Explicit observational direction (UPWARD/DOWNWARD) captured directly from
       the detector's structural output. Direction is never inferred from producer names or IDs.
-    - structural_dependency_references: Explicit structural provenance identifiers (e.g.
-      underlying swing points, broken levels, or zone geometries) establishing verifiable origin.
+    - structural_dependency_references: Explicit structural provenance identifiers establishing verifiable origin.
     """
     event_id: str
     producer_id: str
@@ -156,17 +159,17 @@ class ConfirmationEvidenceRecord:
     confirmation_config_id: str
     confirmation_timeframe: str
     confirmation_candle_id: str
-    close_timestamp: datetime
+    symbol: str
+    feed_id: str
+    sequence_domain: SequenceDomain
     close_price: float
     price_basis: PriceBasis
     direction: Direction
+    close_timestamp: Optional[datetime] = None
     price_provenance: str = "CONFIRMATION_CANDLE_CLOSE"
     is_completed: bool = True
     has_unresolved_dependencies: bool = False
     structural_dependency_references: Tuple[str, ...] = field(default_factory=tuple)
-    symbol: Optional[str] = None
-    feed_id: Optional[str] = None
-    sequence_domain: Optional[SequenceDomain] = None
     sequence_ref: Optional[int] = None
     is_isolated_tracking: bool = False
     activation_id: Optional[str] = None
@@ -186,8 +189,20 @@ class ConfirmationEvidenceRecord:
             raise ValueError(f"Unsupported confirmation_timeframe {self.confirmation_timeframe!r}")
         if not isinstance(self.confirmation_candle_id, str) or not self.confirmation_candle_id.strip():
             raise ValueError("confirmation_candle_id must be non-empty string")
-        norm_time = validate_and_normalize_timestamp(self.close_timestamp, "close_timestamp")
-        object.__setattr__(self, "close_timestamp", norm_time)
+        if not isinstance(self.symbol, str) or not self.symbol.strip():
+            raise ValueError("symbol must be non-empty string")
+        if not isinstance(self.feed_id, str) or not self.feed_id.strip():
+            raise ValueError("feed_id must be non-empty string")
+        if not isinstance(self.sequence_domain, SequenceDomain):
+            raise TypeError("sequence_domain must be SequenceDomain instance")
+
+        if self.close_timestamp is not None:
+            norm_time = validate_and_normalize_timestamp(self.close_timestamp, "close_timestamp")
+            object.__setattr__(self, "close_timestamp", norm_time)
+        else:
+            # Unknown completion time: cannot be an authoritative completed confirmation
+            object.__setattr__(self, "is_completed", False)
+
         if not math.isfinite(self.close_price) or self.close_price <= 0:
             raise ValueError(f"close_price must be finite positive float, got {self.close_price}")
         if not isinstance(self.price_basis, PriceBasis):

@@ -9,15 +9,18 @@ Scope & Design Boundary:
     Bearish Main ISS -> UPWARD internal shift). Direction is NEVER inferred from producer names or IDs.
   * Structural dependency references are captured as explicit, auditable provenance references.
 - Provenance integrity:
-  * Completion requires authoritative candle-close confirmation time (no candle-open completion fabrication).
-  * Incomplete or unknown-time events preserve is_completed=False and fail closed.
+  * Completion requires authoritative candle-close confirmation time. Unknown completion time preserves
+    close_timestamp=None and is_completed=False without candle-open or Unix epoch substitution.
   * Close price provenance is anchored strictly to candle-close prints without unverified overrides.
+  * Timeframe consistency: validates that confirming candle intervals match declared confirmation timeframes
+    (no relabeling of hourly candles as M5).
+  * Zero wall-clock dependence: zero datetime.now() calls.
 - Strictly read-only calculation logic. Zero order execution, zero network access.
 """
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, List, Optional, Sequence, Tuple
 
 from .activation_types import PriceBasis, SequenceDomain
@@ -26,18 +29,24 @@ from .confirmation_types import ConfirmationEvidenceRecord
 from .iss_types import ConfirmedISSEvent
 from .types import Direction, StrategyCandle, validate_and_normalize_timestamp
 
+TIMEFRAME_DURATION_MAP = {
+    "H1": timedelta(hours=1),
+    "M5": timedelta(minutes=5),
+    "M1": timedelta(minutes=1),
+}
+
 
 def adapt_confirmed_choch_to_evidence(
     choch: ConfirmedChoch,
     confirmation_config_id: str,
     confirmation_timeframe: str,
     confirmation_candle_id: str,
+    symbol: str,
+    feed_id: str,
+    sequence_domain: SequenceDomain,
     close_price: Optional[float] = None,
     price_basis: PriceBasis = PriceBasis.BID,
     confirming_candle: Optional[StrategyCandle] = None,
-    symbol: Optional[str] = None,
-    feed_id: Optional[str] = None,
-    sequence_domain: Optional[SequenceDomain] = None,
     sequence_ref: Optional[int] = None,
     is_isolated_tracking: bool = False,
     has_unresolved_dependencies: bool = False,
@@ -51,10 +60,11 @@ def adapt_confirmed_choch_to_evidence(
     - ChochType.BEARISH_CHOCH -> Direction.DOWNWARD (Intended for SELL trade side)
 
     Completion Provenance:
-    - Requires authoritative confirmation_time. If confirmation_time is missing,
-      is_completed is marked False (no fabrication from candle open time).
+    - If confirmation_time is missing and no completed confirming_candle is provided,
+      close_timestamp is None and is_completed is marked False (zero candle-open substitution).
     - If confirming_candle is provided, validates that candle index matches c2_candle_index,
-      that the candle is not forming, and anchors close_price directly to candle close.
+      that the candle is completed, that its duration matches confirmation_timeframe, and
+      anchors close_price directly to candle close.
     """
     if choch.choch_type == ChochType.BULLISH_CHOCH:
         mapped_direction = Direction.UPWARD
@@ -73,18 +83,28 @@ def adapt_confirmed_choch_to_evidence(
             )
         if confirming_candle.is_forming or confirming_candle.bar_status != "CONFIRMED_COMPLETED":
             is_completed = False
+
+        # Validate timeframe duration integrity (no relabeling of H1 as M5)
+        c_open = confirming_candle.open_time
+        c_close = getattr(confirming_candle, "close_time", None)
+        if c_open is not None and c_close is not None:
+            expected_dur = TIMEFRAME_DURATION_MAP.get(confirmation_timeframe)
+            if expected_dur is not None and (c_close - c_open) != expected_dur:
+                raise ValueError(
+                    f"Candle interval duration {c_close - c_open} contradicts declared confirmation_timeframe {confirmation_timeframe}"
+                )
+
         eff_close_price = confirming_candle.close
-        if close_time is None and not confirming_candle.is_forming:
-            close_time = getattr(confirming_candle, "close_time", None)
+        if close_time is None and not confirming_candle.is_forming and c_close is not None:
+            close_time = c_close
     else:
         if close_price is None:
             raise ValueError("Must provide either confirming_candle or close_price")
         eff_close_price = close_price
 
     if close_time is None:
-        # Unknown completion time: preserve as incomplete / unverified; do NOT fabricate from open time!
+        # Unknown completion time: preserve as None and incomplete without open-time substitution
         is_completed = False
-        close_time = choch.c2_open_time
 
     # Capture explicit structural provenance references
     structural_refs: List[str] = [
@@ -104,6 +124,9 @@ def adapt_confirmed_choch_to_evidence(
         confirmation_config_id=confirmation_config_id,
         confirmation_timeframe=confirmation_timeframe,
         confirmation_candle_id=confirmation_candle_id,
+        symbol=symbol,
+        feed_id=feed_id,
+        sequence_domain=sequence_domain,
         close_timestamp=close_time,
         close_price=eff_close_price,
         price_basis=price_basis,
@@ -112,9 +135,6 @@ def adapt_confirmed_choch_to_evidence(
         is_completed=is_completed,
         has_unresolved_dependencies=has_unresolved_dependencies,
         structural_dependency_references=tuple(structural_refs),
-        symbol=symbol,
-        feed_id=feed_id,
-        sequence_domain=sequence_domain,
         sequence_ref=sequence_ref,
         is_isolated_tracking=is_isolated_tracking,
         activation_id=activation_id,
@@ -127,12 +147,12 @@ def adapt_confirmed_iss_to_evidence(
     confirmation_config_id: str,
     confirmation_timeframe: str,
     confirmation_candle_id: str,
+    symbol: str,
+    feed_id: str,
+    sequence_domain: SequenceDomain,
     close_price: Optional[float] = None,
     price_basis: PriceBasis = PriceBasis.BID,
     confirming_candle: Optional[StrategyCandle] = None,
-    symbol: Optional[str] = None,
-    feed_id: Optional[str] = None,
-    sequence_domain: Optional[SequenceDomain] = None,
     sequence_ref: Optional[int] = None,
     is_isolated_tracking: bool = False,
     has_unresolved_dependencies: bool = False,
@@ -151,6 +171,7 @@ def adapt_confirmed_iss_to_evidence(
     Completion Provenance:
     - Anchors close price strictly to iss.completion_close_price or confirming_candle.close.
     - If caller-supplied close_price conflicts with verified candle completion price, raises ValueError.
+    - Unknown completion time preserves close_timestamp=None without Unix epoch sentinel substitution.
     """
     if iss.main_direction == Direction.DOWNWARD:
         mapped_direction = Direction.UPWARD
@@ -169,20 +190,30 @@ def adapt_confirmed_iss_to_evidence(
             )
         if confirming_candle.is_forming or confirming_candle.bar_status != "CONFIRMED_COMPLETED":
             is_completed = False
+
+        # Validate timeframe duration integrity (no relabeling of H1 as M5)
+        c_open = confirming_candle.open_time
+        c_close = getattr(confirming_candle, "close_time", None)
+        if c_open is not None and c_close is not None:
+            expected_dur = TIMEFRAME_DURATION_MAP.get(confirmation_timeframe)
+            if expected_dur is not None and (c_close - c_open) != expected_dur:
+                raise ValueError(
+                    f"Candle interval duration {c_close - c_open} contradicts declared confirmation_timeframe {confirmation_timeframe}"
+                )
+
         eff_close_price = confirming_candle.close
-        if close_time is None and not confirming_candle.is_forming:
-            close_time = getattr(confirming_candle, "close_time", None)
+        if close_time is None and not confirming_candle.is_forming and c_close is not None:
+            close_time = c_close
     else:
         eff_close_price = iss.completion_close_price
 
-    if close_price is not None and abs(close_price - eff_close_price) > 1e-6:
+    if close_price is not None and close_price != eff_close_price:
         raise ValueError(
             f"Supplied close_price ({close_price}) conflicts with verified ISS completion price ({eff_close_price})"
         )
 
     if close_time is None:
         is_completed = False
-        close_time = datetime(1970, 1, 1, tzinfo=validate_and_normalize_timestamp(datetime.now(), "now").tzinfo)
 
     structural_refs: List[str] = [
         f"ISS_CANDIDATE:{iss.candidate_id}",
@@ -202,6 +233,9 @@ def adapt_confirmed_iss_to_evidence(
         confirmation_config_id=confirmation_config_id,
         confirmation_timeframe=confirmation_timeframe,
         confirmation_candle_id=confirmation_candle_id,
+        symbol=symbol,
+        feed_id=feed_id,
+        sequence_domain=sequence_domain,
         close_timestamp=close_time,
         close_price=eff_close_price,
         price_basis=price_basis,
@@ -210,9 +244,6 @@ def adapt_confirmed_iss_to_evidence(
         is_completed=is_completed,
         has_unresolved_dependencies=has_unresolved_dependencies,
         structural_dependency_references=tuple(structural_refs),
-        symbol=symbol,
-        feed_id=feed_id,
-        sequence_domain=sequence_domain,
         sequence_ref=sequence_ref,
         is_isolated_tracking=is_isolated_tracking,
         activation_id=activation_id,
