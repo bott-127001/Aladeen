@@ -1,7 +1,7 @@
 """Automated integrity checks for Trade-Signal acceptance fixtures — Milestone 30.
 
 Validates:
-1. Schema, authorities, and categories of all 26 trade-signal acceptance fixtures.
+1. Schema, authorities, and categories of all 31 trade-signal acceptance fixtures.
 2. Temporal consistency: all timestamps are valid UTC ISO strings; confirmation close >= tap time in valid signals.
 3. Directional concordance: Bullish structure requires Bullish CHOCH/ISS -> BUY; Bearish requires Bearish -> SELL.
 4. Pre-activation confirmation rejection: confirmations completed prior to tap cannot be reused (MTF-Analysis.pdf §7).
@@ -9,24 +9,31 @@ Validates:
    - Earliest close timestamp wins (MTF-Analysis.pdf §8).
    - Simultaneous close: lower confirmation timeframe wins (M1 < M5 < H1).
    - Simultaneous same-source: TJL2 / A+ wins over TJL1.
-6. One-trade-per-level usage accounting:
+   - Order-independent candidate arrival: arrival order does not affect winning candidate (sig_27).
+6. Cross-timeframe coverage & completeness:
+   - Incomplete coverage across participating timelines blocks arbitration fail-closed (sig_28).
+7. One-trade-per-level usage accounting:
    - Winning entry consumes its level (marks USED); cancelled competing levels remain UNUSED.
    - Used level cannot reactivate or produce repeat signals (MTF-Analysis.pdf §10).
-7. Rearming semantics:
-   - Departure followed by fresh touch allows reactivation (MTF-Analysis.pdf §9, OPEN-05).
+   - Scoped ledger namespace prevents cross-session level consumption (OPEN-08, sig_30).
+8. Rearming semantics:
+   - Departure followed by fresh touch transitions to REARMED_PENDING and allows signal (MTF-Analysis.pdf §9, OPEN-05).
    - Lingering inside zone without departure blocks rearming (MTF-Analysis.pdf §9 Q&A 25).
-8. Source invalidation triggers:
+9. Source invalidation triggers:
    - Source TJL replacement cancels pending activation (MTF-Analysis.pdf §9, OPEN-03).
    - Source Main CHOCH reverses direction and immediately cancels old-direction activation (MTF-Analysis.pdf §9 Q&A 24).
-9. Multiple confirmation consolidation (OPEN-07): single signal with multiple confirmation references.
-10. Chronological signal listing without hypothetical open position gating (OPEN-11).
-11. Fail-closed handling of unresolved strategy ambiguities:
-   - Source c1 == p2 unresolved structure blocks signal (Choch.pdf §1).
-   - ISS multi-candle pullback confirmation blocks signal with UNRESOLVED_CONFIRMATION_GAP.
-   - Unknown intra-candle ordering blocks signal with UNKNOWN_ORDER (OPEN-04).
-   - Forming / incomplete candle cannot confirm signal.
-12. Zero-width line boundary equality and deterministic replay (OPEN-09).
-13. Safety boundary enforcement: all signals carry is_broker_execution == false and signal_type == "CONCEPTUAL_ANALYSIS_SIGNAL".
+10. Confirmation consolidation & immutable publication:
+   - Multiple confirmations at exact same close consolidate into single signal (OPEN-07, sig_18).
+   - Late-arriving second confirmation does not retrospectively mutate published signal (OPEN-09, sig_29).
+11. Chronological signal listing without hypothetical open position gating (OPEN-11).
+12. Fail-closed handling of unresolved strategy ambiguities:
+   - Source c1 == p2 unresolved structure blocks signal (Choch.pdf §1, sig_20).
+   - Unresolved ISS multi-candle pullback blocks signal with BLOCKED_UNRESOLVED_CONFIRMATION_GAP (sig_21).
+   - Isolated tracking record rejected as confirmation (sig_31).
+   - Unknown intra-candle ordering blocks signal with UNKNOWN_ORDER (OPEN-04, sig_22).
+   - Forming / incomplete candle cannot confirm signal (sig_23).
+13. Zero-width line boundary equality and deterministic replay (OPEN-09).
+14. Safety boundary enforcement: all signals carry is_broker_execution == false and signal_type == "CONCEPTUAL_ANALYSIS_SIGNAL".
 """
 
 from __future__ import annotations
@@ -70,10 +77,10 @@ class TestTradeSignalFixtureIntegrity:
         assert len(data["authorities"]) >= 3
         assert "categories" in data
         assert "fixtures" in data
-        assert len(data["fixtures"]) == 26
+        assert len(data["fixtures"]) == 31
 
     def test_fixture_inventory_and_categories(self, trade_signal_fixtures: Dict[str, Any]) -> None:
-        """Verifies all 26 required fixture keys are present and correctly categorized."""
+        """Verifies all 31 required fixture keys are present and correctly categorized."""
         expected_keys = [
             "sig_01_bullish_h4_m5_valid_choch_signal",
             "sig_02_bearish_d1_h1_valid_iss_signal",
@@ -101,6 +108,11 @@ class TestTradeSignalFixtureIntegrity:
             "sig_24_zero_width_single_price_line_boundary_equality",
             "sig_25_prefix_replay_and_immutable_publication",
             "sig_26_published_signal_distinct_from_broker_execution",
+            "sig_27_order_independent_candidate_arrival",
+            "sig_28_incomplete_timeframe_coverage_blocks_arbitration",
+            "sig_29_late_arriving_second_confirmation_does_not_mutate_published_signal",
+            "sig_30_scoped_ledger_namespace_prevents_cross_session_consumption",
+            "sig_31_isolated_tracking_record_cannot_confirm_signal",
         ]
 
         allowed_categories = {
@@ -193,13 +205,26 @@ class TestTradeSignalFixtureIntegrity:
         assert sig11["expected"]["winning_candidate_id"] == "CAND_H4_TJL2"
         assert "CAND_H4_TJL1" in sig11["expected"]["cancelled_activation_ids"]
 
+    def test_order_independent_candidate_arrival(self, trade_signal_fixtures: Dict[str, Any]) -> None:
+        """Verifies that competing candidates delivered in different arrival orders produce identical winners (sig_27)."""
+        sig27 = trade_signal_fixtures["sig_27_order_independent_candidate_arrival"]
+        assert sig27["expected"]["order_a_winner"] == sig27["expected"]["order_b_winner"]
+        assert sig27["expected"]["arrival_order_independent"] is True
+
+    def test_incomplete_timeframe_coverage_blocks_arbitration(self, trade_signal_fixtures: Dict[str, Any]) -> None:
+        """Verifies that incomplete coverage on any participating timeline blocks arbitration fail-closed (sig_28)."""
+        sig28 = trade_signal_fixtures["sig_28_incomplete_timeframe_coverage_blocks_arbitration"]
+        assert sig28["expected"]["arbitration_allowed"] is False
+        assert sig28["expected"]["rejection_reason"] == "BLOCKED_INCOMPLETE_EVIDENCE_COVERAGE"
+        assert sig28["expected"]["signal_published"] is False
+
     def test_one_trade_per_level_and_usage_consumption(self, trade_signal_fixtures: Dict[str, Any]) -> None:
         """Verifies that winning entry consumes physical level and cancelled levels stay unused."""
         # Winning entry consumes winner; cancelled remain unused (sig_12)
         sig12 = trade_signal_fixtures["sig_12_winning_entry_marks_level_used_and_cancels_all_others"]
-        assert sig12["expected"]["consumed_level_ids"] == ["EURUSD_H4_LVL_01"]
-        assert "EURUSD_D1_LVL_01" in sig12["expected"]["remaining_unused_level_ids"]
-        assert "EURUSD_H1_LVL_01" in sig12["expected"]["remaining_unused_level_ids"]
+        assert sig12["expected"]["consumed_level_keys"] == ["FEED_EURUSD_H4:H4:LVL_01"]
+        assert "FEED_EURUSD_D1:D1:LVL_01" in sig12["expected"]["remaining_unused_level_keys"]
+        assert "FEED_EURUSD_H1:H1:LVL_01" in sig12["expected"]["remaining_unused_level_keys"]
 
         # Used level cannot trade again (sig_13)
         sig13 = trade_signal_fixtures["sig_13_used_level_cannot_rearm_or_trade_again"]
@@ -207,8 +232,15 @@ class TestTradeSignalFixtureIntegrity:
         assert sig13["expected"]["activation_granted"] is False
         assert sig13["expected"]["rejection_reason"] == "LEVEL_ALREADY_USED"
 
+    def test_scoped_ledger_namespace_isolation(self, trade_signal_fixtures: Dict[str, Any]) -> None:
+        """Verifies that level consumption in session A does not cross-consume in session B (sig_30)."""
+        sig30 = trade_signal_fixtures["sig_30_scoped_ledger_namespace_prevents_cross_session_consumption"]
+        assert sig30["expected"]["consumed_in_session_a"] is True
+        assert sig30["expected"]["consumed_in_session_b"] is False
+        assert sig30["expected"]["cross_session_leakage"] is False
+
     def test_rearming_after_cancellation_semantics(self, trade_signal_fixtures: Dict[str, Any]) -> None:
-        """Verifies rearming requires departure; lingering inside is rejected."""
+        """Verifies rearming requires departure and transitions to REARMED_PENDING; lingering inside is rejected."""
         # Departure + retouch allows reactivation (sig_14)
         sig14 = trade_signal_fixtures["sig_14_cancelled_unused_level_reactivates_after_departure_and_retouch"]
         events14 = sig14["lifecycle_events"]
@@ -216,6 +248,7 @@ class TestTradeSignalFixtureIntegrity:
         assert events14[1]["type"] == "ZONE_DEPARTURE"
         assert events14[2]["type"] == "FRESH_TAP"
         assert sig14["expected"]["reactivation_granted"] is True
+        assert sig14["expected"]["rearmed_state"] == "REARMED_PENDING"
         assert sig14["expected"]["signal_published"] is True
 
         # Lingering inside zone blocks rearming (sig_15)
@@ -238,12 +271,19 @@ class TestTradeSignalFixtureIntegrity:
         assert sig17["expected"]["activation_status"] == "CANCELLED"
         assert sig17["expected"]["cancellation_reason"] == "SOURCE_MAIN_CHOCH_REVERSED_DIRECTION"
 
-    def test_multiple_confirmation_consolidation(self, trade_signal_fixtures: Dict[str, Any]) -> None:
-        """Verifies OPEN-07: multiple confirmations consolidate into exactly 1 signal."""
+    def test_multiple_confirmation_consolidation_and_immutability(self, trade_signal_fixtures: Dict[str, Any]) -> None:
+        """Verifies OPEN-07 same-candle consolidation, and OPEN-09 late confirmation non-mutation."""
+        # Same-candle consolidation (sig_18)
         sig18 = trade_signal_fixtures["sig_18_consolidated_choch_and_iss_confirmation_single_signal"]
         assert sig18["expected"]["signal_published"] is True
         assert sig18["expected"]["signal_count"] == 1
         assert len(sig18["expected"]["confirmation_event_ids"]) == 2
+
+        # Late confirmation does not retrospectively mutate published signal (sig_29)
+        sig29 = trade_signal_fixtures["sig_29_late_arriving_second_confirmation_does_not_mutate_published_signal"]
+        assert sig29["expected"]["retrospective_mutation_applied"] is False
+        assert sig29["expected"]["is_immutable"] is True
+        assert len(sig29["expected"]["published_confirmation_ids"]) == 1
 
     def test_position_gating_independence(self, trade_signal_fixtures: Dict[str, Any]) -> None:
         """Verifies OPEN-11: chronological signals are not suppressed by open positions."""
@@ -263,7 +303,12 @@ class TestTradeSignalFixtureIntegrity:
         # ISS multi-candle pullback confirmation (sig_21)
         sig21 = trade_signal_fixtures["sig_21_unresolved_iss_multi_candle_pullback_blocks_signal"]
         assert sig21["expected"]["signal_published"] is False
-        assert sig21["expected"]["rejection_reason"] == "UNRESOLVED_CONFIRMATION_GAP"
+        assert sig21["expected"]["rejection_reason"] == "BLOCKED_UNRESOLVED_CONFIRMATION_GAP"
+
+        # Isolated tracking record cannot confirm signal (sig_31)
+        sig31 = trade_signal_fixtures["sig_31_isolated_tracking_record_cannot_confirm_signal"]
+        assert sig31["expected"]["signal_published"] is False
+        assert sig31["expected"]["rejection_reason"] == "REJECTED_ISOLATED_TRACKING_NOT_CONFIRMATION"
 
         # Unknown intra-candle ordering (sig_22)
         sig22 = trade_signal_fixtures["sig_22_unknown_intra_candle_order_blocks_signal"]

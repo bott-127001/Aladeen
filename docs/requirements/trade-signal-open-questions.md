@@ -19,7 +19,7 @@
   - In edge cases where a candle closes exactly equal to Point 2 ($c_1 == p_2$), existing engine behavior halts authoritative updates and freezes state.
 - **Affected Signal Behavior**:
   - If a source timeframe (e.g. H4) is currently in `PENDING_ACTIVATION` and its underlying MSM/CHOCH coordinator encounters a $c_1 == p_2$ boundary equality, should the pending activation:
-    1. Freeze in place (fail-closed, awaiting resolution before any signal can confirm)?
+    1. Freeze in place fail-closed (`BLOCKED_SOURCE_UNRESOLVED`, awaiting resolution before any signal can confirm)?
     2. Cancel immediately as structurally suspect?
     3. Continue evaluating confirmations from previously established structural levels?
 - **Current Fail-Closed Specification in Milestone 30**:
@@ -31,28 +31,27 @@
 
 ### Question 2: ISS Multi-Candle Pullback Qualification as LTF Confirmation
 - **Source Conflict / Ambiguity**:
-  - `ISS.pdf` defines the 5-point structural shift. Standard fixtures verify single-candle pullbacks.
-  - Multi-candle pullbacks during ISS formation on lower timeframes (H1, M5, M1) introduce ambiguous boundary definitions that remain unreconciled in strategy documentation.
+  - `MTF-Analysis.pdf` §6 requires applying existing approved normal CHOCH and ISS detection rules unchanged on assigned confirmation timeframes.
+  - In `ISS.pdf`, standard examples depict single-candle pullbacks. Multi-candle pullbacks during ISS formation introduce ambiguous intermediate structural points and boundary conditions that remain formally unreconciled in strategy documentation.
 - **Affected Signal Behavior**:
-  - When an activated TJL level seeks confirmation on its lower timeframe, does a candidate ISS pattern with a multi-candle pullback qualify as a valid confirmation pattern, or must confirmation strictly require single-candle pullback ISS formations?
+  - Does an ISS pattern with a multi-candle pullback constitute an authoritative confirmed directional ISS event eligible for entry confirmation, or is confirmation restricted strictly to reconciled, unambiguous ISS formations?
 - **Current Fail-Closed Specification in Milestone 30**:
-  - **Strict single-candle pullback only**: Candidate ISS confirmations with multi-candle pullbacks are marked `UNRESOLVED_CONFIRMATION_GAP` and emit no trade signals.
+  - **Fail-closed blocking**: Candidate ISS confirmations with unreconciled multi-candle pullbacks are marked `BLOCKED_UNRESOLVED_CONFIRMATION_GAP` and emit no trade signals. Only authoritative confirmed ISS events without ambiguous pullback paths qualify.
 - **Minimal Decision for Samarth**:
-  - *Confirm whether multi-candle pullback ISS patterns are eligible for entry confirmation, or if confirmation is strictly restricted to single-candle pullback ISS patterns.*
+  - *Formally reconcile whether multi-candle pullback ISS patterns qualify as valid entry confirmation, or define the exact boundary criteria for multi-candle pullback ISS formations.*
 
 ---
 
-### Question 3: Intra-Candle Event Sequencing (Tap vs. Confirmation on Same Coarse Bar)
-- **Source Conflict / Ambiguity**:
-  - `MTF-Analysis.pdf` §7 (Q&A 12) states: *"The tap candle may also confirm entry. Enter at that close if it confirms a valid directional pattern."*
-  - `OPEN-04` (`docs/requirements/approved-clarifications.md`) states: *"If the intra-bar sequence of events cannot be determined from available data, mark as UNKNOWN_ORDER; do not emit a speculative trade signal."*
-  - On coarse candle data (e.g. H4 tap where confirmation pattern completes on the same coarse H4 window), the exact temporal sequence (did the tap happen before or after the confirmation pattern started/completed?) cannot always be proven from OHLC bars alone.
+### Question 3: Intra-Candle Observation Ordering on Coarse Feeds
+- **Source Conflict & Evidence Contract (`OPEN-04`, `OPEN-06`)**:
+  - `MTF-Analysis.pdf` §7 (Q&A 12) allows the tap candle to confirm entry if it completes a valid pattern.
+  - `OPEN-04` requires that events on half-open candle intervals `[open_time, close_time)` establish their intra-bar order authoritatively; if order cannot be determined from available data, it must mark `UNKNOWN_ORDER` and suppress signals.
+  - `OPEN-06` requires actual physical price print observations and forbids geometric path interpolation.
+  - On coarse data feeds where sub-bar tick observations are unavailable, a coarse bar containing both a price print inside the zone and a confirmation pattern completion cannot authoritatively prove whether the tap preceded pattern completion.
 - **Affected Signal Behavior**:
-  - If sub-bar tick or lower-timeframe data is missing, should a setup where tap and confirmation fall within the same coarse bar be rejected as `UNKNOWN_ORDER`, or may the confirmation be accepted if the confirming candle's close timestamp is $\ge$ the tap candle's open timestamp?
-- **Current Fail-Closed Specification in Milestone 30**:
-  - **Strict causality**: If the sequence cannot be established definitively from available timestamps, mark `UNKNOWN_ORDER` and suppress signal publication.
+  - This is documented strictly as a **data feed evidence limitation**, not an invented strategy rule. When sub-bar print timestamps are absent, coarse same-candle tap and confirmation cannot establish causal ordering and must fail closed as `UNKNOWN_ORDER`.
 - **Minimal Decision for Samarth**:
-  - *Confirm whether intra-bar ordering requires sub-timeframe (e.g. M1) timestamp evidence to prove the tap occurred prior to confirmation completion.*
+  - *Acknowledge that coarse data feeds lacking sub-bar tick timestamps suppress same-candle tap/confirmation signals fail-closed (`UNKNOWN_ORDER`).*
 
 ---
 
@@ -61,4 +60,4 @@
 Until Samarth provides explicit, approved resolutions to the questions above, the trade-signal requirements contract strictly enforces:
 1. **Zero Guessing**: No defaults or speculative rules are assumed.
 2. **Fail-Closed Gate**: Unresolved conditions suppress signal emission (`NO_SIGNAL`).
-3. **Audit Trail**: Every suppressed candidate records an explicit diagnostic flag (`BLOCKED_SOURCE_UNRESOLVED`, `UNRESOLVED_CONFIRMATION_GAP`, or `UNKNOWN_ORDER`).
+3. **Audit Trail**: Every suppressed candidate records an explicit diagnostic flag (`BLOCKED_SOURCE_UNRESOLVED`, `BLOCKED_UNRESOLVED_CONFIRMATION_GAP`, or `UNKNOWN_ORDER`).

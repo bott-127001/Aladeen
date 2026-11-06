@@ -2206,3 +2206,54 @@ Last Updated: 2026-11-06 (Milestone 29 Release-Readiness Audit & Offline Runbook
   - Zero confirmation arbitration implementation, zero usage ledger runtime writes, zero automated trading.
   - Strategy engines 100% untouched (0 diff against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`).
   - Committed and pushed strictly on `requirements/trade-signal-acceptance`. Never merge into `main`.
+
+
+---
+
+## Milestone 30 — Trade-Signal Business Logic Requirements and Acceptance Contract (HANDOFF-086)
+
+- **Active Branch**: `requirements/trade-signal-acceptance`
+- **Immediate Parent Commit**: `5bddf0d573d45cb97093ec92aabb3c3860566c58` (HANDOFF-085)
+- **Accepted Milestone 29 Baseline Commit**: `0144ddb8150b4132a7b60d24698105d897514cb2`
+- **Requirements Baseline Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d`
+- **Root Baseline Engine Commit**: `0867c740352297fb43e781fb654706218771d533`
+- **Reviewer Feedback Addressed (HANDOFF-085 Review Directives 1–6 & HANDOFF-086 Directive)**:
+  1. *Removed Invented Single-Candle ISS Eligibility Exception*:
+     - In `docs/requirements/trade-signal-acceptance.md`, replaced the candle-count rule with explicit distinction between:
+       * Authoritative confirmed directional ISS events (5-point structural shift with valid completion close).
+       * Isolated tracking records or synthetic evidence (`ISOLATED_TRACKING_ONLY`), which cannot confirm a signal.
+       * Unresolved detection paths (multi-candle pullback ambiguity), marked `BLOCKED_UNRESOLVED_CONFIRMATION_GAP` fail-closed pending strategy reconciliation.
+     - Verified via fixtures `sig_02`, `sig_21`, and `sig_31`.
+  2. *Settled Observation-Order & Evidence Contract (Zero Reopened Questions)*:
+     - Framed intra-candle ordering strictly around physical print evidence (`OPEN-04`, `OPEN-06`) and data feed limitations. When sub-bar print timestamps are absent, coarse same-candle tap and confirmation fail closed as `UNKNOWN_ORDER`.
+  3. *Declared Arbitration Domain, Completeness Boundary & Order-Independence*:
+     - Declared calculation identity: `(server, symbol, price_basis, timeframe_configuration, manual_start_time, rule_version)`.
+     - Required complete, closed timeline coverage through timestamp T; missing or unclosed bars block arbitration fail-closed (`BLOCKED_INCOMPLETE_EVIDENCE_COVERAGE`, verified via `sig_28`).
+     - Order-independent deterministic sorting: candidates sorted by `(close_timestamp, timeframe_rank, role_rank)`; candidate arrival order has zero strategy priority (verified via `sig_27`).
+  4. *Atomic Idempotent Conceptual Commit Transaction*:
+     - Specified single atomic commit consistently performing: winner selection, physical level consumption (`USED`), immutable signal publication, and domain-wide cross-timeframe cancellation routing across D1/H4/H1 pending activations. Failure leaves zero side-effects.
+  5. *Complete Physical Identity, Rearmed Activation Prerequisite & Scoped Namespacing*:
+     - Standardized physical level identity to full `StableLevelId(symbol_feed_id, source_timeframe, source_open_time, side)`.
+     - Explicitly incorporated `REARMED_PENDING` alongside `PENDING_ACTIVATION` as an eligible confirmation prerequisite (verified via `sig_14`).
+     - Scoped usage ledger strictly to `CalculationIdentity` namespace, proving zero cross-session or cross-start-candle consumption leakage (verified via `sig_30`).
+  6. *Confirmation Consolidation Semantics & Immutable Publication*:
+     - Consolidated multiple confirmations (`OPEN-07`) strictly on the exact same candle close; finalized at that timestamp.
+     - Later-arriving second confirmation does not delay entry or retrospectively mutate published signal (`OPEN-09`, verified via `sig_29`).
+  7. *Expanded 31-Fixture Acceptance Suite & Integrity Test*:
+     - Updated [`tests/fixtures/trade_signal_acceptance.json`](file:///tests/fixtures/trade_signal_acceptance.json) with 31 comprehensive scenarios.
+     - Expanded [`tests/test_trade_signal_fixture_integrity.py`](file:///tests/test_trade_signal_fixture_integrity.py) with 16 automated integrity checks.
+- **Verification Summary**:
+  - Trade-Signal fixture integrity suite: 16/16 passed in 0.13s (`pytest tests/test_trade_signal_fixture_integrity.py -v`).
+  - Full offline repository test suite: 558/558 passed in 6.63s (`pytest -q tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py --ignore=tests/test_activation_browser_controlled.py --ignore=tests/activation_browser_runner.py --ignore=tests/activation_browser_harness.py`).
+- **Completed Deliverables**:
+  1. [`docs/requirements/trade-signal-acceptance.md`](file:///docs/requirements/trade-signal-acceptance.md): Updated requirements contract with atomic commit, declared arbitration domain, order independence, scoped namespacing, and corrected ISS rules.
+  2. [`tests/fixtures/trade_signal_acceptance.json`](file:///tests/fixtures/trade_signal_acceptance.json): Standardized 31-fixture acceptance test suite.
+  3. [`tests/test_trade_signal_fixture_integrity.py`](file:///tests/test_trade_signal_fixture_integrity.py): 16 automated integrity checks.
+  4. [`docs/requirements/trade-signal-open-questions.md`](file:///docs/requirements/trade-signal-open-questions.md): Updated consequential open questions for Samarth.
+  5. [`docs/development/status.md`](file:///docs/development/status.md): Milestone 30 status update.
+- **Standing Invariants Maintained**:
+  - Pure requirements reconciliation, fixture design, and test specification.
+  - Zero runtime signal engine implementation, zero UI order execution, zero MT5 live trading calls, zero live account modification.
+  - Zero confirmation arbitration implementation, zero usage ledger runtime writes, zero automated trading.
+  - Strategy engines 100% untouched (0 diff against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`).
+  - Committed and pushed strictly on `requirements/trade-signal-acceptance`. Never merge into `main`.
