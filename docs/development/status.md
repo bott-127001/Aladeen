@@ -469,57 +469,47 @@ Last Updated: 2026-11-05 (MSM Dashboard Milestone Accepted — Transition to CHO
   4. *Adapter Disclosure*: Deterministic mock adapter clearly documented as simulating broker-connected state.
   5. *Branch Boundary*: All work committed strictly on `feature/tjl-dashboard`. No merging into `main`.
 
+
+---
+
+## 15. Milestone Implementation & Verification: TJL Endpoint Resolution, Lifecycle Classification & Focused Presentation Regressions (HANDOFF-047)
 - **Active Branch**: `feature/tjl-dashboard`
-- **Parent Commit**: `ffe1e829d30febf2d789ce8d9951ccd914873105`
-- **Objective**: Complete read-only TJL dashboard integration addressing all review findings from HANDOFF-044.
+- **Parent Commit**: `bab21d8b2f944d50a68b6af646fec8c7b5489600` (HANDOFF-046)
+- **Objective**: Harden authoritative endpoint resolution via explicit source ID mapping, decouple lifecycle classification from visibility toggles, preserve contextual roles across transitions, and add comprehensive presentation regression tests.
+- **Commit Provenance Clarification**: The commit hash submitted for HANDOFF-046 in the submission text contained a string typo (`bab21d8b671a53b516dae9dfdb34570d5eb645ef`), which failed remote resolution. The actual verified git commit on `origin/feature/tjl-dashboard` is `bab21d8b2f944d50a68b6af646fec8c7b5489600`.
 - **Scope Boundary**: Pure read-only dashboard presentation. Strictly zero UI order execution, zero MT5 trading calls, zero zone activations, zero usage ledger, zero tap tracking, zero trade entry signals, zero automated trading, and zero merging into `main`.
-- **Delivered Implementations (Per Directive)**:
-  1. **Strict Availability Timing & Geometry Invariants (`src/aladeen/ui/tjl_chart.py`)**:
-     - Excised confirmation/source-candle fallback for set eligibility start timestamp.
-     - Known set availability: time-extended eligible-set shapes (`tjl_zone_current_*`) begin strictly at `curr_set.eligibility_available_time`.
-     - Unknown set availability: time-extended eligible-set shape and midline hover line are strictly omitted. A compact source reference marker (`Current TJL Source:`) is rendered at the source candle, explicitly labeled `[Source Geometry — Availability Unknown, Not Time-Extended]`.
-     - Historical superseded sets: historical eligibility interval starts at `h_set.eligibility_available_time` and terminates strictly at `t_term = tr.transition_time` (replacement or CHOCH invalidation timestamp). Does not extend to chart right boundary as current eligibility.
-     - Exact zero-width line classification: zones with `lower_price == upper_price` are rendered strictly as `type="line"` (`y0 == y1 == lower_price`).
-  2. **Modularized Focused Architecture (`src/aladeen/ui/tjl_chart.py`, `src/aladeen/ui/tjl_inspection.py`)**:
-     - Extracted TJL chart overlay logic into focused module `src/aladeen/ui/tjl_chart.py` (`apply_tjl_overlays()`).
-     - Extracted TJL inspection panel rendering into focused module `src/aladeen/ui/tjl_inspection.py` (`build_tjl_inspection_elements()`).
-     - Reduced `src/aladeen/ui/chart.py` and `src/aladeen/ui/msm_callbacks.py` to clean orchestration, making modules compact for complete source review.
-  3. **Inspection Panel Hardening (`src/aladeen/ui/tjl_inspection.py`)**:
-     - Unresolved state prominently labeled `"UNRESOLVED AMBIGUITY (LAST AUTHORITATIVE EVIDENCE)"` and header marked `[Last Authoritative Evidence — Frozen Pending Resolution]`.
-     - Authoritative processed bar index (`tjl_snap.last_processed_index`) and latest received input bar index (`tjl_snap.last_received_index`) separately displayed in progress container.
-     - Unknown availability in Current Set table explicitly reports `"Unknown (Pending candle completion — no retroactive eligible interval plotted)"`.
-     - Robust diagnostic formatting supporting both diagnostic objects and strings.
-  4. **Production-Service Offline Integration Test Suite (`tests/test_tjl_dashboard_integration.py`)**:
-     - Added `TestTJLProductionServiceLifecycleAndPresentation` covering:
-       - t1 old-set retention plus next-set labels (`test_production_service_t1_retention_and_next_labels`).
-       - t2 replacement and outgoing cancelled set identity (`test_production_service_t2_replacement_and_outgoing_cancelled_identity`).
-       - CHOCH invalidation and post-CHOCH gap (`test_production_service_choch_invalidation_and_gap`).
-       - Unknown availability omitting retroactive eligible shape (`test_unknown_availability_omits_retroactive_eligible_shape`).
-       - Unresolved last-authoritative presentation (`test_unresolved_last_authoritative_presentation`).
-       - Snapshot revision isolation and render-only toggle independence (`test_revision_id_isolation_and_render_only_toggle_independence`).
-     - **Outcome**: 20/20 passed in 1.33s (`pytest tests/test_tjl_dashboard_integration.py -v`).
-  5. **Deterministic Browser Controlled Verification Suite (`tests/test_tjl_browser_controlled.py`)**:
-     - 10 deterministic scenarios executed in Chromium via Playwright:
-       - Scenario 1: Bullish First Set Creation (EURUSD / H1 / tjl_01) -> SET_1 active, green/purple shapes, coordinates verified.
-       - Scenario 2: Continuation t1 Retention (EURUSD / M1 / tjl_05) -> CONTINUATION_RETAINED, SET_1 retained, amber dashed next labels.
-       - Scenario 3: Pullback t2 Replacement (GBPUSD / H1 / tjl_06) -> SET_REPLACEMENT, CANCEL SET_1, bounded historical interval.
-       - Scenario 4: CHOCH Invalidation & Gap (EURUSD / H4 / tjl_09) -> CHOCH_INVALIDATION, CANCEL SET_1, Current Eligible Set: None, 0 current shapes.
-       - Scenario 5: New Direction Recovery (GBPUSD / H4 / tjl_02) -> New SET_1 formed in DOWNWARD direction.
-       - Scenario 6: Unknown Availability (GBPUSD / M5 / tjl_01 stripped) -> Time-extended shapes omitted while remaining inspectable with explicit notice.
-       - Scenario 7: Labels-Only Prefix (EURUSD / M5 / tjl_04) -> LABELS ONLY badge, Current Set: None.
-       - Scenario 8: Unapplied Draft Edits Guard -> Yellow warning banner, applied state unchanged.
-       - Scenario 9: TJL Display Toggles Independence -> Shapes suppressed/restored without recomputing.
-       - Scenario 10: Comprehensive Error Accounting -> Explicit itemization of exclusions.
-     - **Outcome**: 1/1 passed in 60.64s with **0 actionable console errors and 0 page errors**.
+- **Delivered Implementations (Per Review Directives)**:
+  1. **Authoritative Endpoint Resolution via Explicit Source ID Mapping (`src/aladeen/ui/tjl_chart.py`, `src/aladeen/ui/chart.py`)**:
+     - Excised all usage of `df.index[last_processed_index]`. `last_processed_index` is treated strictly as an external source candle identifier, not a DataFrame row offset.
+     - Implemented `resolve_authoritative_endpoint(df, msm_result, last_processed_index)`:
+       - First inspects calculation output `msm_result.candles` by explicit candle `index` equality.
+       - Falls back to `df['index'] == last_processed_index` in DataFrame view.
+       - Correctly extracts `open_time` and `close_time` without IndexError or row mismatch across arbitrary, sparse, or decreasing source IDs.
+     - Handles windowed DataFrame subsets where the authoritative source candle is excluded from the visible chart slice.
+     - If the authoritative temporal endpoint cannot be established or is invalid/missing (`last_processed_index < 0` or unresolvable ID), time-extended shapes are omitted and a compact source reference marker is rendered at `source_candle_open_time` labeled `[Authoritative Endpoint Unavailable]`. It never fabricates an interval or defaults to `last_chart_time`.
+  2. **Unconditional Lifecycle Classification Decoupled from Display Toggles (`src/aladeen/ui/tjl_chart.py`)**:
+     - Pre-computes `curr_role_level_ids`, `hist_role_level_ids`, `historical_entries`, and `labels_only_zones` unconditionally before gating by display toggles (`show_tjl_zones`, `show_tjl_current_set`, `show_tjl_historical_sets`, `show_tjl_labels`).
+     - Display toggles strictly suppress traces/shapes from the layout without reclassifying underlying data or mutating state.
+     - Setting `show_tjl_historical_sets=False` does not resurrect cancelled historical levels as amber "Awaiting Set Formation" labels.
+     - Contextual role distinctions `(level_id, label)` are preserved so physical identity alone does not erase a legitimate new role or mark an old role as current.
+  3. **7 Focused Presentation Regression Tests (`tests/test_tjl_dashboard_integration.py`)**:
+     - `test_unresolved_retained_set_decreasing_source_ids`: Decreasing source IDs (950 down to 880) resolve via explicit candle ID, never `df.index[id]`, with exact coordinate assertions.
+     - `test_unresolved_retained_set_sparse_ids_matching_dataframe_positions`: Sparse source IDs (0, 10, ..., 80) resolve by ID (70), not row position (70 vs 7).
+     - `test_chart_window_excluding_authoritative_source_candle`: Windowed display excluding source candle resolves via `msm_result.candles`.
+     - `test_missing_authoritative_endpoint_produces_source_reference_not_fabricated_interval`: Invalid ID (9999) produces source-reference presentation, not fabricated interval.
+     - `test_historical_off_labels_on_does_not_resurrect_cancelled_levels`: Historical OFF + Labels ON does not resurrect cancelled levels.
+     - `test_current_off_historical_on_does_not_reveal_active_set`: Current OFF + Historical ON suppresses active SET_2 without leaking it into historical traces.
+     - `test_cross_direction_contextual_roles_correctly_classified`: Contextual roles across directions/epochs are classified independently without physical identity collision.
+  4. **Preserved 11 Deterministic Controlled Browser Scenarios (`tests/test_tjl_browser_controlled.py`)**:
+     - Preserved all 11 scenarios in Chromium via Playwright, including Scenario 4 (same-run CHOCH invalidation and recovery), Scenario 10 (executed unresolved ambiguity $c_1 == p_2$ boundary), and Scenario 11 (comprehensive error accounting).
+     - **Result**: 11/11 passed in 63.36s with **0 actionable console errors and 0 page errors**.
 - **Verification Summary**:
-  - Full TJL dashboard integration suite: 20/20 passed in 1.33s.
-  - Controlled browser verification suite: 1/1 passed in 60.64s.
-  - Full offline repository test suite: 408/408 passed in 11.17s (0 failures).
+  - Full TJL dashboard integration suite: 32/32 passed in 2.90s (`pytest tests/test_tjl_dashboard_integration.py -v`).
+  - Controlled browser verification suite: 1/1 passed in 63.36s (`pytest tests/test_tjl_browser_controlled.py -s -v`).
+  - Full offline repository test suite: 420/420 passed in 12.20s (`pytest -q tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py`).
 - **Scope Compliance & Recorded Evidence Boundaries**:
   1. *Presentation Only*: Pure read-only dashboard presentation. Zero UI order execution, zero MT5 trading calls, zero account modification.
   2. *Non-Execution Invariant*: All hover tooltips, status banners, and inspection tables explicitly display `[Structural Set Only — Downstream activation/ledger not present]`.
   3. *Downstream Engine Absence*: Zero zone activation logic, zero usage accounting/ledger, zero tap tracking, zero trade entry signals.
-  4. *Branch Boundary*: All work committed strictly on `feature/tjl-dashboard`. No merging into `main`.
-
-
-
+  4. *Adapter Disclosure*: Deterministic mock adapter clearly documented as simulating broker-connected state.
+  5. *Branch Boundary*: All work committed strictly on `feature/tjl-dashboard`. No merging into `main`.

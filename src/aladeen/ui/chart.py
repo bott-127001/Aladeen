@@ -364,8 +364,17 @@ def create_candlestick_chart(
                 )
                 if unres_diag is not None:
                     unres_time = getattr(unres_diag, 'candle_open_time', None)
-                    if unres_time is None and unres_idx is not None and 0 <= unres_idx < len(df):
-                        unres_time = df.index[unres_idx]
+                    if unres_time is None and unres_idx is not None:
+                        candles = getattr(msm_result, 'candles', None)
+                        if candles:
+                            for cand in candles:
+                                if getattr(cand, 'index', None) == unres_idx:
+                                    unres_time = getattr(cand, 'open_time', None)
+                                    break
+                        if unres_time is None and 'index' in df.columns:
+                            matched = df[df['index'] == unres_idx]
+                            if not matched.empty:
+                                unres_time = matched.index[0]
                     if unres_time in df.index:
                         shapes.append(
                             dict(

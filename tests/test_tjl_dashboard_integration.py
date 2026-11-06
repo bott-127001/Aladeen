@@ -1071,15 +1071,15 @@ class TestTJLProductionServiceLifecycleAndPresentation:
             show_tjl_labels=True,
         )
 
-        # Check current set shapes: x1 must be frozen at processed bar index 8, NOT last chart time (bar index 9)
+        # Check current set shapes: x1 must be frozen at processed bar index 8 close, NOT last chart time (bar index 9 close)
         curr_shapes = [s for s in fig.layout.shapes if getattr(s, "name", None) and s.name.startswith("tjl_zone_current_")]
         assert len(curr_shapes) == 2
-        processed_bar_time = df.index[8]
-        latest_bar_time = df.index[9]
-        assert processed_bar_time < latest_bar_time
+        processed_bar_close = res_unres.candles[8].close_time
+        latest_bar_close = res_unres.candles[9].close_time
+        assert processed_bar_close < latest_bar_close
 
         for s in curr_shapes:
-            assert s.x1 == processed_bar_time, "Frozen unresolved set boundary must bound at last_processed_index"
+            assert s.x1 == processed_bar_close, "Frozen unresolved set boundary must bound at last_processed_index close"
 
         # Check hover text in traces: contains freeze warning
         curr_traces = [t for t in fig.data if getattr(t, "name", None) and "Current TJL Set" in t.name]
@@ -1087,5 +1087,418 @@ class TestTJLProductionServiceLifecycleAndPresentation:
         for t in curr_traces:
             assert "[Last Authoritative Evidence — Frozen Pending Resolution]" in t.hovertext[0]
             assert "Availability: Frozen at Bar #8" in t.hovertext[0]
+
+    def test_unresolved_retained_set_decreasing_source_ids(self, tjl_fixtures: Dict[str, Any]) -> None:
+        """Directive 4.1: Decreasing source IDs resolve via explicit candle ID, never df.index[last_processed_index]."""
+        from dataclasses import replace
+        fix = tjl_fixtures["tjl_01_bullish_basic_end_to_end"]
+        # Use first 9 candles, but assign decreasing source indices: 950, 940, 930, ..., 870
+        candles = list(fix["candles"][:9])
+        records = []
+        for i, c in enumerate(candles):
+            source_id = 950 - (i * 10)
+            records.append(
+                MarketCandleRecord(
+                    time=c["time"],
+                    open=float(c["open"]),
+                    high=float(c["high"]),
+                    low=float(c["low"]),
+                    close=float(c["close"]),
+                    is_forming=c.get("is_forming", False),
+                    bar_status=c.get("bar_status", "CONFIRMED_COMPLETED"),
+                    index=source_id,
+                    close_time=c.get("close_time"),
+                )
+            )
+        snap = MarketDataSnapshot(
+            revision_id="rev-unres-decreasing-ids",
+            data_source="demo",
+            symbol="EURUSD",
+            timeframe="H1",
+            candle_count=len(records),
+            fetch_status="SUCCESS",
+            timestamp_utc=records[-1].time,
+            candles_data=records,
+        )
+        df = snap.to_dataframe()
+        assert len(df) == 9
+
+        ctx = MSMContext(
+            data_source="demo",
+            symbol="EURUSD",
+            timeframe="H1",
+            start_candle_time=fix["start_candle_time"],
+            direction=Direction.UPWARD,
+            enabled=True,
+            calculation_mode=CalculationMode.INTEGRATED_MSM_CHOCH_TJL.value,
+        )
+        res = calculate_msm(df, ctx)
+
+        # Authoritative candle is the 8th candle (i=7), source_id = 950 - 70 = 880
+        # Notice: 880 is far beyond len(df) == 9! df.index[880] would raise IndexError.
+        auth_source_id = 880
+        auth_candle = res.candles[7]
+        auth_close_time = auth_candle.close_time or auth_candle.open_time
+
+        synth_snap = replace(
+            res.tjl_snapshot,
+            is_unresolved=True,
+            unresolved_diagnostic="Decreasing source ID boundary ambiguity",
+            last_processed_index=auth_source_id,
+            last_received_index=870,
+        )
+        res_unres = replace(
+            res,
+            tjl_snapshot=synth_snap,
+            is_unresolved=True,
+            unresolved_diagnostic="Decreasing source ID boundary ambiguity",
+            last_processed_index=auth_source_id,
+            last_received_index=870,
+        )
+
+        fig = create_candlestick_chart(
+            df,
+            symbol="EURUSD",
+            timeframe="H1",
+            msm_result=res_unres,
+            show_tjl_zones=True,
+            show_tjl_current_set=True,
+            show_tjl_historical_sets=True,
+            show_tjl_labels=True,
+        )
+
+        # Shapes must bound at auth_close_time with exact coordinates, NOT crash with IndexError
+        curr_shapes = [s for s in fig.layout.shapes if getattr(s, "name", None) and s.name.startswith("tjl_zone_current_")]
+        assert len(curr_shapes) == 2
+        for s in curr_shapes:
+            assert s.x1 == auth_close_time
+            assert s.x0 == res.tjl_snapshot.current_eligible_set.eligibility_available_time
+
+        # Traces must show freeze hovertext with exact source ID
+        curr_traces = [t for t in fig.data if getattr(t, "name", None) and "Current TJL Set" in t.name]
+        assert len(curr_traces) == 2
+        for t in curr_traces:
+            assert f"Availability: Frozen at Bar #{auth_source_id}" in t.hovertext[0]
+
+    def test_unresolved_retained_set_sparse_ids_matching_dataframe_positions(self, tjl_fixtures: Dict[str, Any]) -> None:
+        """Directive 4.2: Sparse source IDs matching valid DataFrame row positions resolve by ID, not position."""
+        from dataclasses import replace
+        fix = tjl_fixtures["tjl_01_bullish_basic_end_to_end"]
+        # df has 9 rows: source IDs are 0, 10, 20, 30, 40, 50, 60, 70, 80
+        candles = list(fix["candles"][:9])
+        records = []
+        for i, c in enumerate(candles):
+            source_id = i * 10
+            records.append(
+                MarketCandleRecord(
+                    time=c["time"],
+                    open=float(c["open"]),
+                    high=float(c["high"]),
+                    low=float(c["low"]),
+                    close=float(c["close"]),
+                    is_forming=c.get("is_forming", False),
+                    bar_status=c.get("bar_status", "CONFIRMED_COMPLETED"),
+                    index=source_id,
+                    close_time=c.get("close_time"),
+                )
+            )
+        snap = MarketDataSnapshot(
+            revision_id="rev-unres-sparse-ids",
+            data_source="demo",
+            symbol="EURUSD",
+            timeframe="H1",
+            candle_count=len(records),
+            fetch_status="SUCCESS",
+            timestamp_utc=records[-1].time,
+            candles_data=records,
+        )
+        df = snap.to_dataframe()
+
+        ctx = MSMContext(
+            data_source="demo",
+            symbol="EURUSD",
+            timeframe="H1",
+            start_candle_time=fix["start_candle_time"],
+            direction=Direction.UPWARD,
+            enabled=True,
+            calculation_mode=CalculationMode.INTEGRATED_MSM_CHOCH_TJL.value,
+        )
+        res = calculate_msm(df, ctx)
+
+        # Set last_processed_index to 70 (which corresponds to row 7, NOT row 70)
+        auth_source_id = 70
+        auth_candle = res.candles[7]
+        expected_close = auth_candle.close_time or auth_candle.open_time
+
+        synth_snap = replace(
+            res.tjl_snapshot,
+            is_unresolved=True,
+            unresolved_diagnostic="Sparse ID test",
+            last_processed_index=auth_source_id,
+            last_received_index=80,
+        )
+        res_unres = replace(
+            res,
+            tjl_snapshot=synth_snap,
+            is_unresolved=True,
+            unresolved_diagnostic="Sparse ID test",
+            last_processed_index=auth_source_id,
+            last_received_index=80,
+        )
+
+        fig = create_candlestick_chart(
+            df,
+            symbol="EURUSD",
+            timeframe="H1",
+            msm_result=res_unres,
+            show_tjl_zones=True,
+            show_tjl_current_set=True,
+            show_tjl_historical_sets=True,
+            show_tjl_labels=True,
+        )
+
+        curr_shapes = [s for s in fig.layout.shapes if getattr(s, "name", None) and s.name.startswith("tjl_zone_current_")]
+        assert len(curr_shapes) == 2
+        for s in curr_shapes:
+            assert s.x1 == expected_close
+
+    def test_chart_window_excluding_authoritative_source_candle(self, tjl_fixtures: Dict[str, Any]) -> None:
+        """Directive 4.3: Chart window excluding authoritative source candle resolves via msm_result.candles."""
+        from dataclasses import replace
+        fix = tjl_fixtures["tjl_01_bullish_basic_end_to_end"]
+        snap = _make_snapshot_from_fixture(fix, candle_slice=9)
+        df_full = snap.to_dataframe()
+
+        ctx = MSMContext(
+            data_source="demo",
+            symbol="EURUSD",
+            timeframe="H1",
+            start_candle_time=fix["start_candle_time"],
+            direction=Direction.UPWARD,
+            enabled=True,
+            calculation_mode=CalculationMode.INTEGRATED_MSM_CHOCH_TJL.value,
+        )
+        res = calculate_msm(df_full, ctx)
+
+        # Slice DataFrame to display only the last 3 candles (indices 6, 7, 8)
+        # Authoritative processed candle is bar 4 (which is EXCLUDED from df_window)
+        df_window = df_full.iloc[6:].copy()
+        assert len(df_window) == 3
+        assert 4 not in df_window["index"].values
+
+        auth_candle = res.candles[4]
+
+        # Verify that resolve_authoritative_endpoint successfully found auth_time from res.candles
+        from aladeen.ui.tjl_chart import resolve_authoritative_endpoint
+        open_t, close_t = resolve_authoritative_endpoint(df_window, res, 4)
+        assert open_t == auth_candle.open_time
+        assert close_t == auth_candle.close_time
+
+    def test_missing_authoritative_endpoint_produces_source_reference_not_fabricated_interval(self, tjl_fixtures: Dict[str, Any]) -> None:
+        """Directive 4.4: Missing or invalid authoritative endpoint produces source-reference presentation, not a fabricated interval."""
+        from dataclasses import replace
+        fix = tjl_fixtures["tjl_01_bullish_basic_end_to_end"]
+        snap = _make_snapshot_from_fixture(fix, candle_slice=9)
+        df = snap.to_dataframe()
+
+        ctx = MSMContext(
+            data_source="demo",
+            symbol="EURUSD",
+            timeframe="H1",
+            start_candle_time=fix["start_candle_time"],
+            direction=Direction.UPWARD,
+            enabled=True,
+            calculation_mode=CalculationMode.INTEGRATED_MSM_CHOCH_TJL.value,
+        )
+        res = calculate_msm(df, ctx)
+
+        # Supply an unresolvable ID (9999)
+        synth_snap = replace(
+            res.tjl_snapshot,
+            is_unresolved=True,
+            unresolved_diagnostic="Unresolvable authoritative endpoint",
+            last_processed_index=9999,
+            last_received_index=8,
+        )
+        res_unres = replace(
+            res,
+            tjl_snapshot=synth_snap,
+            is_unresolved=True,
+            unresolved_diagnostic="Unresolvable authoritative endpoint",
+            last_processed_index=9999,
+            last_received_index=8,
+        )
+
+        fig = create_candlestick_chart(
+            df,
+            symbol="EURUSD",
+            timeframe="H1",
+            msm_result=res_unres,
+            show_tjl_zones=True,
+            show_tjl_current_set=True,
+            show_tjl_historical_sets=True,
+            show_tjl_labels=True,
+        )
+
+        # No time-extended rectangular shapes must be added
+        curr_shapes = [s for s in fig.layout.shapes if getattr(s, "name", None) and s.name.startswith("tjl_zone_current_")]
+        assert len(curr_shapes) == 0, "Missing authoritative endpoint must omit time-extended shapes (never fabricate interval)"
+
+        # Must render compact source-reference markers instead
+        curr_source_traces = [t for t in fig.data if getattr(t, "name", None) and "Current TJL Source:" in t.name]
+        assert len(curr_source_traces) == 2
+        for t in curr_source_traces:
+            assert "Authoritative Endpoint Unavailable" in t.hovertext[0]
+            assert "Availability: Authoritative endpoint unavailable (no retroactive or extended eligible interval plotted)" in t.hovertext[0]
+            assert len(t.x) == 1
+
+    def test_historical_off_labels_on_does_not_resurrect_cancelled_levels(self, tjl_fixtures: Dict[str, Any]) -> None:
+        """Directive 4.5: Historical OFF + Labels ON does not resurrect cancelled historical levels as amber labels."""
+        fix = tjl_fixtures["tjl_06_pullback_t2_replacement_and_cancellation_intent"]
+        snap = _make_snapshot_from_fixture(fix)
+        df = snap.to_dataframe()
+
+        ctx = MSMContext(
+            data_source="demo",
+            symbol="EURUSD",
+            timeframe="H1",
+            start_candle_time=fix["start_candle_time"],
+            direction=Direction.DOWNWARD,
+            enabled=True,
+            calculation_mode=CalculationMode.INTEGRATED_MSM_CHOCH_TJL.value,
+        )
+        res = calculate_msm(df, ctx)
+        tjl_snap = res.tjl_snapshot
+
+        # Verify fixture precondition: SET_1 is in historical_sets
+        assert any(h.set_id == "SET_1" for h in tjl_snap.historical_sets)
+        hist_set_1 = next(h for h in tjl_snap.historical_sets if h.set_id == "SET_1")
+        hist_1_level_ids = {hist_set_1.tjl1_zone.level_id, hist_set_1.tjl2_zone.level_id}
+
+        fig = create_candlestick_chart(
+            df,
+            symbol="EURUSD",
+            timeframe="H1",
+            msm_result=res,
+            show_tjl_zones=True,
+            show_tjl_current_set=True,
+            show_tjl_historical_sets=False,  # Historical OFF
+            show_tjl_labels=True,           # Labels ON
+        )
+
+        # Historical shapes must be hidden
+        hist_shapes = [s for s in fig.layout.shapes if getattr(s, "name", None) and s.name.startswith("tjl_zone_historical_")]
+        assert len(hist_shapes) == 0
+
+        # Labeled zone traces (amber dashed) must NOT contain the cancelled levels of SET_1
+        label_traces = [t for t in fig.data if getattr(t, "name", None) and "TJL Label:" in t.name]
+        for t in label_traces:
+            for lvl_id in hist_1_level_ids:
+                assert str(lvl_id.to_tuple()) not in t.hovertext[0], (
+                    f"Cancelled level {lvl_id} must not resurrect as amber label when Historical is OFF"
+                )
+
+    def test_current_off_historical_on_does_not_reveal_active_set(self, tjl_fixtures: Dict[str, Any]) -> None:
+        """Directive 4.6: Current OFF + Historical ON does not reveal or misclassify active SET_2."""
+        fix = tjl_fixtures["tjl_06_pullback_t2_replacement_and_cancellation_intent"]
+        snap = _make_snapshot_from_fixture(fix)
+        df = snap.to_dataframe()
+
+        ctx = MSMContext(
+            data_source="demo",
+            symbol="EURUSD",
+            timeframe="H1",
+            start_candle_time=fix["start_candle_time"],
+            direction=Direction.DOWNWARD,
+            enabled=True,
+            calculation_mode=CalculationMode.INTEGRATED_MSM_CHOCH_TJL.value,
+        )
+        res = calculate_msm(df, ctx)
+        assert res.tjl_snapshot.current_eligible_set is not None
+        assert res.tjl_snapshot.current_eligible_set.set_id == "SET_2"
+
+        fig = create_candlestick_chart(
+            df,
+            symbol="EURUSD",
+            timeframe="H1",
+            msm_result=res,
+            show_tjl_zones=True,
+            show_tjl_current_set=False,     # Current OFF
+            show_tjl_historical_sets=True,  # Historical ON
+            show_tjl_labels=True,
+        )
+
+        # Current set shapes must be completely absent
+        curr_shapes = [s for s in fig.layout.shapes if getattr(s, "name", None) and s.name.startswith("tjl_zone_current_")]
+        assert len(curr_shapes) == 0
+
+        # Current set traces must be absent
+        curr_traces = [t for t in fig.data if getattr(t, "name", None) and "Current TJL" in t.name]
+        assert len(curr_traces) == 0
+
+        # Historical set shapes must ONLY be for SET_1, never SET_2
+        hist_traces = [t for t in fig.data if getattr(t, "name", None) and "Historical TJL:" in t.name]
+        assert len(hist_traces) == 2
+        for t in hist_traces:
+            assert "SET_1" in t.hovertext[0]
+            assert "SET_2" not in t.hovertext[0]
+
+    def test_cross_direction_contextual_roles_correctly_classified(self, tjl_fixtures: Dict[str, Any]) -> None:
+        """Directive 4.7: Contextual roles across directions/epochs are classified independently without physical identity collision."""
+        from dataclasses import replace
+        fix = tjl_fixtures["tjl_01_bullish_basic_end_to_end"]
+        snap = _make_snapshot_from_fixture(fix, candle_slice=9)
+        df = snap.to_dataframe()
+
+        ctx = MSMContext(
+            data_source="demo",
+            symbol="EURUSD",
+            timeframe="H1",
+            start_candle_time=fix["start_candle_time"],
+            direction=Direction.UPWARD,
+            enabled=True,
+            calculation_mode=CalculationMode.INTEGRATED_MSM_CHOCH_TJL.value,
+        )
+        res = calculate_msm(df, ctx)
+        curr_set = res.tjl_snapshot.current_eligible_set
+        assert curr_set is not None
+
+        # Suppose a level with the SAME StableLevelId as curr_set.tjl1_zone was previously
+        # evaluated with role TJL2_A_PLUS (or a different role) and is currently waiting
+        # in all_labeled_zones with that different contextual role.
+        shared_level_id = curr_set.tjl1_zone.level_id
+        cross_role_zone = replace(
+            curr_set.tjl1_zone,
+            label=TJLLabel.TJL2_A_PLUS,  # distinct contextual role
+        )
+
+        synth_snap = replace(
+            res.tjl_snapshot,
+            all_labeled_zones=res.tjl_snapshot.all_labeled_zones + (cross_role_zone,),
+        )
+        res_synth = replace(res, tjl_snapshot=synth_snap)
+
+        fig = create_candlestick_chart(
+            df,
+            symbol="EURUSD",
+            timeframe="H1",
+            msm_result=res_synth,
+            show_tjl_zones=True,
+            show_tjl_current_set=True,
+            show_tjl_historical_sets=True,
+            show_tjl_labels=True,
+        )
+
+        # Classification by contextual role (level_id, label) means the distinct contextual role
+        # is preserved and rendered as an amber label trace, rather than being erased by physical identity alone.
+        cross_label_traces = [
+            t for t in fig.data
+            if getattr(t, "name", None) == "TJL Label: TJL2_A_PLUS"
+            and str(shared_level_id.to_tuple()) in t.hovertext[0]
+        ]
+        assert len(cross_label_traces) == 1, (
+            "Distinct contextual role on shared physical level must be preserved and classified as awaiting formation"
+        )
+
 
 
