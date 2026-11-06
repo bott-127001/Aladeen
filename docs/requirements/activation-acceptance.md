@@ -58,10 +58,11 @@ To prevent domain confusion and enforce strict isolation across subsystems, the 
                                     ▼
 ┌────────────────────────────────────────────────────────────────────────┐
 │ 2. Observed Print Evidence (Market Data Ingestion)                     │
-│    - Observed price print p in [lower, upper] (not range overlap)      │
+│    - Exact price prints vs interval-bounded candle evidence            │
 │    - Single configured price basis (Bid, Ask, Mid) [OPEN-06]           │
 │    - Zero geometric path interpolation [OPEN-06]                       │
-│    - Half-open interval timing: t >= eligibility_available_time [OPEN-04]│
+│    - Record availability != price occurrence time [OPEN-04]            │
+│    - Prior-bar close cannot activate at that close boundary [OPEN-04]  │
 │    - Blocked: UNKNOWN_ORDER, UNKNOWN_COVERAGE, NO_OBSERVED_TOUCH       │
 └───────────────────────────────────┬────────────────────────────────────┘
                                     │ Emits TouchObservation
@@ -70,13 +71,14 @@ To prevent domain confusion and enforce strict isolation across subsystems, the 
 │ 3. Pending Activation Lifecycle (Activation Subsystem)                 │
 │    - First touch -> PENDING_ACTIVATION (Starts confirmation search)    │
 │    - Repeated touches -> REPEATED_OBSERVATION (No reset of search)     │
-│    - Source t2 replacement -> CANCELLED_SOURCE_REPLACEMENT             │
-│    - Source main CHOCH -> CANCELLED_SOURCE_CHOCH                       │
+│    - Cancellation creates terminal record; retouch creates NEW record  │
 │    - Rearming (OPEN-05):                                               │
 │        * Already outside at cancellation -> next touch rearms          │
 │        * Inside at cancellation -> later outside print -> fresh touch  │
 │        * Lingering inside -> blocked (no rearming)                     │
-│    - Replay idempotence & event ordering at coarse timestamp T [OPEN-12]│
+│    - Event ordering at coarse timestamp T [OPEN-12]                    │
+│        * Rearm occurs strictly after winning commit finalization       │
+│        * Recycled tap/confirmation evidence strictly rejected          │
 └───────────────────────────────────┬────────────────────────────────────┘
                                     │ Tracks PendingActivations
         ┌───────────────────────────┴───────────────────────────┐
@@ -97,71 +99,78 @@ To prevent domain confusion and enforce strict isolation across subsystems, the 
 - **RULE [Labels-Only Exclusion]**: Zones in `all_labeled_zones` that do not belong to the current eligible set (e.g. prefix before first Point 3, or awaiting set replacement) are structurally ineligible for activation.
 - **ENGINEERING CONTRACT [Unknown Availability]**: If `eligibility_available_time is None` (e.g. stripped candle close times), the level retains structural set membership in the engine, but activation evidence is blocked: no time-extended interval or tap activation can occur (fail-closed principle).
 
-### 2.2 Observed Price Print Evidence vs. Range Overlap
+### 2.2 Observed Price Print Evidence & OHLC Temporal Semantics
 - **RULE [OPEN-06: Physical Observation vs. Range Overlap]**:
   - A touch requires an actual observed price print $p$ on the single configured price basis (Bid, Ask, or Mid) such that:
     $$\text{lower\_edge} \le p \le \text{upper\_edge}$$
   - For an exact zero-width line level (`lower_edge == upper_edge`):
     $$p = \text{lower\_edge}$$
-  - **Range Overlap Is Insufficient**: A candle whose high/low range straddles a zone ($\text{low} < \text{lower}$ and $\text{high} > \text{upper}$) without any recorded print ($open, high, low, close$) in $[\text{lower}, \text{upper}]$ represents a candidate intersection, NOT an observed touch. Discrete prices can gap over or skip a zone.
+  - **Range Overlap Is Insufficient**: A candle whose high/low range straddles a zone ($\text{low} < \text{lower}$ and $\text{high} > \text{upper}$) without any recorded print in $[\text{lower}, \text{upper}]$ represents a candidate geometric intersection, NOT an observed touch. Discrete prices can jump or gap over a zone.
   - **Zero Geometric Path Interpolation**: No continuous price path between discrete ticks or candle bars may be assumed or interpolated.
-- **RULE [What OHLC Proves vs. What It Does Not Prove]**:
-  1. *Open Price*: Proves price printed at $p = \text{open}$ at timestamp $t = \text{open\_time}$.
-  2. *Close Price*: Proves price printed at $p = \text{close}$ at timestamp $t = \text{close\_time}$.
-  3. *High/Low Extremes*: A recorded extreme $p \in [\text{lower}, \text{upper}]$ proves price touched the zone at *some* instant during the half-open interval $[t_{\text{open}}, t_{\text{close}})$, but DOES NOT prove its exact intra-bar timestamp or sequence relative to intra-bar boundary events.
-- **RULE [OPEN-04: Intra-Bar Timing & No Retroactive Wick Claims]**:
-  - A touch observation is valid if and only if the physical print occurred at $t \ge \text{eligibility\_available\_time}$.
-  - Wicks occurring during candle intervals strictly prior to `eligibility_available_time` cannot be claimed retroactively.
+- **RULE [Record Availability vs. Price Occurrence Time (OPEN-04)]**:
+  1. *Half-Open Interval*: A candle's trade activity is strictly bounded within $[t_{\text{open}}, t_{\text{close}})$.
+  2. *Record Availability Boundary*: The completed candle OHLC record becomes available at boundary $t_{\text{close}}$.
+  3. *Close Price Proof Limitation*: A candle's close price records the final observed price *within that completed candle* $[t_{\text{open}}, t_{\text{close}})$. It DOES NOT prove a new price print occurred exactly at the boundary $t_{\text{close}}$.
+  4. *No Preceding-Candle Close Activation*: A level becoming available at boundary $t_{\text{close}}$ CANNOT claim the preceding candle's close price as a new post-availability touch. That would be an unproven retroactive claim across the boundary (violating `OPEN-04`). An independent observed print at or after availability is strictly required.
+  5. *Wick Extreme Timing*: A recorded High or Low extreme $p \in [\text{lower}, \text{upper}]$ proves price touched the zone at *some* instant during $[t_{\text{open}}, t_{\text{close}})$, but DOES NOT prove its exact intra-bar timestamp or sequence relative to intra-bar boundary events.
+- **RULE [Intra-Candle Availability & Unknown Ordering (OPEN-04)]**:
   - If `eligibility_available_time` falls *inside* a candle interval $[t_{\text{open}}, t_{\text{close}})$:
-    - If Open is after or at availability and prints in the zone: valid touch at $t_{\text{open}}$.
-    - If Close prints in the zone: valid touch at $t_{\text{close}}$.
-    - If only a wick touches the zone and intra-bar tick sequence is unavailable to prove whether the wick occurred before or after availability, the transition is blocked as `UNKNOWN_ORDER` (fail-closed).
+    - If an independent print (or tick) has an established sequence/timestamp occurring at or after `eligibility_available_time`: valid touch.
+    - If only the completed candle's OHLC is available (e.g. wick touches or close is inside zone) but intra-bar sequence relative to `eligibility_available_time` is unavailable, the transition is strictly blocked as `UNKNOWN_ORDER` (fail-closed).
 - **ENGINEERING CONTRACT [Blocked Evidence Categories]**:
   - `NO_OBSERVED_TOUCH`: High/low range straddles zone but no discrete print inside.
-  - `UNKNOWN_ORDER`: Intra-bar event sequence cannot be proven relative to availability or invalidation.
-  - `UNKNOWN_COVERAGE`: Incomplete batch, missing candles, or uncertain data feed coverage.
+  - `UNKNOWN_ORDER`: Intra-bar event sequence cannot be proven relative to availability, invalidation, or cancellation.
+  - `UNKNOWN_COVERAGE`: Incomplete candle batches, missing bar gaps, or uncertain feed coverage.
 
-### 2.3 Pending Activation Lifecycle
+### 2.3 Pending Activation Lifecycle & Identity
 - **RULE [First Activation]**: The first valid observed touch transitions an unused, eligible level from `INACTIVE_ELIGIBLE` to `PENDING_ACTIVATION`, establishing `first_touch_time` and assigning the mapped confirmation timeframe:
   - D1 $\rightarrow$ H1
   - H4 $\rightarrow$ M5
   - H1 $\rightarrow$ M1
 - **RULE [Repeated Observations Do Not Reset Search]**: Subsequent observed touches while an activation is already pending are recorded as `REPEATED_OBSERVATION` diagnostic events. They do NOT restart, reset, or delay the confirmation search (`MTF-Analysis.pdf` §5, Q&A 13).
 - **RULE [Tap Is Not an Entry Signal]**: An activation does not place an order, calculate lot size, verify margin, or emit a trade entry.
+- **ENGINEERING CONTRACT [Deterministic Activation Identity]**:
+  - An activation record is a transient lifecycle object uniquely identified by:
+    $$\text{activation\_id} = \text{f"ACT_{engine_id}_{level_id_tuple}_{set_id}_{seq_index}"}$$
+  - Scoped strictly to its engine run, source timeframe, and set ID.
 
 ### 2.4 Cancellation and Precedence
 - **RULE [Source Replacement Cancellation]**: When the source timeframe completes a pullback and qualifies a new `CurrentEligibleSet` (`SET_2`), pending activations on `SET_1` are immediately cancelled (`CANCELLED_SOURCE_REPLACEMENT`). The replacement set requires its own tap.
 - **RULE [Source Main CHOCH Cancellation]**: When the source timeframe experiences main CHOCH, all pending activations in the old direction are cancelled immediately (`CANCELLED_SOURCE_CHOCH`), even before replacement TJLs form.
-- **RULE [External Winning Entry Cancellation]**: When a trade is accepted from any active level across any timeframe, all other pending activations across D1, H4, and H1 are cancelled (`CANCELLED_EXTERNAL_ENTRY`). Cancelled levels remain `used_status = False`.
+- **RULE [External Winning Entry Cancellation]**: When a trade is accepted from any active level across any timeframe, all other pending activations across D1, H4, and H1 are cancelled (`CANCELLED_EXTERNAL_ENTRY`).
 - **RULE [OPEN-03: Shared-Close Invalidation Precedence]**: At a candle close where both source invalidation/replacement and a potential entry confirmation occur, source invalidation is evaluated **first**. An invalidated or replaced level cannot execute an entry at that timestamp.
 - **ENGINEERING CONTRACT [Fail-Closed Scoping]**: In composite transitions, fail closed only for the specific transition branch lacking necessary evidence. A finalized source invalidation or replacement remains effective even if unrelated touch or confirmation evidence is unresolved elsewhere.
 
 ### 2.5 Rearming Semantics (OPEN-05)
 An unused level whose activation was cancelled by an external winning entry may reactivate if it remains a member of the current eligible set:
-- **RULE [OPEN-05 Path A: Cancelled While Observed Inside]**:
-  - If the market price is observed inside the zone boundaries at the moment of cancellation:
-  - Price must subsequently be observed strictly outside the zone (`high < lower_edge` or `low > upper_edge`).
-  - Only after an outside observation has been established does a fresh observed touch transition the level to `REARMED_PENDING`.
+- **RULE [OPEN-05 Path A: Cancelled While Inside Zone]**:
+  - If the market price is observed inside the zone at the moment of cancellation:
+  - An individual discrete print strictly outside the zone must be established ($p < \text{lower\_edge}$ or $p > \text{upper\_edge}$) with causal sequence occurring after the cancellation event.
+  - A whole-bar-outside condition (`high < lower` or `low > upper`) is sufficient evidence, but an individual discrete outside print is the general criterion.
+  - Only after an outside observation has been established does a subsequent fresh print inside the zone rearm the level.
 - **RULE [OPEN-05 Path B: Cancelled While Already Observed Outside]**:
-  - If the market price is already observed strictly outside the zone boundaries at the moment of cancellation:
-  - The level is immediately armed for the next later observed touch without requiring an additional departure.
+  - If the market price was already observed strictly outside the zone boundaries at the moment of cancellation:
+  - The level is immediately armed for the next later observed touch without requiring another departure.
   - The next valid observed touch transitions the level to `REARMED_PENDING`.
-- **RULE [Lingering Inside Blocks Rearming]**: Remaining inside the zone after cancellation without a confirmed outside observation does NOT rearm the level.
-- **RULE [Unknown Outside State Blocks Rearming]**: If price position relative to the zone cannot be established, rearming is blocked (no speculative arming).
+- **RULE [Intra-Bar Departure and Retouch]**: If cancellation occurs intra-bar at sequence $s_1$, an outside print occurs at $s_2 > s_1$, and an inside print occurs at $s_3 > s_2$: valid rearming occurs *if and only if* explicit causal sequence is known. If sequence is unknown, rearming is strictly blocked as `UNKNOWN_ORDER`.
+- **RULE [Lingering Inside Blocks Rearming]**: Remaining inside the zone after cancellation without an established outside observation strictly blocks rearming.
+- **RULE [Unknown Outside State Blocks Rearming]**: If position relative to the zone cannot be proven, rearming is blocked (no speculative arming).
+- **RULE [Retouch Creates New Linked Activation Record]**: Cancellation leaves the old activation record terminal. A subsequent qualifying retouch creates a brand new activation record with its own unique `activation_id`, linked to the prior record via `prior_activation_id`.
 - **RULE [Fresh Confirmation Required]**: A reactivated level requires a fresh qualifying confirmation on or after the new tap candle; prior completed patterns cannot be reused.
 
 ### 2.6 Terminal Activation vs. Persistent Physical Level Identity
-- **ENGINEERING CONTRACT [Transient Activation Object]**: An activation is a transient lifecycle state machine tied to `(set_id, role, first_touch_time)`. When cancelled, that specific activation record is terminal and cannot revive.
+- **ENGINEERING CONTRACT [Transient Activation Object]**: An activation is a transient lifecycle state machine bound to `(set_id, role, first_touch_time)`. When cancelled, that specific activation record is terminal and cannot revive.
 - **ENGINEERING CONTRACT [Persistent Physical Level Identity]**:
   - Physical levels are identified by immutable engineering formula:
     $$\text{StableLevelId} = (\text{symbol\_feed\_id}, \text{source\_timeframe}, \text{source\_open\_time}, \text{HIGH} \mid \text{LOW})$$
   - A physical level may survive into a replacement set (e.g. Case B/C persistent member) or reappear in a future structural epoch.
   - Surviving physical levels retain their identity and lifetime usage status.
   - **No Activation Inheritance**: A surviving unused level in a new set does NOT inherit pending activation from the replaced set. It requires its own independent touch under the new set to activate.
+- **RULE [Usage State Preservation]**: Cancellation preserves known usage state from the usage ledger; it does NOT blindly assign `used_status = False` without ledger evidence.
 
 ### 2.7 Event Ordering at Coarse Timestamp T (OPEN-12)
 - **RULE [OPEN-12 Sequencing]**: A later market event occurring at coarse timestamp $T$ may rearm an activation only *after* the winning entry commit has finalized in the event stream:
-  $$\text{event\_order}(\text{winning\_commit}) < \text{event\_order}(\text{rearm\_event})$$
+  $$\text{sequence\_ref}(\text{winning\_commit}) < \text{sequence\_ref}(\text{rearm\_event})$$
 - **RULE [No Recycled Evidence]**: A rearming event at timestamp $T$ cannot recycle the tap or confirmation evidence that competed with the winning entry.
 - **ENGINEERING CONTRACT [Causal Order vs. Clock Order]**: Event ordering is established by explicit discrete event sequence or causal transaction order, never by local computer clock, callback scheduling, or function execution order.
 
@@ -182,6 +191,7 @@ class ConfirmationPatternEvent:
     direction: Direction               # UPWARD (Buy) | DOWNWARD (Sell)
     pattern_start_time: datetime       # Earliest swing point in pattern (can precede tap)
     confirmation_close_time: datetime  # Exact completed close time (MUST be >= tap_time)
+    sequence_ref: int                  # Authoritative causal sequence index
 ```
 
 ### 3.2 Arbitration Tie-Breaker Protocol (`MTF-Analysis.pdf` §8)
@@ -229,41 +239,53 @@ class ActivationSourceLevel:
     is_line: bool                      # True if lower_edge == upper_edge
     eligibility_available_time: datetime | None  # Start of structural eligibility
     direction: Direction               # Expected trade direction
+    usage_evidence_status: str         # "EXPLICITLY_UNUSED" | "UNCERTAIN_USAGE_LEDGER_UNVERIFIED"
 ```
 
-### 4.2 Observed Price Event
+### 4.2 Exact Price Print Evidence
 ```python
 @dataclass(frozen=True)
-class ObservedPriceEvent:
-    event_id: str                      # Deterministic sequence identifier
-    time: datetime                     # Half-open candle open time or tick time
-    close_time: datetime               # Candle close time
-    open: float
-    high: float
-    low: float
-    close: float
+class ExactPricePrint:
+    """Discrete price print observed on the market data feed."""
+    observation_id: str                # Unique immutable observation identifier
+    price: float                       # Observed price
     price_basis: str                   # "BID" | "ASK" | "MID"
-    recorded_prints: tuple[float, ...] # Explicit discrete price prints observed in bar
+    timestamp: datetime                # Precise market timestamp
+    sequence_ref: int                  # Authoritative causal sequence index
+    consumed_by_event_id: str | None   # Tracking evidence reuse
 ```
 
-### 4.3 Activation State Machine
+### 4.3 Interval-Bounded Candle Evidence
+```python
+@dataclass(frozen=True)
+class IntervalBoundedCandleEvidence:
+    """Coarse candle bar evidence with half-open temporal bounds."""
+    source_candle_id: str              # Unique candle identifier
+    interval_open: datetime            # Bar open timestamp
+    interval_close: datetime           # Completed record availability boundary
+    field_name: str                    # "open" | "high" | "low" | "close"
+    value: float                       # Recorded OHLC price value
+    exact_time: datetime | None        # None if intra-bar timing is unknown
+```
+
+### 4.4 Activation State Machine
 ```
 [ INACTIVE_ELIGIBLE ]
         │
-        ├─ Event: touch_observed (print p in [lower, upper] and t >= eligibility_available_time)
+        ├─ Event: touch_observed (exact print p in [lower, upper] and t >= eligibility_available_time)
         ▼
 [ PENDING_ACTIVATION ] ◄─── (Repeated touches logged as REPEATED_OBSERVATION)
         │
-        ├─ Event: source_choch_invalidated ───► [ CANCELLED_SOURCE_CHOCH ] (Permanent)
-        ├─ Event: source_set_replaced ────────► [ CANCELLED_SOURCE_REPLACEMENT ] (Permanent)
-        ├─ Event: external_entry_committed ───► [ CANCELLED_EXTERNAL_ENTRY ] (Unused)
+        ├─ Event: source_choch_invalidated ───► [ CANCELLED_SOURCE_CHOCH ] (Terminal)
+        ├─ Event: source_set_replaced ────────► [ CANCELLED_SOURCE_REPLACEMENT ] (Terminal)
+        ├─ Event: external_entry_committed ───► [ CANCELLED_EXTERNAL_ENTRY ] (Terminal)
         │                                              │
-        │                                              ├─ Scenario A: Inside at cancel -> leaves zone
-        │                                              │  Scenario B: Already outside at cancel -> immediate arm
+        │                                              ├─ Path A: Inside at cancel -> later outside print
+        │                                              │  Path B: Already outside at cancel -> immediate arm
         │                                              ▼
         │                                       [ OUT_OF_ZONE_ARMED ]
         │                                              │
-        │                                              ├─ Event: fresh_touch_observed
+        │                                              ├─ Event: fresh_touch_observed (Creates NEW activation)
         │                                              ▼
         └─────────────────────────────────────── [ REARMED_PENDING ]
 ```
@@ -272,30 +294,36 @@ class ObservedPriceEvent:
 
 ## 5. Acceptance Fixture Categories
 
-The machine-readable acceptance suite in `tests/fixtures/activation_acceptance.json` contains 13 deterministic test categories covering all approved rules:
+The machine-readable acceptance suite in `tests/fixtures/activation_acceptance.json` contains **20 deterministic test categories** covering all approved rules:
 
-| Category ID | Scenario Name | Primary Authority | Key Assertions & Invariants |
+| Fixture ID | Category & Scenario Name | Primary Authority | Key Assertions & Invariants |
 |---|---|---|---|
-| **`ACT_01`** | Known Availability First Touch | `MTF-Analysis.pdf` §5, §6 | Valid discrete print in $[L, U]$ at $t \ge t_{\text{avail}}$ transitions level to `PENDING_ACTIVATION`; maps confirmation timeframe. |
-| **`ACT_01B`** | Both TJL1 & TJL2 Pending Independently | `MTF-Analysis.pdf` §8, Q&A 22 | Both members of active current set receive touches and hold pending activations concurrently. |
-| **`ACT_01C`** | All Three Timeframe Mappings | `MTF-Analysis.pdf` §6 | Verifies D1 $\rightarrow$ H1, H4 $\rightarrow$ M5, and H1 $\rightarrow$ M1 confirmation mappings. |
-| **`ACT_01D`** | t1 Retention Eligibility vs. Next Labels | `docs/requirements/tjl-acceptance.md` §5.2 | At t1, old current set remains eligible for tap; newly confirmed next labels in `all_labeled_zones` are ineligible. |
-| **`ACT_02`** | Unknown Availability Blocks Activation | `docs/requirements/approved-clarifications.md` §4 | Null availability blocks activation evidence; level retains structural membership but cannot activate. |
-| **`ACT_02B`** | Unknown Usage Evidence Blocks Activation | `MTF-Analysis.pdf` §10 | If level usage status is uncertain/unknown, activation is blocked (fail-closed). Explicitly unused required. |
-| **`ACT_03`** | No Retroactive Wick Claim | `OPEN-04` | Candle interval strictly prior to $t_{\text{avail}}$ cannot be claimed; only subsequent touch activates. |
-| **`ACT_03B`** | Intra-Candle Availability Ordering | `OPEN-04` | Availability falling intra-bar: known ordering activates; unknown intra-bar ordering blocks as `UNKNOWN_ORDER`. |
-| **`ACT_04`** | Range Straddling Without Observed Print | `OPEN-06` | Bar straddling zone without discrete print in $[L, U]$ rejected as `NO_OBSERVED_TOUCH` (zero path interpolation). |
-| **`ACT_04B`** | Inclusive Boundary Print & Line Level | `OPEN-06`, `MTF-Analysis.pdf` §4 | Exact boundary touch ($p = L$ or $p = U$) and zero-width line ($L = U$) successfully activate. |
-| **`ACT_05`** | Repeated Observations No Reset | `MTF-Analysis.pdf` §5, Q&A 13 | Secondary/tertiary touches while pending do not reset `first_touch_time` or restart confirmation search. |
-| **`ACT_06`** | Source CHOCH Cancellation | `MTF-Analysis.pdf` §9, `OPEN-03` | Source main CHOCH immediately cancels pending activation; status becomes `CANCELLED_SOURCE_CHOCH`. |
-| **`ACT_07`** | Source t2 Replacement Cancellation | `MTF-Analysis.pdf` §9 | Pullback t2 replacement cancels SET_1 activation; new SET_2 requires independent touch. |
-| **`ACT_07B`** | Persistent Member Survives Replacement | `MTF-Analysis.pdf` §4, §9 | Outgoing activation cancelled; same unused physical level survives into SET_2; no activation inheritance; fresh touch required. |
-| **`ACT_08A`** | Already-Outside Cancellation Rearm | `OPEN-05` Path B | Price observed outside at cancellation: next later observed touch successfully rearms without extra departure. |
-| **`ACT_08B`** | Lingering Inside Blocks Rearm | `OPEN-05` Path A | Price lingering inside zone after cancellation without confirmed outside observation blocks rearming. |
-| **`ACT_09A`** | Coarse Timestamp Rearm After Winner Commit | `OPEN-12` | Later event at coarse timestamp $T$ rearms only *after* winning entry commit finalizes in event sequence. |
-| **`ACT_09B`** | Pre-Commit Event / Recycled Evidence Rejected | `OPEN-12` | Event preceding winning commit or attempting to recycle competed tap/confirmation is rejected. |
-| **`ACT_09C`** | Incomplete Batch / Unknown Coverage Blocks | `docs/requirements/approved-clarifications.md` §4 | Incomplete candle batch or uncertain feed coverage blocks activation transition (fail-closed). |
-| **`ACT_10`** | Configuration Isolation & Replay | `OPEN-08`, `OPEN-09` | Independent engine runs isolated; idempotent replay reproduces identical activation sequence. |
+| **`act_01`** | Known Availability First Touch | `MTF-Analysis.pdf` §5, §6 | Valid discrete print in $[L, U]$ at $t \ge t_{\text{avail}}$ transitions level to `PENDING_ACTIVATION`; maps confirmation timeframe (H1 $\rightarrow$ M1). |
+| **`act_01b`** | Both TJL1 & TJL2 Pending Independently | `MTF-Analysis.pdf` §8, Q&A 22 | Both members of active current set receive touches and hold pending activations concurrently. |
+| **`act_01c`** | All Three Timeframe Mappings | `MTF-Analysis.pdf` §6 | Verifies D1 $\rightarrow$ H1, H4 $\rightarrow$ M5, and H1 $\rightarrow$ M1 confirmation mappings. |
+| **`act_01d`** | t1 Retention Eligibility vs. Next Labels | `docs/requirements/tjl-acceptance.md` §5.2 | At t1, old current set remains eligible for tap; newly confirmed next labels in `all_labeled_zones` are ineligible. |
+| **`act_02`** | Unknown Availability Blocks Activation | `docs/requirements/approved-clarifications.md` §4 | Null availability blocks activation evidence; level retains structural membership but cannot activate. |
+| **`act_02b`** | Unknown Usage Evidence Blocks Activation | `MTF-Analysis.pdf` §10 | If level usage status is uncertain/unknown, activation is blocked (fail-closed). Explicitly unused required. |
+| **`act_03`** | No Retroactive Wick Claim | `OPEN-04` | Candle interval strictly prior to $t_{\text{avail}}$ cannot be claimed; only subsequent touch activates. |
+| **`act_03b`** | Intra-Candle Availability Ordering | `OPEN-04` | Availability falling intra-bar: known ordering activates; unknown intra-bar ordering blocks as `UNKNOWN_ORDER`. |
+| **`act_03c`** | Available at Close Prior Close Cannot Activate | `OPEN-04`, `docs/requirements/activation-acceptance.md` §2.2 | Level available at candle close; prior candle's close price inside zone does NOT prove post-availability touch. |
+| **`act_03d`** | Independent Print at Availability Activates | `OPEN-04`, `OPEN-06` | Independent discrete print at or after availability timestamp with established sequence order activates cleanly. |
+| **`act_03e`** | Inside Candle Availability Unknown Sequence Blocks | `OPEN-04` | Availability inside candle; close price inside zone but occurrence ordering unknown -> `BLOCKED_UNKNOWN_ORDER`. |
+| **`act_04`** | Range Straddling Without Observed Print | `OPEN-06` | Bar straddling zone without discrete print in $[L, U]$ rejected as `NO_OBSERVED_TOUCH` (zero path interpolation). |
+| **`act_04b`** | Inclusive Boundary Print & Line Level | `OPEN-06`, `MTF-Analysis.pdf` §4 | Exact boundary touch ($p = L$ or $p = U$) and zero-width line ($L = U$) successfully activate. |
+| **`act_05`** | Repeated Observations No Reset | `MTF-Analysis.pdf` §5, Q&A 13 | Secondary/tertiary touches while pending do not reset `first_touch_time` or restart confirmation search. |
+| **`act_06`** | Source CHOCH Cancellation | `MTF-Analysis.pdf` §9, `OPEN-03` | Source main CHOCH immediately cancels pending activation; status becomes `CANCELLED_SOURCE_CHOCH`. |
+| **`act_07`** | Source t2 Replacement Cancellation | `MTF-Analysis.pdf` §9 | Pullback t2 replacement cancels SET_1 activation; new SET_2 requires independent touch. |
+| **`act_07b`** | Persistent Member Survives Replacement | `MTF-Analysis.pdf` §4, §9 | Outgoing activation cancelled; same unused physical level survives into SET_2; no activation inheritance; fresh touch required. |
+| **`act_08a`** | Already-Outside Cancellation Rearm | `OPEN-05` Path B | Price observed outside at cancellation: next later observed touch successfully rearms without extra departure. |
+| **`act_08b`** | Lingering Inside Blocks Rearm | `OPEN-05` Path A | Price lingering inside zone after cancellation without confirmed outside observation blocks rearming. |
+| **`act_08c`** | Intra-Candle Outside Then Inside Known Sequence | `OPEN-05`, `OPEN-12` | Outside print ($p < L$) then inside print ($p \in [L, U]$) with proven sequence within same candle successfully rearms. |
+| **`act_08d`** | Intra-Candle Outside & Inside Unknown Sequence | `OPEN-05`, `OPEN-12` | Both outside and inside prices exist within candle but relative sequence is unknown -> blocked (no speculative rearm). |
+| **`act_09a`** | Coarse Timestamp Rearm After Winner Commit | `OPEN-12` | Later event at coarse timestamp $T$ rearms only *after* winning entry commit finalizes in event sequence. |
+| **`act_09b`** | Pre-Commit Event / Recycled Evidence Rejected | `OPEN-12` | Event preceding winning commit or attempting to recycle competed tap/confirmation is rejected. |
+| **`act_09c`** | Incomplete Batch / Unknown Coverage Blocks | `docs/requirements/approved-clarifications.md` §4 | Incomplete candle batch or uncertain feed coverage blocks activation transition (fail-closed). |
+| **`act_09d`** | Two Reactivations at Same Coarse Timestamp | `OPEN-12`, `MTF-Analysis.pdf` §8 | Two distinct reactivations at timestamp $T$: distinct IDs, terminal prior records, zero recycled evidence. |
+| **`act_10`** | Configuration Isolation & Replay | `OPEN-08`, `OPEN-09` | Independent engine runs isolated; idempotent replay reproduces identical activation sequence. |
 
 ---
 

@@ -1,7 +1,7 @@
 """Automated integrity checks for Tap and Zone Activation acceptance fixtures.
 
 Validates:
-1. Schema, authorities, and categories of all 20 acceptance fixtures.
+1. Schema, authorities, and categories of all 26 acceptance fixtures.
 2. Strict UTC timezone-awareness, finite positive prices, and geometric consistency (upper_edge >= lower_edge, is_line).
 3. Explicit observed price print evidence vs. candidate range overlap (OPEN-06).
 4. No retroactive wick usage: events strictly prior to eligibility_available_time are rejected (OPEN-04).
@@ -44,7 +44,7 @@ class TestActivationFixtureIntegrity:
     """Rigorous integrity validation of Tap and Zone Activation acceptance fixtures."""
 
     def test_fixture_schema_and_keys(self, activation_fixtures: Dict[str, Any]) -> None:
-        """Verifies all 20 required fixture keys are present and categorized."""
+        """Verifies all 26 required fixture keys are present and categorized."""
         expected_keys = [
             "act_01_known_availability_first_touch",
             "act_01b_both_tjl1_and_tjl2_pending_independently",
@@ -54,6 +54,9 @@ class TestActivationFixtureIntegrity:
             "act_02b_unknown_usage_evidence_blocks",
             "act_03_no_retroactive_wick_claim",
             "act_03b_intra_candle_availability_known_vs_unknown",
+            "act_03c_level_available_at_close_prior_close_cannot_activate",
+            "act_03d_independent_print_at_availability_activates",
+            "act_03e_inside_candle_availability_unknown_sequence_blocks",
             "act_04_straddling_range_without_observed_print",
             "act_04b_inclusive_boundary_and_zero_width_line",
             "act_05_repeated_observations_no_reset",
@@ -62,9 +65,12 @@ class TestActivationFixtureIntegrity:
             "act_07b_persistent_member_survives_into_replacement_set",
             "act_08a_already_outside_cancellation_rearm",
             "act_08b_lingering_inside_blocks_rearm",
+            "act_08c_outside_print_then_inside_print_within_candle_known_sequence",
+            "act_08d_outside_and_inside_prices_within_candle_unknown_sequence",
             "act_09a_coarse_timestamp_rearm_after_commit",
             "act_09b_pre_commit_event_recycled_tap_rejected",
             "act_09c_incomplete_batch_unknown_coverage_blocks",
+            "act_09d_two_reactivations_at_same_coarse_timestamp",
             "act_10_run_isolation_and_replay_idempotence",
         ]
         for key in expected_keys:
@@ -114,6 +120,11 @@ class TestActivationFixtureIntegrity:
             if "market_events" in fix:
                 prev_time: datetime | None = None
                 for idx, ev in enumerate(fix["market_events"]):
+                    if "timestamp" in ev:
+                        t_ev = validate_and_normalize_timestamp(ev["timestamp"], f"{name} event {idx} timestamp")
+                        assert t_ev.tzinfo == timezone.utc
+                        if "price" in ev:
+                            assert math.isfinite(ev["price"]) and ev["price"] > 0
                     if "time" in ev and "close_time" in ev:
                         t_ev = validate_and_normalize_timestamp(ev["time"], f"{name} event {idx} time")
                         t_close = validate_and_normalize_timestamp(ev["close_time"], f"{name} event {idx} close_time")
@@ -122,12 +133,66 @@ class TestActivationFixtureIntegrity:
                             assert t_ev >= prev_time, f"Chronological order violated in {name} event {idx}"
                         prev_time = t_ev
 
-                    for price_field in ("open", "high", "low", "close"):
+                    for price_field in ("open", "high", "low", "close", "price"):
                         if price_field in ev:
                             val = ev[price_field]
                             assert math.isfinite(val) and val > 0
                     if "high" in ev and "low" in ev:
                         assert ev["high"] >= ev["low"]
+
+            # Check candle_bar
+            if "candle_bar" in fix:
+                cb = fix["candle_bar"]
+                if "time" in cb and "close_time" in cb:
+                    t_cb_open = validate_and_normalize_timestamp(cb["time"], f"{name} candle_bar time")
+                    t_cb_close = validate_and_normalize_timestamp(cb["close_time"], f"{name} candle_bar close_time")
+                    assert t_cb_close > t_cb_open
+                if "cancel_time" in cb:
+                    t_cancel = validate_and_normalize_timestamp(cb["cancel_time"], f"{name} candle_bar cancel_time")
+                    assert t_cancel.tzinfo == timezone.utc
+                for price_field in ("open", "high", "low", "close", "low_price", "high_price"):
+                    if price_field in cb:
+                        val = cb[price_field]
+                        assert math.isfinite(val) and val > 0
+                if "discrete_prints" in cb:
+                    for dp in cb["discrete_prints"]:
+                        assert math.isfinite(dp) and dp > 0
+
+            # Check preceding_candle
+            if "preceding_candle" in fix:
+                pc = fix["preceding_candle"]
+                t_pc_open = validate_and_normalize_timestamp(pc["interval_open"], f"{name} preceding_candle open")
+                t_pc_close = validate_and_normalize_timestamp(pc["interval_close"], f"{name} preceding_candle close")
+                assert t_pc_close > t_pc_open
+                assert math.isfinite(pc["close_price"]) and pc["close_price"] > 0
+
+            # Check independent_market_print
+            if "independent_market_print" in fix:
+                imp = fix["independent_market_print"]
+                t_imp = validate_and_normalize_timestamp(imp["timestamp"], f"{name} independent_market_print timestamp")
+                assert t_imp.tzinfo == timezone.utc
+                assert math.isfinite(imp["price"]) and imp["price"] > 0
+
+            # Check candle_evidence
+            if "candle_evidence" in fix:
+                ce = fix["candle_evidence"]
+                t_ce_open = validate_and_normalize_timestamp(ce["interval_open"], f"{name} candle_evidence open")
+                t_ce_close = validate_and_normalize_timestamp(ce["interval_close"], f"{name} candle_evidence close")
+                assert t_ce_close > t_ce_open
+                assert math.isfinite(ce["close_price"]) and ce["close_price"] > 0
+
+            # Check events
+            if "events" in fix:
+                for idx, ev in enumerate(fix["events"]):
+                    t_ev = validate_and_normalize_timestamp(ev["timestamp"], f"{name} events {idx} timestamp")
+                    assert t_ev.tzinfo == timezone.utc
+                    if "price" in ev:
+                        assert math.isfinite(ev["price"]) and ev["price"] > 0
+
+            # Check coarse_timestamp
+            if "coarse_timestamp" in fix:
+                t_coarse = validate_and_normalize_timestamp(fix["coarse_timestamp"], f"{name} coarse_timestamp")
+                assert t_coarse.tzinfo == timezone.utc
 
     def test_act_01_known_availability_first_touch(self, activation_fixtures: Dict[str, Any]) -> None:
         """Category 1: Verifies first touch detection with explicit observed print and timeframe mapping."""
@@ -136,18 +201,18 @@ class TestActivationFixtureIntegrity:
         ev = fix["market_events"][0]
 
         # Verify explicit observed print inside [lower, upper]
-        prints_in_zone = [p for p in ev["recorded_prints"] if lvl["lower_edge"] <= p <= lvl["upper_edge"]]
-        assert len(prints_in_zone) > 0
-        assert prints_in_zone[0] == fix["expected"]["observed_print_price"]
+        assert lvl["lower_edge"] <= ev["price"] <= lvl["upper_edge"]
+        assert ev["price"] == fix["expected"]["observed_print_price"]
 
         # Verify timing: event_time >= availability
         t_avail = validate_and_normalize_timestamp(lvl["eligibility_available_time"], "t_avail")
-        t_ev = validate_and_normalize_timestamp(ev["time"], "t_ev")
+        t_ev = validate_and_normalize_timestamp(ev["timestamp"], "t_ev")
         assert t_ev >= t_avail
 
         assert fix["confirmation_timeframe"] == "M1"
         assert fix["expected"]["final_state"] == "PENDING_ACTIVATION"
-        assert fix["expected"]["first_touch_time"] == ev["time"]
+        assert fix["expected"]["first_touch_time"] == ev["timestamp"]
+        assert fix["expected"]["activated_observation_id"] == ev["observation_id"]
         assert fix["expected"]["used_status"] is False
 
     def test_act_01b_both_tjl1_and_tjl2_pending_independently(self, activation_fixtures: Dict[str, Any]) -> None:
@@ -160,8 +225,8 @@ class TestActivationFixtureIntegrity:
 
         ev1 = fix["market_events"][0]
         ev2 = fix["market_events"][1]
-        assert ev1["recorded_prints"][0] >= lvl1["lower_edge"] and ev1["recorded_prints"][0] <= lvl1["upper_edge"]
-        assert ev2["recorded_prints"][0] >= lvl2["lower_edge"] and ev2["recorded_prints"][0] <= lvl2["upper_edge"]
+        assert lvl1["lower_edge"] <= ev1["price"] <= lvl1["upper_edge"]
+        assert lvl2["lower_edge"] <= ev2["price"] <= lvl2["upper_edge"]
 
         assert fix["expected"]["tjl1_state"] == "PENDING_ACTIVATION"
         assert fix["expected"]["tjl2_state"] == "PENDING_ACTIVATION"
@@ -215,16 +280,16 @@ class TestActivationFixtureIntegrity:
         t_avail = validate_and_normalize_timestamp(lvl["eligibility_available_time"], "t_avail")
 
         ev_pre = fix["market_events"][0]
-        t_pre = validate_and_normalize_timestamp(ev_pre["time"], "t_pre")
+        t_pre = validate_and_normalize_timestamp(ev_pre["timestamp"], "t_pre")
         assert t_pre < t_avail
         assert fix["expected"]["event_pre_wick_accepted"] is False
         assert fix["expected"]["event_pre_wick_rejection_reason"] == "TOUCH_BEFORE_ELIGIBILITY_AVAILABILITY"
 
         ev_post = fix["market_events"][1]
-        t_post = validate_and_normalize_timestamp(ev_post["time"], "t_post")
+        t_post = validate_and_normalize_timestamp(ev_post["timestamp"], "t_post")
         assert t_post >= t_avail
-        assert fix["expected"]["activated_event_id"] == ev_post["event_id"]
-        assert fix["expected"]["first_touch_time"] == ev_post["time"]
+        assert fix["expected"]["activated_observation_id"] == ev_post["observation_id"]
+        assert fix["expected"]["first_touch_time"] == ev_post["timestamp"]
 
     def test_act_03b_intra_candle_availability_known_vs_unknown(self, activation_fixtures: Dict[str, Any]) -> None:
         """Category 3B: Intra-candle availability: known ordering activates; unknown ordering blocks as UNKNOWN_ORDER."""
@@ -234,15 +299,57 @@ class TestActivationFixtureIntegrity:
 
         # Case 1: Known ordering
         c1 = fix["case_known_ordering"]
-        t_tick = validate_and_normalize_timestamp(c1["touch_tick_time"], "t_tick")
+        t_tick = validate_and_normalize_timestamp(c1["timestamp"], "t_tick")
         assert t_tick >= t_avail
-        assert lvl["lower_edge"] <= c1["touch_tick_price"] <= lvl["upper_edge"]
+        assert lvl["lower_edge"] <= c1["price"] <= lvl["upper_edge"]
+        assert c1["sub_bar_ordering_known"] is True
         assert c1["expected_result"] == "VALID_TOUCH_POST_AVAILABILITY"
 
         # Case 2: Unknown ordering
         c2 = fix["case_unknown_ordering"]
-        assert c2["tick_sequence_available"] is False
+        assert c2["sub_bar_ordering_known"] is False
         assert c2["expected_result"] == "BLOCKED_UNKNOWN_ORDER"
+
+    def test_act_03c_level_available_at_close_prior_close_cannot_activate(self, activation_fixtures: Dict[str, Any]) -> None:
+        """Category 3C: Level available at close boundary: prior close inside zone cannot activate post-availability touch."""
+        fix = activation_fixtures["act_03c_level_available_at_close_prior_close_cannot_activate"]
+        lvl = fix["source_level"]
+        candle = fix["preceding_candle"]
+        t_avail = validate_and_normalize_timestamp(lvl["eligibility_available_time"], "t_avail")
+        t_close = validate_and_normalize_timestamp(candle["interval_close"], "t_close")
+        assert t_close == t_avail
+        assert lvl["lower_edge"] <= candle["close_price"] <= lvl["upper_edge"]
+        assert fix["expected"]["prior_candle_close_accepted_as_post_avail_touch"] is False
+        assert fix["expected"]["rejection_reason"] == "COMPLETED_CANDLE_CLOSE_DOES_NOT_PROVE_PRINT_AT_BOUNDARY"
+        assert fix["expected"]["independent_print_required"] is True
+        assert fix["expected"]["final_state"] == "INACTIVE_ELIGIBLE"
+
+    def test_act_03d_independent_print_at_availability_activates(self, activation_fixtures: Dict[str, Any]) -> None:
+        """Category 3D: Discrete independent print observed at or after availability activates cleanly."""
+        fix = activation_fixtures["act_03d_independent_print_at_availability_activates"]
+        lvl = fix["source_level"]
+        p = fix["independent_market_print"]
+        t_avail = validate_and_normalize_timestamp(lvl["eligibility_available_time"], "t_avail")
+        t_p = validate_and_normalize_timestamp(p["timestamp"], "t_p")
+        assert t_p >= t_avail
+        assert lvl["lower_edge"] <= p["price"] <= lvl["upper_edge"]
+        assert fix["expected"]["touch_accepted"] is True
+        assert fix["expected"]["activated_observation_id"] == p["observation_id"]
+        assert fix["expected"]["first_touch_time"] == p["timestamp"]
+        assert fix["expected"]["final_state"] == "PENDING_ACTIVATION"
+
+    def test_act_03e_inside_candle_availability_unknown_sequence_blocks(self, activation_fixtures: Dict[str, Any]) -> None:
+        """Category 3E: Availability begins inside candle; unknown occurrence order blocks transition."""
+        fix = activation_fixtures["act_03e_inside_candle_availability_unknown_sequence_blocks"]
+        lvl = fix["source_level"]
+        candle = fix["candle_evidence"]
+        t_avail = validate_and_normalize_timestamp(lvl["eligibility_available_time"], "t_avail")
+        t_open = validate_and_normalize_timestamp(candle["interval_open"], "t_open")
+        t_close = validate_and_normalize_timestamp(candle["interval_close"], "t_close")
+        assert t_open < t_avail < t_close
+        assert candle["sub_bar_sequence_available"] is False
+        assert fix["expected"]["activation_transition_permitted"] is False
+        assert fix["expected"]["blocked_reason"] == "UNKNOWN_ORDER_INTRA_CANDLE_AVAILABILITY"
 
     def test_act_04_straddling_range_without_observed_print(self, activation_fixtures: Dict[str, Any]) -> None:
         """Category 4: Range straddling without discrete print in zone is rejected as NO_OBSERVED_TOUCH (OPEN-06)."""
@@ -250,13 +357,12 @@ class TestActivationFixtureIntegrity:
         lvl = fix["source_level"]
         lower, upper = lvl["lower_edge"], lvl["upper_edge"]
 
-        ev = fix["market_events"][0]
-        # Range straddles
-        assert ev["low"] < lower and ev["high"] > upper
+        bar = fix["candle_bar"]
+        assert bar["low"] < lower and bar["high"] > upper
         assert fix["expected"]["range_overlap_diagnostic"] is True
 
-        # But discrete prints do not intersect
-        prints_in_zone = [p for p in ev["recorded_prints"] if lower <= p <= upper]
+        # Discrete prints do not intersect
+        prints_in_zone = [p for p in bar["discrete_prints"] if lower <= p <= upper]
         assert len(prints_in_zone) == 0
         assert fix["expected"]["observed_print_in_zone"] is False
         assert fix["expected"]["touch_accepted"] is False
@@ -283,9 +389,124 @@ class TestActivationFixtureIntegrity:
         fix = activation_fixtures["act_05_repeated_observations_no_reset"]
         evs = fix["market_events"]
         assert fix["expected"]["final_state"] == "PENDING_ACTIVATION"
-        assert fix["expected"]["first_touch_time"] == evs[0]["time"]
+        assert fix["expected"]["first_touch_time"] == evs[0]["timestamp"]
         assert fix["expected"]["repeated_observations_count"] == 2
         assert fix["expected"]["search_reset_occurred"] is False
+
+    def test_act_06_source_choch_cancellation(self, activation_fixtures: Dict[str, Any]) -> None:
+        """Category 6: Source main CHOCH immediately cancels pending activation with rearm_eligible=False."""
+        fix = activation_fixtures["act_06_source_choch_cancellation"]
+        assert fix["expected"]["state_after_touch"] == "PENDING_ACTIVATION"
+        assert fix["expected"]["state_after_choch"] == "CANCELLED_SOURCE_CHOCH"
+        assert fix["expected"]["rearm_eligible"] is False
+        assert fix["expected"]["used_status"] is False
+
+    def test_act_07_source_t2_replacement_cancellation(self, activation_fixtures: Dict[str, Any]) -> None:
+        """Category 7: Source t2 replacement cancels SET_1 activation; SET_2 requires independent touch."""
+        fix = activation_fixtures["act_07_source_t2_replacement_cancellation"]
+        assert fix["expected"]["set1_state_after_replacement"] == "CANCELLED_SOURCE_REPLACEMENT"
+        assert fix["expected"]["set1_rearm_eligible"] is False
+        assert fix["expected"]["set2_initial_state"] == "INACTIVE_ELIGIBLE"
+        assert fix["expected"]["set2_activation_inherited"] is False
+
+    def test_act_07b_persistent_member_survives_into_replacement_set(self, activation_fixtures: Dict[str, Any]) -> None:
+        """Category 7B: Persistent physical level survives into SET_2; no activation inheritance; requires fresh touch."""
+        fix = activation_fixtures["act_07b_persistent_member_survives_into_replacement_set"]
+        assert fix["expected"]["set1_activation_state"] == "CANCELLED_SOURCE_REPLACEMENT"
+        assert fix["expected"]["set2_initial_state"] == "INACTIVE_ELIGIBLE"
+        assert fix["expected"]["set2_state_after_new_touch"] == "PENDING_ACTIVATION"
+        assert fix["expected"]["activation_inherited"] is False
+        assert fix["expected"]["physical_identity_preserved"] is True
+        assert fix["expected"]["lifetime_usage_committed"] is False
+
+    def test_act_08a_already_outside_cancellation_rearm(self, activation_fixtures: Dict[str, Any]) -> None:
+        """Category 8A: Price already observed outside at cancellation arms immediately; next touch rearms."""
+        fix = activation_fixtures["act_08a_already_outside_cancellation_rearm"]
+        assert fix["expected"]["state_after_cancellation"] == "OUT_OF_ZONE_ARMED"
+        assert fix["expected"]["state_after_subsequent_touch"] == "REARMED_PENDING"
+        assert fix["expected"]["extra_departure_required"] is False
+
+    def test_act_08b_lingering_inside_blocks_rearm(self, activation_fixtures: Dict[str, Any]) -> None:
+        """Category 8B: Lingering inside without confirmed outside departure blocks rearming (OPEN-05 Path A)."""
+        fix = activation_fixtures["act_08b_lingering_inside_blocks_rearm"]
+        assert fix["expected"]["state_after_cancellation"] == "CANCELLED_EXTERNAL_ENTRY"
+        assert fix["expected"]["rearm_armed"] is False
+        assert fix["expected"]["lingering_touch_accepted"] is False
+        assert fix["expected"]["rejection_reason"] == "LINGERING_INSIDE_WITHOUT_ZONE_DEPARTURE"
+
+    def test_act_08c_outside_print_then_inside_print_within_candle_known_sequence(self, activation_fixtures: Dict[str, Any]) -> None:
+        """Category 8C: Within-candle departure then retouch with known causal sequence permits rearming."""
+        fix = activation_fixtures["act_08c_outside_print_then_inside_print_within_candle_known_sequence"]
+        lvl = fix["source_level"]
+        events = fix["events"]
+        assert len(events) == 3
+        e_cancel, e_outside, e_inside = events[0], events[1], events[2]
+        assert e_cancel["sequence_ref"] < e_outside["sequence_ref"] < e_inside["sequence_ref"]
+        assert e_outside["price"] < lvl["lower_edge"] or e_outside["price"] > lvl["upper_edge"]
+        assert lvl["lower_edge"] <= e_inside["price"] <= lvl["upper_edge"]
+        assert fix["expected"]["departure_proven"] is True
+        assert fix["expected"]["retouch_proven"] is True
+        assert fix["expected"]["rearm_accepted"] is True
+        assert fix["expected"]["final_state"] == "REARMED_PENDING"
+
+    def test_act_08d_outside_and_inside_prices_within_candle_unknown_sequence(self, activation_fixtures: Dict[str, Any]) -> None:
+        """Category 8D: Outside and inside prices within candle with unknown sequence blocks rearming."""
+        fix = activation_fixtures["act_08d_outside_and_inside_prices_within_candle_unknown_sequence"]
+        lvl = fix["source_level"]
+        bar = fix["candle_bar"]
+        assert bar["low_price"] < lvl["lower_edge"]
+        assert bar["high_price"] >= lvl["lower_edge"]
+        assert bar["intra_bar_sequence_available"] is False
+        assert fix["expected"]["rearm_permitted"] is False
+        assert fix["expected"]["blocked_reason"] == "UNKNOWN_ORDER_CANNOT_PROVE_DEPARTURE_PRECEDENCE"
+
+    def test_act_09a_coarse_timestamp_rearm_after_commit(self, activation_fixtures: Dict[str, Any]) -> None:
+        """Category 9A: Event at coarse timestamp T rearms only AFTER winning commit finalizes (OPEN-12)."""
+        fix = activation_fixtures["act_09a_coarse_timestamp_rearm_after_commit"]
+        seq = fix["deterministic_event_sequence"]
+        commit_evt = next(e for e in seq if e["event_type"] == "WINNING_ENTRY_COMMIT_FINALIZED")
+        touch_evt = next(e for e in seq if e["event_type"] == "FRESH_MARKET_TOUCH_EVENT")
+        assert commit_evt["sequence_index"] < touch_evt["sequence_index"]
+        assert fix["expected"]["commit_finalized_before_touch"] is True
+        assert fix["expected"]["rearm_permitted"] is True
+        assert fix["expected"]["rearmed_state"] == "REARMED_PENDING"
+
+    def test_act_09b_pre_commit_event_recycled_tap_rejected(self, activation_fixtures: Dict[str, Any]) -> None:
+        """Category 9B: Pre-commit events and recycled evidence are rejected (OPEN-12)."""
+        fix = activation_fixtures["act_09b_pre_commit_event_recycled_tap_rejected"]
+        assert fix["expected"]["recycled_evidence_accepted"] is False
+        assert fix["expected"]["rejection_reason"] == "CANNOT_RECYCLE_COMPETED_EVIDENCE_PRIOR_TO_COMMIT"
+
+    def test_act_09c_incomplete_batch_unknown_coverage_blocks(self, activation_fixtures: Dict[str, Any]) -> None:
+        """Category 9C: Incomplete batch or unknown coverage blocks activation transitions (fail-closed)."""
+        fix = activation_fixtures["act_09c_incomplete_batch_unknown_coverage_blocks"]
+        assert fix["batch_status"] == "INCOMPLETE_MISSING_CANDLE_GAPS"
+        assert fix["expected"]["activation_transition_permitted"] is False
+        assert fix["expected"]["blocked_reason"] == "UNKNOWN_COVERAGE_FAIL_CLOSED"
+
+    def test_act_09d_two_reactivations_at_same_coarse_timestamp(self, activation_fixtures: Dict[str, Any]) -> None:
+        """Category 9D: Two reactivations at same coarse timestamp receive distinct IDs and use zero recycled evidence."""
+        fix = activation_fixtures["act_09d_two_reactivations_at_same_coarse_timestamp"]
+        reacts = fix["reactivations"]
+        assert len(reacts) == 2
+        r1, r2 = reacts[0], reacts[1]
+        assert r1["activation_id"] != r2["activation_id"]
+        assert r1["prior_activation_id"] != r2["prior_activation_id"]
+        assert r1["trigger_observation_id"] != r2["trigger_observation_id"]
+        assert r1["sequence_ref"] != r2["sequence_ref"]
+        assert fix["expected"]["distinct_activation_ids"] is True
+        assert fix["expected"]["prior_records_terminal"] is True
+        assert fix["expected"]["recycled_evidence_used"] is False
+
+    def test_act_10_run_isolation_and_replay_idempotence(self, activation_fixtures: Dict[str, Any]) -> None:
+        """Category 10: Run isolation (OPEN-08) and idempotent replay determinism (OPEN-09)."""
+        fix = activation_fixtures["act_10_run_isolation_and_replay_idempotence"]
+        assert fix["run_a_config"]["engine_id"] != fix["run_b_config"]["engine_id"]
+        assert fix["expected"]["run_a_isolated_from_run_b"] is True
+        assert fix["expected"]["run_b_does_not_inherit_run_a_activation"] is True
+        assert fix["expected"]["run_a_replay_pass_1_matches_pass_2"] is True
+        assert fix["expected"]["state_hashes_equal"] is True
+
 
     def test_act_06_source_choch_cancellation(self, activation_fixtures: Dict[str, Any]) -> None:
         """Category 6: Source main CHOCH immediately cancels pending activation with rearm_eligible=False."""

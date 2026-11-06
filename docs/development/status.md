@@ -525,50 +525,61 @@ Last Updated: 2026-11-05 (MSM Dashboard Milestone Accepted — Transition to CHO
 
 ---
 
-## 16. Milestone Specification & Verification: Tap / Activation Acceptance Requirements & Deterministic Acceptance Fixtures (HANDOFF-048 & HANDOFF-049)
-- **Active Branch**: `requirements/activation-acceptance`
-- **Parent Commit**: `535af1434ed9a6b93328202039db7f1d4f4be410` (Accepted TJL Dashboard Integration)
+## 16. Milestone Specification & Verification: Tap / Activation Acceptance Requirements & Deterministic Acceptance Fixtures (HANDOFF-048, HANDOFF-049, & HANDOFF-050)
+- **Active Branch**: 
+equirements/activation-acceptance
+- **Parent Commit**: 535af1434ed9a6b93328202039db7f1d4f4be410 (Accepted TJL Dashboard Integration)
 - **Objective**: Establish authoritative, machine-readable acceptance requirements and deterministic fixtures for tap observation and zone activation lifecycle prior to any engine implementation.
-- **Scope Boundary**: Pure requirements specification and fixture validation. Strictly **zero activation engine implementation, zero usage ledger, zero arbitration logic, zero trade entry signals, zero order execution, and zero merging into `main`**.
-- **Delivered Specifications & Fixtures (Addressing HANDOFF-048 Review Directives)**:
-  1. **Acceptance Specification (`docs/requirements/activation-acceptance.md`)**:
-     - Cites exact authoritative source sections (`MTF-Analysis.pdf` §3, §5, §6, §8, §9, §10, §12) and user approvals (`OPEN-03`, `OPEN-04`, `OPEN-05`, `OPEN-06`, `OPEN-08`, `OPEN-09`, `OPEN-10`, `OPEN-12`) from [`docs/requirements/approved-clarifications.md`](../requirements/approved-clarifications.md).
-     - Excised range-overlap-as-touch predicate; requires an actual observed price print $p$ satisfying $	ext{lower} \le p \le 	ext{upper}$ on the single configured price basis (`OPEN-06`). Documents what OHLC proves, what it does not prove, and blocked evidence categories (`NO_OBSERVED_TOUCH`, `UNKNOWN_ORDER`, `UNKNOWN_COVERAGE`).
-     - Corrected rearming semantics (`OPEN-05`): specifies both Path A (cancelled while inside: requires subsequent outside print followed by fresh touch) and Path B (cancelled while already outside: arms immediately for next touch without requiring extra departure). Lingering inside strictly blocks rearming.
-     - Separated terminal activation identity from persistent physical level identity: an outgoing activation is terminal and cannot revive; but an unused physical level surviving into a replacement set (t2) retains its `StableLevelId` and requires an independent fresh touch under the new set (zero activation inheritance).
+- **Scope Boundary**: Pure requirements specification and fixture validation. Strictly **zero activation engine implementation, zero usage ledger, zero arbitration logic, zero trade entry signals, zero order execution, and zero merging into main**.
+- **Delivered Specifications & Fixtures (HANDOFF-050 Hardening)**:
+  1. **Acceptance Specification (docs/requirements/activation-acceptance.md)**:
+     - Cites exact authoritative source sections (MTF-Analysis.pdf §3, §5, §6, §8, §9, §10, §12) and user approvals (OPEN-03, OPEN-04, OPEN-05, OPEN-06, OPEN-08, OPEN-09, OPEN-10, OPEN-12) from [docs/requirements/approved-clarifications.md](../requirements/approved-clarifications.md).
+     - Excised range-overlap-as-touch predicate; requires an actual observed price print $ satisfying $\\text{lower} \\le p \\le \\text{upper}$ on the single configured price basis (OPEN-06). Documents what OHLC proves, what it does not prove, and blocked evidence categories (NO_OBSERVED_TOUCH, UNKNOWN_ORDER, UNKNOWN_COVERAGE).
+     - Hardened OHLC temporal semantics (OPEN-04): Candle interval is strictly half-open $[t_{\\text{open}}, t_{\\text{close}})$, where {\\text{close}}$ is the record availability boundary. A candle's close price belongs to the completed candle interval; it does not prove a print at {\\text{close}}$. A level becoming available at {\\text{close}}$ cannot claim the preceding candle's close price as a post-availability touch. Independent post-availability evidence is required.
+     - Formal discrete evidence schema: defines typed machine schemas for ExactPricePrint, IntervalBoundedCandleEvidence, and CommitOrCancellationEvent.
+     - Corrected rearming semantics (OPEN-05): specifies both Path A (cancelled while inside: requires subsequent outside print  < L$ or  > U$ followed by fresh touch) and Path B (cancelled while already outside: arms immediately for next touch without requiring extra departure). Within-bar departure and retouch requires proven causal sequence index; otherwise blocked as UNKNOWN_ORDER. Lingering inside strictly blocks rearming.
+     - Separated terminal activation identity from persistent physical level identity: an outgoing activation is terminal and cannot revive; but an unused physical level surviving into a replacement set (t2) retains its StableLevelId and requires an independent fresh touch under the new set (zero activation inheritance).
      - Scoped arbitration tie-breakers: TJL2 / A+ precedence applies strictly between competing levels from the same source timeframe.
-     - Permitted independent concurrent pending activations for both `tjl1_zone` and `tjl2_zone` on an active set.
-     - Clarified that at continuation t1, the existing current set remains eligible while next labels in `all_labeled_zones` are ineligible.
-     - Kept source invalidation effective even when unrelated touch/confirmation evidence is unresolved (fail closed only for the branch lacking evidence).
-  2. **Expanded Machine-Readable Acceptance Fixtures (`tests/fixtures/activation_acceptance.json`)**:
-     - 20 deterministic fixture categories covering all approved rules and edge boundaries:
-       - `act_01_known_availability_first_touch`: Valid discrete print in $[L, U]$ at $t \ge t_{	ext{avail}}$ transitions level to `PENDING_ACTIVATION` and maps confirmation timeframe (H1 -> M1).
-       - `act_01b_both_tjl1_and_tjl2_pending_independently`: Both members of active current set hold pending activations concurrently.
-       - `act_01c_all_three_timeframe_mappings`: Verifies D1 -> H1, H4 -> M5, and H1 -> M1 mappings.
-       - `act_01d_t1_retention_current_set_eligible_labels_ineligible`: At t1, old current set remains eligible; next labels are ineligible.
-       - `act_02_unknown_availability_blocks_activation`: Null availability blocks activation evidence while preserving structural membership.
-       - `act_02b_unknown_usage_evidence_blocks`: Uncertain usage evidence blocks activation (fail-closed).
-       - `act_03_no_retroactive_wick_claim`: Pre-availability wick touch in $[open, avail)$ rejected; only post-availability touch activates (`OPEN-04`).
-       - `act_03b_intra_candle_availability_known_vs_unknown`: Known sub-bar ordering activates; unknown intra-bar ordering blocks as `UNKNOWN_ORDER`.
-       - `act_04_straddling_range_without_observed_print`: Range straddling zone without discrete print inside rejected as `NO_OBSERVED_TOUCH` (zero path interpolation, `OPEN-06`).
-       - `act_04b_inclusive_boundary_and_zero_width_line`: Exact boundary touches and zero-width lines successfully activate.
-       - `act_05_repeated_observations_no_reset`: Secondary/tertiary touches while pending do not reset `first_touch_time` or restart search.
-       - `act_06_source_choch_cancellation`: Source main CHOCH immediately cancels pending activation with `rearm_eligible = False`.
-       - `act_07_source_t2_replacement_cancellation`: Pullback t2 replacement cancels SET_1 activation; new SET_2 requires independent touch.
-       - `act_07b_persistent_member_survives_into_replacement_set`: Persistent physical level survives into SET_2; no activation inheritance; requires fresh touch.
-       - `act_08a_already_outside_cancellation_rearm`: Price observed outside at cancellation arms immediately; next touch rearms (OPEN-05 Path B).
-       - `act_08b_lingering_inside_blocks_rearm`: Lingering inside without departure blocks rearming (OPEN-05 Path A).
-       - `act_09a_coarse_timestamp_rearm_after_commit`: Later event at coarse timestamp $T$ rearms only *after* winning commit finalizes (OPEN-12).
-       - `act_09b_pre_commit_event_recycled_tap_rejected`: Pre-commit event and recycled tap rejected (OPEN-12).
-       - `act_09c_incomplete_batch_unknown_coverage_blocks`: Incomplete batch or unknown coverage blocks activation transitions.
-       - `act_10_run_isolation_and_replay_idempotence`: Engine configuration isolation (`OPEN-08`) and idempotent replay consistency (`OPEN-09`).
-  3. **Automated Fixture Integrity Suite (`tests/test_activation_fixture_integrity.py`)**:
-     - 22 comprehensive unit tests independently validating timestamps, finite positive prices, geometric bounds, half-open intervals, observed prints, cancellation rules, rearming paths, and replay determinism.
+     - Permitted independent concurrent pending activations for both 	jl1_zone and 	jl2_zone on an active set.
+     - Clarified that at continuation t1, the existing current set remains eligible while next labels in ll_labeled_zones are ineligible.
+     - Event sequencing at coarse timestamp $ (OPEN-12): winning commit finalizes first (seq(commit) < seq(rearm)). Recycled evidence strictly rejected. Distinct simultaneous reactivations receive distinct deterministic IDs.
+  2. **Expanded Machine-Readable Acceptance Fixtures (	ests/fixtures/activation_acceptance.json)**:
+     - 26 deterministic fixture categories covering all approved rules and edge boundaries:
+       - ct_01_known_availability_first_touch: Valid discrete print in $[L, U]$ at  \ge t_{\\text{avail}}$ transitions level to PENDING_ACTIVATION and maps confirmation timeframe (H1 -> M1).
+       - ct_01b_both_tjl1_and_tjl2_pending_independently: Both members of active current set hold pending activations concurrently.
+       - ct_01c_all_three_timeframe_mappings: Verifies D1 -> H1, H4 -> M5, and H1 -> M1 mappings.
+       - ct_01d_t1_retention_current_set_eligible_labels_ineligible: At t1, old current set remains eligible; next labels are ineligible.
+       - ct_02_unknown_availability_blocks_activation: Null availability blocks activation evidence while preserving structural membership.
+       - ct_02b_unknown_usage_evidence_blocks: Uncertain usage evidence blocks activation (fail-closed).
+       - ct_03_no_retroactive_wick_claim: Pre-availability wick touch in $[open, avail)$ rejected; only post-availability touch activates (OPEN-04).
+       - ct_03b_intra_candle_availability_known_vs_unknown: Known sub-bar ordering activates; unknown intra-bar ordering blocks as UNKNOWN_ORDER.
+       - ct_03c_level_available_at_close_prior_close_cannot_activate: Level available at candle close boundary {\\text{close}}$; preceding candle close price inside zone does NOT prove print at boundary; independent post-availability print required (OPEN-04).
+       - ct_03d_independent_print_at_availability_activates: Independent discrete print observed at or after availability timestamp cleanly activates (OPEN-04, OPEN-06).
+       - ct_03e_inside_candle_availability_unknown_sequence_blocks: Availability begins intra-candle; unknown sequence relative to completed candle close blocks as UNKNOWN_ORDER (OPEN-04).
+       - ct_04_straddling_range_without_observed_print: Range straddling zone without discrete print inside rejected as NO_OBSERVED_TOUCH (zero path interpolation, OPEN-06).
+       - ct_04b_inclusive_boundary_and_zero_width_line: Exact boundary touches and zero-width lines successfully activate.
+       - ct_05_repeated_observations_no_reset: Secondary/tertiary touches while pending do not reset irst_touch_time or restart search.
+       - ct_06_source_choch_cancellation: Source main CHOCH immediately cancels pending activation with 
+earm_eligible = False.
+       - ct_07_source_t2_replacement_cancellation: Pullback t2 replacement cancels SET_1 activation; new SET_2 requires independent touch.
+       - ct_07b_persistent_member_survives_into_replacement_set: Persistent physical level survives into SET_2; no activation inheritance; requires fresh touch.
+       - ct_08a_already_outside_cancellation_rearm: Price observed outside at cancellation arms immediately; next touch rearms (OPEN-05 Path B).
+       - ct_08b_lingering_inside_blocks_rearm: Lingering inside without departure blocks rearming (OPEN-05 Path A).
+       - ct_08c_outside_print_then_inside_print_within_candle_known_sequence: Within-candle departure then retouch with known causal sequence permits rearming (OPEN-05).
+       - ct_08d_outside_and_inside_prices_within_candle_unknown_sequence: Outside and inside prices within candle with unknown sequence blocks rearming (OPEN-05).
+       - ct_09a_coarse_timestamp_rearm_after_commit: Later event at coarse timestamp $ rearms only *after* winning commit finalizes (OPEN-12).
+       - ct_09b_pre_commit_event_recycled_tap_rejected: Pre-commit event and recycled tap rejected (OPEN-12).
+       - ct_09c_incomplete_batch_unknown_coverage_blocks: Incomplete batch or unknown coverage blocks activation transitions.
+       - ct_09d_two_reactivations_at_same_coarse_timestamp: Two distinct reactivations at same coarse timestamp receive distinct IDs and use zero recycled evidence (OPEN-12).
+       - ct_10_run_isolation_and_replay_idempotence: Engine configuration isolation (OPEN-08) and idempotent replay consistency (OPEN-09).
+  3. **Automated Fixture Integrity Suite (	ests/test_activation_fixture_integrity.py)**:
+     - 28 comprehensive unit tests independently validating timestamps, finite positive prices, geometric bounds, half-open intervals, discrete observed prints, cancellation rules, rearming paths, coarse timestamp sequencing, and replay determinism.
 - **Verification Summary**:
-  - Activation fixture integrity suite: 22/22 passed in 0.72s (`pytest tests/test_activation_fixture_integrity.py -v`).
-  - Full offline repository test suite: 442/442 passed in 12.72s (`pytest -q tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py`).
+  - Activation fixture integrity suite: 28/28 passed in 0.63s (pytest tests/test_activation_fixture_integrity.py -v).
+  - Full offline repository test suite: 448/448 passed in 12.30s (pytest -q tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py).
 - **Scope Compliance & Standing Invariants**:
   1. *Requirements Only*: Zero activation engine, zero usage ledger, zero arbitration logic, zero trade entry signals, zero order execution.
   2. *No Price-Path Invention*: Discrete candle wicks evaluated strictly within declared timestamps; no speculative tick paths inferred.
-  3. *Unresolved Core Ambiguities*: Upstream $c_1 == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
-  4. *Branch Boundary*: Committed and pushed strictly on `requirements/activation-acceptance`. No merging into `main`.
+  3. *Unresolved Core Ambiguities*: Upstream  == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
+  4. *Branch Boundary*: Committed and pushed strictly on 
+equirements/activation-acceptance. No merging into main.
