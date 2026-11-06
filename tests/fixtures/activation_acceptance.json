@@ -1,8 +1,8 @@
 {
   "description": "Standardized Acceptance Fixtures for Tap and Zone Activation Module",
-  "version": "1.0",
+  "version": "2.0",
   "authorities": [
-    "docs/strategy/MTF-Analysis.pdf (§5, §8, §9, §10, §12)",
+    "docs/strategy/MTF-Analysis.pdf (§3, §5, §6, §8, §9, §10, §12)",
     "docs/requirements/approved-clarifications.md (OPEN-03, OPEN-04, OPEN-05, OPEN-06, OPEN-08, OPEN-09, OPEN-10, OPEN-12)",
     "docs/requirements/activation-acceptance.md"
   ],
@@ -45,21 +45,158 @@
           "high": 1.1370,
           "low": 1.1310,
           "close": 1.1340,
-          "price_basis": "BID"
+          "price_basis": "BID",
+          "recorded_prints": [1.1320, 1.1370, 1.1310, 1.1340]
         }
       ],
       "expected": {
         "initial_state": "INACTIVE_ELIGIBLE",
         "final_state": "PENDING_ACTIVATION",
         "activated_event_id": "EVT_01",
+        "observed_print_price": 1.1370,
         "first_touch_time": "2026-10-02T08:15:00+00:00",
         "assigned_confirmation_timeframe": "M1",
         "used_status": false
       }
     },
+    "act_01b_both_tjl1_and_tjl2_pending_independently": {
+      "category": ["source_settled", "synthetic_event_sequence"],
+      "description": "Both members (TJL1 and TJL2) of the active current set on the same source timeframe receive touches and hold pending activations concurrently (MTF-Analysis.pdf §8 Q&A 22).",
+      "authority": "MTF-Analysis.pdf §8, Q&A 22",
+      "source_level_tjl1": {
+        "engine_id": "ENGINE_EURUSD_H1",
+        "symbol": "EURUSD",
+        "source_timeframe": "H1",
+        "set_id": "SET_1",
+        "role": "TJL1",
+        "side": "HIGH",
+        "level_id": {
+          "symbol_feed_id": "FEED_EURUSD_H1",
+          "source_timeframe": "H1",
+          "source_open_time": "2026-10-01T04:00:00+00:00",
+          "side": "HIGH"
+        },
+        "lower_edge": 1.1350,
+        "upper_edge": 1.1400,
+        "is_line": false,
+        "eligibility_available_time": "2026-10-02T08:00:00+00:00",
+        "direction": "UPWARD"
+      },
+      "source_level_tjl2": {
+        "engine_id": "ENGINE_EURUSD_H1",
+        "symbol": "EURUSD",
+        "source_timeframe": "H1",
+        "set_id": "SET_1",
+        "role": "TJL2_A_PLUS",
+        "side": "LOW",
+        "level_id": {
+          "symbol_feed_id": "FEED_EURUSD_H1",
+          "source_timeframe": "H1",
+          "source_open_time": "2026-10-01T12:00:00+00:00",
+          "side": "LOW"
+        },
+        "lower_edge": 1.1040,
+        "upper_edge": 1.1050,
+        "is_line": false,
+        "eligibility_available_time": "2026-10-02T08:00:00+00:00",
+        "direction": "UPWARD"
+      },
+      "market_events": [
+        {
+          "event_id": "EVT_TOUCH_TJL1",
+          "time": "2026-10-02T08:30:00+00:00",
+          "close_time": "2026-10-02T08:31:00+00:00",
+          "open": 1.1320,
+          "high": 1.1360,
+          "low": 1.1310,
+          "close": 1.1330,
+          "price_basis": "BID",
+          "recorded_prints": [1.1360]
+        },
+        {
+          "event_id": "EVT_TOUCH_TJL2",
+          "time": "2026-10-02T09:15:00+00:00",
+          "close_time": "2026-10-02T09:16:00+00:00",
+          "open": 1.1070,
+          "high": 1.1080,
+          "low": 1.1045,
+          "close": 1.1060,
+          "price_basis": "BID",
+          "recorded_prints": [1.1045]
+        }
+      ],
+      "expected": {
+        "tjl1_state": "PENDING_ACTIVATION",
+        "tjl1_first_touch_time": "2026-10-02T08:30:00+00:00",
+        "tjl2_state": "PENDING_ACTIVATION",
+        "tjl2_first_touch_time": "2026-10-02T09:15:00+00:00",
+        "both_concurrently_pending": true
+      }
+    },
+    "act_01c_all_three_timeframe_mappings": {
+      "category": ["source_settled"],
+      "description": "Verifies all three source-to-confirmation timeframe mappings: D1 -> H1, H4 -> M5, and H1 -> M1 (MTF-Analysis.pdf §6).",
+      "authority": "MTF-Analysis.pdf §6, Q&A 3",
+      "mappings": [
+        {"source_timeframe": "D1", "expected_confirmation_timeframe": "H1"},
+        {"source_timeframe": "H4", "expected_confirmation_timeframe": "M5"},
+        {"source_timeframe": "H1", "expected_confirmation_timeframe": "M1"}
+      ],
+      "expected": {
+        "mapping_count": 3,
+        "valid_mappings": true
+      }
+    },
+    "act_01d_t1_retention_current_set_eligible_labels_ineligible": {
+      "category": ["source_settled", "edge_boundary_specification"],
+      "description": "At t1 continuation, the old current set remains fully eligible for activation, while newly confirmed next labels in all_labeled_zones are ineligible.",
+      "authority": "docs/requirements/tjl-acceptance.md §5.2, MTF-Analysis.pdf §3",
+      "current_set_level": {
+        "engine_id": "ENGINE_EURUSD_M1",
+        "symbol": "EURUSD",
+        "source_timeframe": "M1",
+        "set_id": "SET_1",
+        "role": "TJL1",
+        "side": "HIGH",
+        "lower_edge": 1.1350,
+        "upper_edge": 1.1400,
+        "eligibility_available_time": "2026-10-02T08:00:00+00:00"
+      },
+      "next_labels_level": {
+        "engine_id": "ENGINE_EURUSD_M1",
+        "symbol": "EURUSD",
+        "source_timeframe": "M1",
+        "set_id": null,
+        "role": "TJL1",
+        "side": "HIGH",
+        "lower_edge": 1.1450,
+        "upper_edge": 1.1500,
+        "eligibility_available_time": null
+      },
+      "market_events": [
+        {
+          "event_id": "EVT_TOUCH_CURRENT_SET",
+          "time": "2026-10-02T08:30:00+00:00",
+          "close_time": "2026-10-02T08:31:00+00:00",
+          "recorded_prints": [1.1370]
+        },
+        {
+          "event_id": "EVT_TOUCH_NEXT_LABELS",
+          "time": "2026-10-02T08:35:00+00:00",
+          "close_time": "2026-10-02T08:36:00+00:00",
+          "recorded_prints": [1.1470]
+        }
+      ],
+      "expected": {
+        "current_set_touch_accepted": true,
+        "current_set_final_state": "PENDING_ACTIVATION",
+        "next_labels_touch_accepted": false,
+        "next_labels_rejection_reason": "INELIGIBLE_NOT_CURRENT_MEMBER"
+      }
+    },
     "act_02_unknown_availability_blocks_activation": {
       "category": ["edge_boundary_specification"],
-      "description": "When eligibility_available_time is None (unknown), time-extended tap activation is strictly blocked (fail-closed principle). Level remains INACTIVE_INELIGIBLE.",
+      "description": "When eligibility_available_time is None (unknown), structural set membership is retained, but activation evidence is blocked (fail-closed principle). Level remains INACTIVE_INELIGIBLE for activation.",
       "authority": "docs/requirements/approved-clarifications.md §4, docs/requirements/activation-acceptance.md §2.1",
       "source_level": {
         "engine_id": "ENGINE_GBPUSD_M5",
@@ -89,16 +226,53 @@
           "high": 1.2515,
           "low": 1.2485,
           "close": 1.2505,
-          "price_basis": "BID"
+          "price_basis": "BID",
+          "recorded_prints": [1.2515]
         }
       ],
       "expected": {
-        "initial_state": "INACTIVE_INELIGIBLE",
+        "structural_set_membership_preserved": true,
+        "activation_evidence_blocked": true,
         "final_state": "INACTIVE_INELIGIBLE",
-        "activated_event_id": null,
-        "first_touch_time": null,
         "blocked_reason": "UNKNOWN_AVAILABILITY_TIMING",
         "used_status": false
+      }
+    },
+    "act_02b_unknown_usage_evidence_blocks": {
+      "category": ["edge_boundary_specification"],
+      "description": "If level usage evidence is uncertain or unverified, activation is blocked (fail-closed). Activation requires explicit proof that used_status is False (MTF-Analysis.pdf §10).",
+      "authority": "MTF-Analysis.pdf §10",
+      "source_level": {
+        "engine_id": "ENGINE_EURUSD_H1",
+        "symbol": "EURUSD",
+        "source_timeframe": "H1",
+        "set_id": "SET_1",
+        "role": "TJL1",
+        "side": "HIGH",
+        "level_id": {
+          "symbol_feed_id": "FEED_EURUSD_H1",
+          "source_timeframe": "H1",
+          "source_open_time": "2026-10-01T04:00:00+00:00",
+          "side": "HIGH"
+        },
+        "lower_edge": 1.1350,
+        "upper_edge": 1.1400,
+        "is_line": false,
+        "eligibility_available_time": "2026-10-02T08:00:00+00:00",
+        "direction": "UPWARD",
+        "usage_evidence_status": "UNCERTAIN_USAGE_LEDGER_UNVERIFIED"
+      },
+      "market_events": [
+        {
+          "event_id": "EVT_01",
+          "time": "2026-10-02T08:30:00+00:00",
+          "close_time": "2026-10-02T08:31:00+00:00",
+          "recorded_prints": [1.1370]
+        }
+      ],
+      "expected": {
+        "activation_permitted": false,
+        "blocked_reason": "USAGE_EVIDENCE_UNCERTAIN_FAIL_CLOSED"
       }
     },
     "act_03_no_retroactive_wick_claim": {
@@ -134,7 +308,8 @@
           "low": 1.1290,
           "close": 1.1320,
           "price_basis": "BID",
-          "note": "Wick touches [1.135, 1.140] but candle occurs strictly before eligibility_available_time."
+          "recorded_prints": [1.1380],
+          "note": "Print 1.1380 inside [1.135, 1.140] but candle interval is strictly before eligibility_available_time."
         },
         {
           "event_id": "EVT_POST_VALID",
@@ -145,6 +320,7 @@
           "low": 1.1320,
           "close": 1.1345,
           "price_basis": "BID",
+          "recorded_prints": [1.1360],
           "note": "First valid touch after availability."
         }
       ],
@@ -157,9 +333,39 @@
         "used_status": false
       }
     },
-    "act_04_observed_touch_vs_interpolated_path": {
+    "act_03b_intra_candle_availability_known_vs_unknown": {
       "category": ["edge_boundary_specification"],
-      "description": "Price must physically print inside inclusive zone boundaries. Discrete candles gapping over a zone without printing inside do not constitute a touch (zero path interpolation, OPEN-06).",
+      "description": "When availability falls intra-bar: if sub-bar ordering is known, touch is valid; if intra-bar ordering is unknown, transition is blocked as UNKNOWN_ORDER (OPEN-04).",
+      "authority": "OPEN-04",
+      "source_level": {
+        "engine_id": "ENGINE_EURUSD_H1",
+        "symbol": "EURUSD",
+        "source_timeframe": "H1",
+        "set_id": "SET_1",
+        "role": "TJL1",
+        "side": "HIGH",
+        "lower_edge": 1.1350,
+        "upper_edge": 1.1400,
+        "eligibility_available_time": "2026-10-02T08:30:00+00:00"
+      },
+      "case_known_ordering": {
+        "candle_time": "2026-10-02T08:00:00+00:00",
+        "candle_close_time": "2026-10-02T09:00:00+00:00",
+        "touch_tick_time": "2026-10-02T08:45:00+00:00",
+        "touch_tick_price": 1.1370,
+        "expected_result": "VALID_TOUCH_POST_AVAILABILITY"
+      },
+      "case_unknown_ordering": {
+        "candle_time": "2026-10-02T08:00:00+00:00",
+        "candle_close_time": "2026-10-02T09:00:00+00:00",
+        "candle_high": 1.1380,
+        "tick_sequence_available": false,
+        "expected_result": "BLOCKED_UNKNOWN_ORDER"
+      }
+    },
+    "act_04_straddling_range_without_observed_print": {
+      "category": ["edge_boundary_specification"],
+      "description": "Candle range straddles zone ([low < L] and [high > U]) without discrete print inside. Range overlap does NOT establish touch; zero path interpolation applies (OPEN-06).",
       "authority": "OPEN-06",
       "source_level": {
         "engine_id": "ENGINE_EURUSD_H1",
@@ -168,12 +374,6 @@
         "set_id": "SET_1",
         "role": "TJL1",
         "side": "HIGH",
-        "level_id": {
-          "symbol_feed_id": "FEED_EURUSD_H1",
-          "source_timeframe": "H1",
-          "source_open_time": "2026-10-01T04:00:00+00:00",
-          "side": "HIGH"
-        },
         "lower_edge": 1.1350,
         "upper_edge": 1.1400,
         "is_line": false,
@@ -182,46 +382,47 @@
       },
       "market_events": [
         {
-          "event_id": "EVT_GAP_BELOW",
-          "time": "2026-10-02T08:00:00+00:00",
-          "close_time": "2026-10-02T08:01:00+00:00",
-          "open": 1.1310,
-          "high": 1.1340,
-          "low": 1.1300,
-          "close": 1.1330,
-          "price_basis": "BID",
-          "note": "High is 1.1340 < lower_edge 1.1350. Outside zone."
-        },
-        {
-          "event_id": "EVT_GAP_ABOVE",
-          "time": "2026-10-02T08:01:00+00:00",
-          "close_time": "2026-10-02T08:02:00+00:00",
-          "open": 1.1420,
-          "high": 1.1450,
-          "low": 1.1410,
-          "close": 1.1430,
-          "price_basis": "BID",
-          "note": "Low is 1.1410 > upper_edge 1.1400. Price gapped over zone; no print inside."
-        },
-        {
-          "event_id": "EVT_REAL_TOUCH",
-          "time": "2026-10-02T08:02:00+00:00",
-          "close_time": "2026-10-02T08:03:00+00:00",
-          "open": 1.1420,
+          "event_id": "EVT_GAP_STRADDLE",
+          "time": "2026-10-02T08:15:00+00:00",
+          "close_time": "2026-10-02T08:16:00+00:00",
+          "open": 1.1320,
           "high": 1.1430,
-          "low": 1.1390,
-          "close": 1.1405,
+          "low": 1.1310,
+          "close": 1.1420,
           "price_basis": "BID",
-          "note": "Low is 1.1390 <= 1.1400 and high is 1.1430 >= 1.1350. Observed print inside [1.1350, 1.1400]."
+          "recorded_prints": [1.1320, 1.1310, 1.1430, 1.1420],
+          "note": "Low 1.1310 < 1.1350 and High 1.1430 > 1.1400 (range straddles). But Open/Close/High/Low prints are strictly outside [1.1350, 1.1400]. Without intra-bar print in zone, no touch occurred."
         }
       ],
       "expected": {
-        "event_gap_below_touch": false,
-        "event_gap_above_touch": false,
-        "event_real_touch_touch": true,
-        "activated_event_id": "EVT_REAL_TOUCH",
-        "first_touch_time": "2026-10-02T08:02:00+00:00",
-        "final_state": "PENDING_ACTIVATION"
+        "range_overlap_diagnostic": true,
+        "observed_print_in_zone": false,
+        "touch_accepted": false,
+        "rejection_reason": "NO_OBSERVED_PRINT_INSIDE_ZONE",
+        "final_state": "INACTIVE_ELIGIBLE"
+      }
+    },
+    "act_04b_inclusive_boundary_and_zero_width_line": {
+      "category": ["source_settled", "edge_boundary_specification"],
+      "description": "Verifies inclusive boundary touches (p == lower_edge or p == upper_edge) and exact zero-width line levels (lower == upper).",
+      "authority": "OPEN-06, MTF-Analysis.pdf §4",
+      "regular_zone": {
+        "lower_edge": 1.1350,
+        "upper_edge": 1.1400,
+        "is_line": false,
+        "exact_lower_touch_price": 1.1350,
+        "exact_upper_touch_price": 1.1400
+      },
+      "line_level": {
+        "lower_edge": 1.1200,
+        "upper_edge": 1.1200,
+        "is_line": true,
+        "exact_line_touch_price": 1.1200
+      },
+      "expected": {
+        "lower_boundary_touch": true,
+        "upper_boundary_touch": true,
+        "line_level_touch": true
       }
     },
     "act_05_repeated_observations_no_reset": {
@@ -235,12 +436,6 @@
         "set_id": "SET_1",
         "role": "TJL1",
         "side": "HIGH",
-        "level_id": {
-          "symbol_feed_id": "FEED_EURUSD_H1",
-          "source_timeframe": "H1",
-          "source_open_time": "2026-10-01T04:00:00+00:00",
-          "side": "HIGH"
-        },
         "lower_edge": 1.1350,
         "upper_edge": 1.1400,
         "is_line": false,
@@ -252,31 +447,19 @@
           "event_id": "EVT_TOUCH_1",
           "time": "2026-10-02T08:15:00+00:00",
           "close_time": "2026-10-02T08:16:00+00:00",
-          "open": 1.1330,
-          "high": 1.1360,
-          "low": 1.1320,
-          "close": 1.1345,
-          "price_basis": "BID"
+          "recorded_prints": [1.1360]
         },
         {
           "event_id": "EVT_TOUCH_2",
           "time": "2026-10-02T08:30:00+00:00",
           "close_time": "2026-10-02T08:31:00+00:00",
-          "open": 1.1340,
-          "high": 1.1380,
-          "low": 1.1330,
-          "close": 1.1370,
-          "price_basis": "BID"
+          "recorded_prints": [1.1380]
         },
         {
           "event_id": "EVT_TOUCH_3",
           "time": "2026-10-02T08:45:00+00:00",
           "close_time": "2026-10-02T08:46:00+00:00",
-          "open": 1.1360,
-          "high": 1.1390,
-          "low": 1.1350,
-          "close": 1.1385,
-          "price_basis": "BID"
+          "recorded_prints": [1.1390]
         }
       ],
       "expected": {
@@ -297,12 +480,6 @@
         "set_id": "SET_1",
         "role": "TJL1",
         "side": "HIGH",
-        "level_id": {
-          "symbol_feed_id": "FEED_EURUSD_H1",
-          "source_timeframe": "H1",
-          "source_open_time": "2026-10-01T04:00:00+00:00",
-          "side": "HIGH"
-        },
         "lower_edge": 1.1350,
         "upper_edge": 1.1400,
         "is_line": false,
@@ -314,8 +491,7 @@
           "event_type": "TOUCH_OBSERVED",
           "event_id": "EVT_TOUCH_01",
           "time": "2026-10-02T08:15:00+00:00",
-          "high": 1.1370,
-          "low": 1.1320
+          "recorded_prints": [1.1370]
         },
         {
           "event_type": "SOURCE_MAIN_CHOCH",
@@ -344,17 +520,9 @@
         "set_id": "SET_1",
         "role": "TJL1",
         "side": "LOW",
-        "level_id": {
-          "symbol_feed_id": "FEED_GBPUSD_H1",
-          "source_timeframe": "H1",
-          "source_open_time": "2026-10-01T04:00:00+00:00",
-          "side": "LOW"
-        },
         "lower_edge": 1.2500,
         "upper_edge": 1.2520,
-        "is_line": false,
-        "eligibility_available_time": "2026-10-02T08:00:00+00:00",
-        "direction": "DOWNWARD"
+        "eligibility_available_time": "2026-10-02T08:00:00+00:00"
       },
       "source_level_set2": {
         "engine_id": "ENGINE_GBPUSD_H1",
@@ -363,25 +531,16 @@
         "set_id": "SET_2",
         "role": "TJL1",
         "side": "LOW",
-        "level_id": {
-          "symbol_feed_id": "FEED_GBPUSD_H1",
-          "source_timeframe": "H1",
-          "source_open_time": "2026-10-02T04:00:00+00:00",
-          "side": "LOW"
-        },
         "lower_edge": 1.2460,
         "upper_edge": 1.2480,
-        "is_line": false,
-        "eligibility_available_time": "2026-10-02T12:00:00+00:00",
-        "direction": "DOWNWARD"
+        "eligibility_available_time": "2026-10-02T12:00:00+00:00"
       },
       "lifecycle_events": [
         {
           "event_type": "TOUCH_OBSERVED_SET1",
           "event_id": "EVT_TOUCH_SET1",
           "time": "2026-10-02T09:00:00+00:00",
-          "high": 1.2510,
-          "low": 1.2490
+          "recorded_prints": [1.2510]
         },
         {
           "event_type": "SOURCE_T2_REPLACEMENT",
@@ -401,10 +560,55 @@
         "used_status_set2": false
       }
     },
-    "act_08_external_entry_cancellation_and_rearm": {
+    "act_07b_persistent_member_survives_into_replacement_set": {
+      "category": ["source_settled", "edge_boundary_specification"],
+      "description": "Outgoing activation is cancelled on t2 replacement, but the same physical level (CL) survives into SET_2 (Case B/C). It retains its StableLevelId, inherits zero activation state, and requires its own fresh touch under SET_2.",
+      "authority": "MTF-Analysis.pdf §4, §9, docs/requirements/tjl-acceptance.md §6.2",
+      "persistent_level_id": {
+        "symbol_feed_id": "FEED_EURUSD_H1",
+        "source_timeframe": "H1",
+        "source_open_time": "2026-10-01T12:00:00+00:00",
+        "side": "LOW"
+      },
+      "lifecycle_events": [
+        {
+          "event_type": "TOUCH_UNDER_SET1",
+          "event_id": "EVT_TOUCH_SET1",
+          "time": "2026-10-02T08:30:00+00:00",
+          "recorded_prints": [1.1045],
+          "role": "TJL2_A_PLUS",
+          "set_id": "SET_1"
+        },
+        {
+          "event_type": "REPLACEMENT_T2_OCCURS",
+          "event_id": "EVT_REPL",
+          "time": "2026-10-02T10:00:00+00:00",
+          "outgoing_cancelled_set_id": "SET_1",
+          "new_set_id": "SET_2",
+          "note": "SET_1 activation is terminal and cancelled."
+        },
+        {
+          "event_type": "NEW_TOUCH_UNDER_SET2",
+          "event_id": "EVT_TOUCH_SET2",
+          "time": "2026-10-02T11:00:00+00:00",
+          "recorded_prints": [1.1048],
+          "role": "TJL2_A_PLUS",
+          "set_id": "SET_2"
+        }
+      ],
+      "expected": {
+        "set1_activation_state": "CANCELLED_SOURCE_REPLACEMENT",
+        "set2_initial_state": "INACTIVE_ELIGIBLE",
+        "set2_state_after_new_touch": "PENDING_ACTIVATION",
+        "activation_inherited": false,
+        "physical_identity_preserved": true,
+        "lifetime_usage_committed": false
+      }
+    },
+    "act_08a_already_outside_cancellation_rearm": {
       "category": ["source_settled", "synthetic_event_sequence"],
-      "description": "An entry from another active level cancels pending activation without consuming the level. Price leaves zone and retouches, successfully rearming (MTF-Analysis.pdf §8, §9, §10, OPEN-05).",
-      "authority": "MTF-Analysis.pdf §8, §9, §10, OPEN-05",
+      "description": "Price observed strictly outside zone at moment of external cancellation: level arms immediately; next later observed touch successfully rearms without requiring another departure (OPEN-05 Path B).",
+      "authority": "OPEN-05 Path B, MTF-Analysis.pdf §9",
       "source_level_d1": {
         "engine_id": "ENGINE_EURUSD_D1",
         "symbol": "EURUSD",
@@ -412,103 +616,145 @@
         "set_id": "SET_1",
         "role": "TJL1",
         "side": "HIGH",
-        "level_id": {
-          "symbol_feed_id": "FEED_EURUSD_D1",
-          "source_timeframe": "D1",
-          "source_open_time": "2026-10-01T00:00:00+00:00",
-          "side": "HIGH"
-        },
         "lower_edge": 1.1350,
         "upper_edge": 1.1400,
-        "is_line": false,
-        "eligibility_available_time": "2026-10-02T00:00:00+00:00",
-        "direction": "UPWARD"
+        "eligibility_available_time": "2026-10-02T00:00:00+00:00"
       },
       "lifecycle_events": [
         {
-          "event_type": "TOUCH_D1",
-          "event_id": "EVT_TOUCH_D1",
+          "event_type": "INITIAL_TOUCH",
           "time": "2026-10-02T04:00:00+00:00",
-          "high": 1.1370,
-          "low": 1.1330
+          "recorded_prints": [1.1370]
         },
         {
-          "event_type": "EXTERNAL_ENTRY_COMMITTED",
-          "event_id": "EVT_WIN_H4",
-          "time": "2026-10-02T06:00:00+00:00",
-          "winning_source_timeframe": "H4",
-          "winning_level_id": "FEED_EURUSD_H4_CL",
-          "action": "CANCEL_OTHER_PENDING_ACTIVATIONS"
-        },
-        {
-          "event_type": "PRICE_OBSERVED_OUTSIDE_ZONE",
-          "event_id": "EVT_DEPARTURE",
-          "time": "2026-10-02T07:00:00+00:00",
+          "event_type": "PRICE_DEPARTURE",
+          "time": "2026-10-02T05:00:00+00:00",
           "high": 1.1320,
           "low": 1.1280,
           "note": "Price strictly below lower_edge 1.1350."
         },
         {
-          "event_type": "RETOUCH_OBSERVED",
-          "event_id": "EVT_RETOUCH_D1",
-          "time": "2026-10-02T09:00:00+00:00",
-          "high": 1.1380,
-          "low": 1.1340,
-          "note": "Fresh touch after leaving zone."
+          "event_type": "EXTERNAL_ENTRY_COMMITTED",
+          "time": "2026-10-02T06:00:00+00:00",
+          "winning_source_timeframe": "H4",
+          "note": "At cancellation, price is ALREADY observed outside."
+        },
+        {
+          "event_type": "SUBSEQUENT_TOUCH",
+          "time": "2026-10-02T08:00:00+00:00",
+          "recorded_prints": [1.1360],
+          "note": "Next later touch rearms immediately."
         }
       ],
       "expected": {
-        "state_after_first_touch": "PENDING_ACTIVATION",
-        "state_after_external_entry": "CANCELLED_EXTERNAL_ENTRY",
-        "d1_level_used_status_after_cancellation": false,
-        "state_after_departure": "OUT_OF_ZONE_ARMED",
-        "state_after_retouch": "REARMED_PENDING",
-        "new_first_touch_time": "2026-10-02T09:00:00+00:00"
+        "state_after_cancellation": "OUT_OF_ZONE_ARMED",
+        "state_after_subsequent_touch": "REARMED_PENDING",
+        "rearm_touch_time": "2026-10-02T08:00:00+00:00",
+        "extra_departure_required": false
       }
     },
-    "act_09_same_time_event_ordering": {
-      "category": ["edge_boundary_specification"],
-      "description": "At a shared candle close timestamp T where both source invalidation and an entry signal occur, source invalidation is evaluated first (OPEN-03, OPEN-12). Invalidated level cannot execute.",
-      "authority": "OPEN-03, OPEN-12",
-      "source_level": {
-        "engine_id": "ENGINE_EURUSD_H1",
+    "act_08b_lingering_inside_blocks_rearm": {
+      "category": ["source_settled", "edge_boundary_specification"],
+      "description": "Price is observed inside zone at cancellation and continues lingering inside. Without an established departure outside, rearming is strictly blocked (OPEN-05 Path A, MTF-Analysis.pdf §9).",
+      "authority": "OPEN-05 Path A, MTF-Analysis.pdf §9, Q&A 25",
+      "source_level_d1": {
+        "engine_id": "ENGINE_EURUSD_D1",
         "symbol": "EURUSD",
-        "source_timeframe": "H1",
+        "source_timeframe": "D1",
         "set_id": "SET_1",
         "role": "TJL1",
         "side": "HIGH",
-        "level_id": {
-          "symbol_feed_id": "FEED_EURUSD_H1",
-          "source_timeframe": "H1",
-          "source_open_time": "2026-10-01T04:00:00+00:00",
-          "side": "HIGH"
-        },
         "lower_edge": 1.1350,
         "upper_edge": 1.1400,
-        "is_line": false,
-        "eligibility_available_time": "2026-10-02T08:00:00+00:00",
-        "direction": "UPWARD"
+        "eligibility_available_time": "2026-10-02T00:00:00+00:00"
       },
-      "shared_timestamp": "2026-10-02T12:00:00+00:00",
-      "competing_events_at_t": [
+      "lifecycle_events": [
         {
-          "event_type": "SOURCE_INVALIDATION",
-          "event_id": "EVT_CHOCH_CLOSE",
-          "order_priority": 1,
-          "description": "Source H1 bar closes below last support, finalizing main CHOCH."
+          "event_type": "INITIAL_TOUCH",
+          "time": "2026-10-02T04:00:00+00:00",
+          "recorded_prints": [1.1370]
         },
         {
-          "event_type": "POTENTIAL_CONFIRMATION_ENTRY",
-          "event_id": "EVT_M1_CHOCH_CLOSE",
-          "order_priority": 2,
-          "description": "M1 candle closes confirming bullish pattern."
+          "event_type": "EXTERNAL_ENTRY_COMMITTED",
+          "time": "2026-10-02T06:00:00+00:00",
+          "winning_source_timeframe": "H4",
+          "current_price_observation": 1.1380,
+          "note": "Price is INSIDE zone at cancellation."
+        },
+        {
+          "event_type": "LINGERING_TOUCH_ATTEMPT",
+          "time": "2026-10-02T07:00:00+00:00",
+          "recorded_prints": [1.1375],
+          "note": "Price remained inside; no outside print occurred."
         }
       ],
       "expected": {
-        "invalidation_applied_first": true,
-        "entry_permitted": false,
-        "final_state": "CANCELLED_SOURCE_CHOCH",
-        "rejection_reason": "SOURCE_INVALIDATED_BEFORE_ENTRY_EVALUATION"
+        "state_after_cancellation": "CANCELLED_EXTERNAL_ENTRY",
+        "rearm_armed": false,
+        "lingering_touch_accepted": false,
+        "rejection_reason": "LINGERING_INSIDE_WITHOUT_ZONE_DEPARTURE"
+      }
+    },
+    "act_09a_coarse_timestamp_rearm_after_commit": {
+      "category": ["edge_boundary_specification"],
+      "description": "At coarse timestamp T, a later market event can rearm only AFTER the winning entry commit has finalized in event sequence order (OPEN-12).",
+      "authority": "OPEN-12",
+      "coarse_timestamp": "2026-10-02T12:00:00+00:00",
+      "deterministic_event_sequence": [
+        {
+          "sequence_index": 1,
+          "event_type": "WINNING_ENTRY_COMMIT_FINALIZED",
+          "winning_event_id": "WIN_H4_01",
+          "action": "COMMIT_USAGE_AND_CANCEL_COMPETING"
+        },
+        {
+          "sequence_index": 2,
+          "event_type": "MARKET_DEPARTURE_EVENT",
+          "description": "Price observed strictly outside zone after commit finalization."
+        },
+        {
+          "sequence_index": 3,
+          "event_type": "FRESH_MARKET_TOUCH_EVENT",
+          "recorded_prints": [1.1360],
+          "description": "Fresh touch occurring after winning commit finalized."
+        }
+      ],
+      "expected": {
+        "commit_finalized_before_touch": true,
+        "rearm_permitted": true,
+        "rearmed_state": "REARMED_PENDING"
+      }
+    },
+    "act_09b_pre_commit_event_recycled_tap_rejected": {
+      "category": ["edge_boundary_specification"],
+      "description": "Events occurring prior to the winning commit or attempting to recycle competed tap/confirmation evidence are strictly rejected (OPEN-12).",
+      "authority": "OPEN-12",
+      "coarse_timestamp": "2026-10-02T12:00:00+00:00",
+      "deterministic_event_sequence": [
+        {
+          "sequence_index": 1,
+          "event_type": "COMPETING_TAP_EVENT",
+          "description": "Tap that competed with the winning entry."
+        },
+        {
+          "sequence_index": 2,
+          "event_type": "WINNING_ENTRY_COMMIT_FINALIZED",
+          "winning_event_id": "WIN_H4_01"
+        }
+      ],
+      "expected": {
+        "recycled_evidence_accepted": false,
+        "rejection_reason": "CANNOT_RECYCLE_COMPETED_EVIDENCE_PRIOR_TO_COMMIT"
+      }
+    },
+    "act_09c_incomplete_batch_unknown_coverage_blocks": {
+      "category": ["edge_boundary_specification"],
+      "description": "Incomplete candle batches or uncertain data feed coverage block activation transitions (fail-closed principle).",
+      "authority": "docs/requirements/approved-clarifications.md §4",
+      "batch_status": "INCOMPLETE_MISSING_CANDLE_GAPS",
+      "expected": {
+        "activation_transition_permitted": false,
+        "blocked_reason": "UNKNOWN_COVERAGE_FAIL_CLOSED"
       }
     },
     "act_10_run_isolation_and_replay_idempotence": {
@@ -531,7 +777,8 @@
           "time": "2026-10-02T08:15:00+00:00",
           "close_time": "2026-10-02T08:16:00+00:00",
           "high": 1.1370,
-          "low": 1.1320
+          "low": 1.1320,
+          "recorded_prints": [1.1370]
         }
       ],
       "expected": {
