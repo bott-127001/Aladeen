@@ -2775,3 +2775,36 @@ Last Updated: 2026-11-06 (Milestone 29 Release-Readiness Audit & Offline Runbook
   - Zero order execution, zero MT5 trading, zero live account modification, zero arbitration, zero usage ledger writes, zero final signal publication.
   - Core strategy engines (`msm_engine.py`, `choch_detector.py`, `iss_engine.py`, `tjl_coordinator.py`, `activation_engine.py`, `activation_adapter.py`) remain 100% untouched (0 diff against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`).
   - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
+
+
+---
+
+## 47. Milestone 32 — Offline Integration Contract Equal-Time Ordering, Tightened Consolidation & Inventory Hardening (HANDOFF-101)
+- **Active Branch**: `feature/confirmation-monitor`
+- **Parent Commit**: `427a26148d9ec379369ce7eb2ac3ff7830f6dbce` (HANDOFF-100)
+- **Accepted Milestone 31 Baseline Commit**: `083d8df43c71ed0a56c6b020178dbdfdd3bf23d0` (HANDOFF-098)
+- **Defects Addressed in HANDOFF-101 (Review Directives 1–5)**:
+  1. *Separated Causal Ordering from Candidate Arbitration*:
+     - Removed candidate arbitration scenario from the contract; highlighted that multiple valid same-time candidates may remain in matcher output without blocking individual formation.
+     - Formalized exact equal-time touch/confirmation causal ordering rules (§3.1): at timestamp tie ($T_{\text{confirm}} == T_{\text{touch}}$), missing sequence references reject as `UNKNOWN_ORDER`; cross-domain sequence references reject as `CROSS_DOMAIN_ORDERING_REJECTED`; non-strictly-later sequence references reject as `PRE_ACTIVATION_CONFIRMATION`; strictly-later sequence references in matching domain are eligible to match.
+     - Applied equivalent strict-later ordering requirements to rearm observations ($T_{\text{cancel}} < T_{\text{outside}} < T_{\text{retouch}}$).
+  2. *Tightened Multi-Pattern Batch Consolidation Contract*:
+     - In §3.4, explicitly defined that consolidation into a single `CandidateSetupRecord` requires an **identical complete canonical setup key** ($\text{CSK}$) and consistent candidate attributes.
+     - Clarified that CHOCH and ISS confirming on different candles or with different configurations/timestamps produce distinct canonical setup keys and remain separate setups. Conflicting attributes under an identical key reject fail-closed as `CONFLICTING_IDENTITY`.
+  3. *Completed Unknown-Authority & Non-Complete Coverage Inventory*:
+     - Added explicit inventory rows in §4:
+       * Unknown usage (`UsageEvidenceStatus.UNKNOWN`): `NEG-10`, rejects with `UNKNOWN_USAGE`, `candidate_record=None`.
+       * Non-complete coverage (`CoverageStatus.INCOMPLETE` or `CoverageStatus.UNCERTAIN`): `NEG-09`, rejects with `INCOMPLETE_COVERAGE`.
+       * Used activation: `NEG-11`, rejects with `STALE_EVIDENCE_FOR_GENERATION`.
+       * Equal-time sequence ordering matrix: `ORD-01` through `ORD-04`.
+     - Explicitly designated `NEG-05` as a flag-propagation test of `has_unresolved_dependencies=True`, avoiding any implication of automatic structural discovery.
+  4. *Observation Provenance & Authorization Wording Precision*:
+     - Replaced ambiguous print terminology with exact physical observation provenance: an explicitly observed physical print or quote tick inside member geometric boundary `[lower_edge, upper_edge]` may support activation; High/Low OHLC overlap alone does NOT establish a touch; a candle value is usable only where an accepted contract establishes it as an observed print at the relevant availability boundary.
+     - Removed scheduling labels ("Milestone 32 Stage 2"); marked all proposed items as "PROPOSED (future, separately authorized; not approved for implementation)".
+  5. *Test Evidence & Carried-Forward Baseline*:
+     - Carried forward test results from verified baseline commit `083d8df43c71ed0a56c6b020178dbdfdd3bf23d0` (68/68 confirmation tests, 643/643 offline repository suite). Zero runtime code altered.
+- **Safety Boundary Maintained**:
+  - Specification and contract deliverables only. Zero runtime code altered.
+  - Zero order execution, zero MT5 trading, zero live account modification, zero arbitration, zero usage ledger writes, zero final signal publication.
+  - Core strategy engines (`msm_engine.py`, `choch_detector.py`, `iss_engine.py`, `tjl_coordinator.py`, `activation_engine.py`, `activation_adapter.py`) remain 100% untouched (0 diff against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`).
+  - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
