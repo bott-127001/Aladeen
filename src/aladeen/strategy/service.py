@@ -23,6 +23,7 @@ from .activation_engine import ActivationEngine, ActivationEngineConfig
 from .activation_adapter import TJLSynchronizer
 from .activation_types import (
     ActivationSnapshot,
+    ExactPricePrint,
     PriceBasis,
     SequenceDomain,
     TIMEFRAME_CONFIRMATION_MAP,
@@ -304,6 +305,7 @@ class MSMServiceResult:
     activation_snapshot: Optional[ActivationSnapshot] = None
     last_synced_transition_index: Optional[int] = None
     exact_observation_count: Optional[int] = None
+    activation_error: Optional[str] = None
     is_unresolved: bool = False
     unresolved_diagnostic: Optional[ChochDiagnostic] = None
     unresolved_candle_index: Optional[int] = None
@@ -324,18 +326,24 @@ class ActivationSessionCoordinator:
     -----------------
     - Retains single active ActivationEngine and TJLSynchronizer across sequential service calculations.
     - Synchronizes authoritative TJLSnapshot outputs produced during integrated calculations.
-    - Enforces context boundaries: resets engine and synchronizer state when symbol, timeframe, or start candle changes.
-    - Maintains synchronizer transition cursor and provides immutable ActivationSnapshot output.
-    - Preserves engine state (checkpoints, caches, controllers, history) across repeated calculations with unchanged context.
+    - Enforces context boundaries: resets engine and synchronizer state when data_source, engine_id,
+      symbol, timeframe, start candle, or explicit run_id changes.
+    - Distinguishes incremental synchronization within the same run from explicit recalculation.
+    - Maintains strictly monotonic sequence allocation across successive sync calls within a run.
+    - Preserves engine state on sync failures and emits descriptive error diagnostics.
     - Strictly non-inventing: never synthesizes price prints or overrides fail-closed UNKNOWN usage status in candle-only runs.
     """
 
     def __init__(self, sequence_domain_run_id: str = "OFFLINE_SERVICE_RUN") -> None:
-        self._run_id = sequence_domain_run_id
+        self._initial_run_id = sequence_domain_run_id
+        self._current_run_id = sequence_domain_run_id
+        self._run_counter: int = 1
         self._engine: Optional[ActivationEngine] = None
         self._synchronizer: Optional[TJLSynchronizer] = None
-        self._bound_context_key: Optional[Tuple[str, str, str, datetime]] = None
+        self._bound_context_key: Optional[Tuple[str, str, str, str, datetime, str]] = None
         self._last_synced_transition_index: Optional[int] = None
+        self._next_sequence_ref: int = 0
+        self._last_sync_error: Optional[str] = None
 
     @property
     def engine(self) -> Optional[ActivationEngine]:
@@ -346,24 +354,55 @@ class ActivationSessionCoordinator:
         return self._synchronizer
 
     @property
+    def current_run_id(self) -> str:
+        return self._current_run_id
+
+    @property
     def last_synced_transition_index(self) -> Optional[int]:
         return self._last_synced_transition_index
 
     @property
+    def last_sync_error(self) -> Optional[str]:
+        return self._last_sync_error
+
+    @property
+    def next_sequence_ref(self) -> int:
+        return self._next_sequence_ref
+
+    @property
     def exact_observation_count(self) -> Optional[int]:
-        """Diagnostic count of exact observation events processed by the engine."""
-        if self._engine is not None:
-            return len(self._engine._processed_events)
+        """Diagnostic count of exact observation events processed by the engine.
+
+        Returns count of successfully accepted distinct ExactPricePrint observations,
+        or None if no tick evidence boundary is present.
+        """
+        if self._engine is not None and self._engine._processed_events:
+            exact_count = sum(
+                1 for ev in self._engine._processed_events.values()
+                if isinstance(ev, ExactPricePrint)
+            )
+            return exact_count if exact_count > 0 else None
         return None
 
-    def reset(self) -> None:
-        """Resets engine, synchronizer, and context binding to clean initial baseline."""
+    def reset(self, new_run_id: Optional[str] = None) -> None:
+        """Resets engine, synchronizer, sequence counter, and context binding to clean initial baseline."""
         if self._engine is not None:
             self._engine.reset()
         self._engine = None
         self._synchronizer = None
         self._bound_context_key = None
         self._last_synced_transition_index = None
+        self._next_sequence_ref = 0
+        self._last_sync_error = None
+        if new_run_id is not None:
+            self._current_run_id = new_run_id
+
+    def start_new_run(self) -> str:
+        """Advances to a fresh run ID, triggering a clean recalculation cycle on next sync."""
+        self._run_counter += 1
+        self._current_run_id = f"{self._initial_run_id}_{self._run_counter}"
+        self.reset(self._current_run_id)
+        return self._current_run_id
 
     def sync_tjl_snapshot(
         self,
@@ -371,25 +410,34 @@ class ActivationSessionCoordinator:
         context: MSMContext,
         *,
         usage_evidence: Optional[Mapping[StableLevelId, UsageEvidenceStatus]] = None,
-        sequence_ref_start: int = 0,
+        force_recalculation: bool = False,
+        run_id: Optional[str] = None,
     ) -> Optional[ActivationSnapshot]:
         """Synchronizes an authoritative TJLSnapshot into the session ActivationEngine.
 
-        Resets and rebinds if the context (symbol, timeframe, start_candle_time, engine_id) has changed.
+        Enforces context boundaries across data_source, engine_id, symbol, timeframe,
+        start_candle_time, and run_id.
         """
         if not isinstance(tjl_snapshot, TJLSnapshot):
             raise TypeError(f"Expected TJLSnapshot, got {type(tjl_snapshot).__name__}")
 
+        if run_id is not None:
+            active_run_id = run_id
+            self._current_run_id = run_id
+        else:
+            active_run_id = self._current_run_id
+
+        data_source = context.data_source
         engine_id = tjl_snapshot.source_engine_id
         symbol = tjl_snapshot.symbol_feed_id
         tf = tjl_snapshot.source_timeframe
         start_time = context.start_candle_time
 
-        context_key = (engine_id, symbol, tf, start_time)
+        context_key = (data_source, engine_id, symbol, tf, start_time, active_run_id)
 
-        # Detect context switch
-        if self._bound_context_key != context_key:
-            self.reset()
+        # Detect context switch or explicit recalculation
+        if force_recalculation or self._bound_context_key != context_key:
+            self.reset(active_run_id)
             self._bound_context_key = context_key
 
             # Only initialize if source timeframe is in confirmation map
@@ -398,7 +446,7 @@ class ActivationSessionCoordinator:
 
             seq_domain = SequenceDomain(
                 feed_id=f"FEED_{symbol}_{tf}",
-                run_id=self._run_id,
+                run_id=active_run_id,
             )
             config = ActivationEngineConfig(
                 engine_id=engine_id,
@@ -413,13 +461,25 @@ class ActivationSessionCoordinator:
         if self._synchronizer is None or self._engine is None:
             return None
 
-        act_snap = self._synchronizer.sync(
-            snapshot=tjl_snapshot,
-            sequence_ref_start=sequence_ref_start,
-            usage_evidence=usage_evidence,
-        )
-        self._last_synced_transition_index = self._synchronizer.last_synced_transition_index
-        return act_snap
+        # Synchronize using strictly monotonic sequence counter
+        try:
+            act_snap = self._synchronizer.sync(
+                snapshot=tjl_snapshot,
+                sequence_ref_start=self._next_sequence_ref,
+                usage_evidence=usage_evidence,
+            )
+            self._last_synced_transition_index = self._synchronizer.last_synced_transition_index
+            self._last_sync_error = None
+
+            # Monotonically update next sequence ref
+            if self._engine._last_processed_sequence is not None:
+                self._next_sequence_ref = max(self._next_sequence_ref, self._engine._last_processed_sequence + 1)
+
+            return act_snap
+        except Exception as e:
+            # Preserve prior valid state on failure; record error diagnostic
+            self._last_sync_error = str(e)
+            raise
 
 
 _default_session_coordinator: Optional[ActivationSessionCoordinator] = None
@@ -540,6 +600,8 @@ def calculate_msm(
     *,
     activation_coordinator: Optional[ActivationSessionCoordinator] = None,
     usage_evidence: Optional[Mapping[StableLevelId, UsageEvidenceStatus]] = None,
+    force_recalculation: bool = False,
+    run_id: Optional[str] = None,
 ) -> MSMServiceResult:
     """Performs a deterministic, fresh batch MSM calculation on *df* using *context*.
 
@@ -643,17 +705,25 @@ def calculate_msm(
             act_snap = None
             last_sync_idx = None
             exact_obs_count = None
+            act_error = None
+            act_coordinator = activation_coordinator or get_default_activation_coordinator()
             try:
-                act_coordinator = activation_coordinator or ActivationSessionCoordinator()
                 act_snap = act_coordinator.sync_tjl_snapshot(
                     tjl_snapshot=tjl_snap,
                     context=context,
                     usage_evidence=usage_evidence,
+                    force_recalculation=force_recalculation,
+                    run_id=run_id,
                 )
                 last_sync_idx = act_coordinator.last_synced_transition_index
                 exact_obs_count = act_coordinator.exact_observation_count
-            except Exception:
-                act_snap = None
+                act_error = act_coordinator.last_sync_error
+            except Exception as e:
+                act_error = str(e)
+                # Preserve prior valid snapshot if available
+                act_snap = act_coordinator.engine.get_snapshot() if act_coordinator.engine else None
+                last_sync_idx = act_coordinator.last_synced_transition_index
+                exact_obs_count = act_coordinator.exact_observation_count
 
             return MSMServiceResult(
                 context=context,
@@ -668,6 +738,7 @@ def calculate_msm(
                 activation_snapshot=act_snap,
                 last_synced_transition_index=last_sync_idx,
                 exact_observation_count=exact_obs_count,
+                activation_error=act_error,
                 is_unresolved=tjl_snap.is_unresolved or coord_snap.is_unresolved,
                 unresolved_diagnostic=coord_snap.unresolved_diagnostic,
                 unresolved_candle_index=coord_snap.unresolved_candle_index,

@@ -534,7 +534,15 @@
             "cancellation_reason": "SOURCE_CHOCH",
             "cancellation_time": "2026-10-02T09:00:00+00:00",
             "cancellation_sequence_ref": 120,
-            "terminal": true
+            "terminal": true,
+            "level_id": {
+              "symbol_feed_id": "FEED_EURUSD_H1",
+              "source_timeframe": "H1",
+              "source_open_time": "2026-10-01T04:00:00+00:00",
+              "side": "HIGH"
+            },
+            "lower_edge": 1.135,
+            "upper_edge": 1.14
           }
         ],
         "synchronization": {
@@ -600,7 +608,15 @@
             "cancellation_reason": "SOURCE_REPLACEMENT",
             "cancellation_time": null,
             "cancellation_sequence_ref": 125,
-            "terminal": true
+            "terminal": true,
+            "level_id": {
+              "symbol_feed_id": "FEED_EURUSD_H1",
+              "source_timeframe": "H1",
+              "source_open_time": "2026-10-01T04:00:00+00:00",
+              "side": "HIGH"
+            },
+            "lower_edge": 1.135,
+            "upper_edge": 1.14
           }
         ],
         "synchronization": {
@@ -838,7 +854,15 @@
             "trigger_observation_id": "OBS_10",
             "prior_activation_id": "ACT_G01[16:ENGINE_EURUSD_H1][2:H1][6:EURUSD][5:SET_1][4:TJL1]",
             "usage_evidence_status": "UNUSED",
-            "blocked_reason": null
+            "blocked_reason": null,
+            "level_id": {
+              "symbol_feed_id": "FEED_EURUSD_H1",
+              "source_timeframe": "H1",
+              "source_open_time": "2026-10-01T04:00:00+00:00",
+              "side": "HIGH"
+            },
+            "lower_edge": 1.135,
+            "upper_edge": 1.14
           }
         ],
         "evidence_gating": {
@@ -858,7 +882,15 @@
             "cancellation_reason": "EXTERNAL_ENTRY",
             "cancellation_time": "2026-10-02T09:45:00+00:00",
             "cancellation_sequence_ref": 130,
-            "terminal": true
+            "terminal": true,
+            "level_id": {
+              "symbol_feed_id": "FEED_EURUSD_H1",
+              "source_timeframe": "H1",
+              "source_open_time": "2026-10-01T04:00:00+00:00",
+              "side": "HIGH"
+            },
+            "lower_edge": 1.135,
+            "upper_edge": 1.14
           }
         ],
         "synchronization": {
@@ -949,7 +981,15 @@
             "cancellation_reason": "SOURCE_CHOCH",
             "cancellation_time": "2026-10-02T09:00:00+00:00",
             "cancellation_sequence_ref": 120,
-            "terminal": true
+            "terminal": true,
+            "level_id": {
+              "symbol_feed_id": "FEED_EURUSD_H1",
+              "source_timeframe": "H1",
+              "source_open_time": "2026-10-01T04:00:00+00:00",
+              "side": "HIGH"
+            },
+            "lower_edge": 1.135,
+            "upper_edge": 1.14
           }
         ],
         "synchronization": {
@@ -1062,7 +1102,15 @@
             "cancellation_reason": "EXTERNAL_ENTRY",
             "cancellation_time": "2026-10-02T11:00:00+00:00",
             "cancellation_sequence_ref": 201,
-            "terminal": true
+            "terminal": true,
+            "level_id": {
+              "symbol_feed_id": "FEED_EURUSD_H1",
+              "source_timeframe": "H1",
+              "source_open_time": "2026-10-01T04:00:00+00:00",
+              "side": "HIGH"
+            },
+            "lower_edge": 1.135,
+            "upper_edge": 1.14
           },
           {
             "activation_id": "ACT_G01[16:ENGINE_EURUSD_H1][2:H1][6:EURUSD][5:SET_1][11:TJL2_A_PLUS]",
@@ -1073,7 +1121,15 @@
             "cancellation_reason": "EXTERNAL_ENTRY",
             "cancellation_time": "2026-10-02T11:00:00+00:00",
             "cancellation_sequence_ref": 202,
-            "terminal": true
+            "terminal": true,
+            "level_id": {
+              "symbol_feed_id": "FEED_EURUSD_H1",
+              "source_timeframe": "H1",
+              "source_open_time": "2026-10-01T06:00:00+00:00",
+              "side": "LOW"
+            },
+            "lower_edge": 1.12,
+            "upper_edge": 1.125
           }
         ],
         "synchronization": {

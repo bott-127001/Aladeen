@@ -204,7 +204,9 @@ def make_snapshot_from_fixture(fixture: Dict[str, Any]) -> Tuple[ActivationSnaps
             raw_lid = m["level_id"]
             sym = raw_lid.get("symbol_feed_id") or raw_lid.get("symbol") or ctx["symbol"]
             tf = raw_lid.get("source_timeframe") or raw_lid.get("timeframe") or ctx["source_timeframe"]
-            open_t = _parse_dt(raw_lid.get("source_open_time")) or datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc)
+            open_t = _parse_dt(raw_lid.get("source_open_time"))
+            if open_t is None:
+                raise ValueError(f"Missing source_open_time in level_id for membership {mk}")
             side_val = TJLSide.HIGH if raw_lid.get("side") == "HIGH" else TJLSide.LOW
             level_id = StableLevelId(
                 symbol_feed_id=sym,
@@ -242,7 +244,9 @@ def make_snapshot_from_fixture(fixture: Dict[str, Any]) -> Tuple[ActivationSnaps
         if raw_lid:
             sym = raw_lid.get("symbol_feed_id") or raw_lid.get("symbol") or ctx["symbol"]
             tf = raw_lid.get("source_timeframe") or raw_lid.get("timeframe") or ctx["source_timeframe"]
-            open_t = _parse_dt(raw_lid.get("source_open_time")) or datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc)
+            open_t = _parse_dt(raw_lid.get("source_open_time"))
+            if open_t is None:
+                raise ValueError(f"Missing source_open_time in level_id for active activation {mk}")
             side_val = TJLSide.HIGH if raw_lid.get("side") == "HIGH" else TJLSide.LOW
             level_id = StableLevelId(
                 symbol_feed_id=sym,
@@ -250,8 +254,12 @@ def make_snapshot_from_fixture(fixture: Dict[str, Any]) -> Tuple[ActivationSnaps
                 source_open_time=open_t,
                 side=side_val,
             )
-        lower_edge = float(act.get("lower_edge") or mem_def.get("lower_edge") or 1.1350)
-        upper_edge = float(act.get("upper_edge") or mem_def.get("upper_edge") or 1.1400)
+        lower_edge_val = act.get("lower_edge") if "lower_edge" in act else mem_def.get("lower_edge")
+        upper_edge_val = act.get("upper_edge") if "upper_edge" in act else mem_def.get("upper_edge")
+        if lower_edge_val is None or upper_edge_val is None:
+            raise ValueError(f"Missing lower/upper edge for active activation {mk}")
+        lower_edge = float(lower_edge_val)
+        upper_edge = float(upper_edge_val)
 
         rec = ActivationRecord(
             activation_id=act["activation_id"],
@@ -280,13 +288,17 @@ def make_snapshot_from_fixture(fixture: Dict[str, Any]) -> Tuple[ActivationSnaps
     rearm_controllers = {}
     for ctrl in inputs.get("rearm_controllers", []):
         mk = ctrl["member_key"]
-        state_val = ActivationState.OUT_OF_ZONE_ARMED if ctrl.get("rearm_armed") else ActivationState.CANCELLED_EXTERNAL_ENTRY
+        rearm_armed = bool(ctrl["rearm_armed"])
+        if ctrl.get("state"):
+            state_val = ActivationState(ctrl["state"])
+        else:
+            state_val = ActivationState.OUT_OF_ZONE_ARMED if rearm_armed else ActivationState.CANCELLED_EXTERNAL_ENTRY
         rc = RearmController(
             member_key=mk,
             prior_activation_id=ctrl["prior_activation_id"],
             generation_seq=int(ctrl["generation_seq"]),
             state=state_val,
-            rearm_armed=bool(ctrl["rearm_armed"]),
+            rearm_armed=rearm_armed,
             last_observed_position=ctrl.get("last_observed_position"),
             cancellation_time=_parse_dt(ctrl.get("cancellation_time")),
             cancellation_sequence_ref=ctrl.get("cancellation_sequence_ref"),
@@ -306,7 +318,9 @@ def make_snapshot_from_fixture(fixture: Dict[str, Any]) -> Tuple[ActivationSnaps
         if raw_lid:
             sym = raw_lid.get("symbol_feed_id") or raw_lid.get("symbol") or ctx["symbol"]
             tf = raw_lid.get("source_timeframe") or raw_lid.get("timeframe") or ctx["source_timeframe"]
-            open_t = _parse_dt(raw_lid.get("source_open_time")) or datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc)
+            open_t = _parse_dt(raw_lid.get("source_open_time"))
+            if open_t is None:
+                raise ValueError(f"Missing source_open_time in level_id for terminal activation {mk}")
             side_val = TJLSide.HIGH if raw_lid.get("side") == "HIGH" else TJLSide.LOW
             level_id = StableLevelId(
                 symbol_feed_id=sym,
@@ -314,8 +328,12 @@ def make_snapshot_from_fixture(fixture: Dict[str, Any]) -> Tuple[ActivationSnaps
                 source_open_time=open_t,
                 side=side_val,
             )
-        lower_edge = float(term.get("lower_edge") or mem_def.get("lower_edge") or 1.1350)
-        upper_edge = float(term.get("upper_edge") or mem_def.get("upper_edge") or 1.1400)
+        lower_edge_val = term.get("lower_edge") if "lower_edge" in term else mem_def.get("lower_edge")
+        upper_edge_val = term.get("upper_edge") if "upper_edge" in term else mem_def.get("upper_edge")
+        if lower_edge_val is None or upper_edge_val is None:
+            raise ValueError(f"Missing lower/upper edge for terminal activation {mk}")
+        lower_edge = float(lower_edge_val)
+        upper_edge = float(upper_edge_val)
 
         trec = ActivationRecord(
             activation_id=term["activation_id"],
@@ -464,6 +482,15 @@ class TestActivationDashboardIntegration:
 
             elif scenario_id == "dash_act_12_successor_set_persistent_level":
                 assert "SET_2" in all_text
+                # Physical-level continuity between SET_1 and SET_2
+                assert act_snap is not None
+                active_rec = next(iter(act_snap.active_activations.values()))
+                term_rec = act_snap.terminal_activations[0]
+                assert active_rec.level_id == term_rec.level_id
+                assert active_rec.level_id is not None
+                assert active_rec.set_id == "SET_2"
+                assert term_rec.set_id == "SET_1"
+                assert _format_level_id(active_rec.level_id) in all_text
 
             elif scenario_id == "dash_act_13_unresolved_source_snapshot":
                 assert CANONICAL_UNRESOLVED_BANNER in all_text
@@ -473,6 +500,14 @@ class TestActivationDashboardIntegration:
             elif scenario_id == "dash_act_14_equal_coarse_timestamps":
                 assert "#201" in all_text
                 assert "#202" in all_text
+                # Exact descending history order of rows: #202 must appear strictly before #201
+                hist_table = find_component(tree, "activation-history-table")
+                assert hist_table is not None
+                hist_text = extract_all_text(hist_table)
+                idx_202 = hist_text.find("#202")
+                idx_201 = hist_text.find("#201")
+                assert idx_202 != -1 and idx_201 != -1
+                assert idx_202 < idx_201, f"Expected #202 before #201 in history table, got {idx_202} >= {idx_201}"
 
             elif scenario_id == "dash_act_15_multiple_source_timeframes":
                 assert "Source TF: H4" in all_text
@@ -579,13 +614,16 @@ class TestActivationDashboardIntegration:
 
         snap = synchronizer.sync(tjl_snap, sequence_ref_start=0)
 
-        # Capture complete engine state before rendering
+        # Capture complete engine and synchronizer state before rendering
         cp_before = engine.create_checkpoint()
         cursor_before = engine._last_processed_sequence
         members_before = copy.deepcopy(engine._current_members)
         active_before = copy.deepcopy(engine._active_activations)
         controllers_before = copy.deepcopy(engine._rearm_controllers)
         history_before = copy.deepcopy(engine._terminal_activations)
+        sync_cursor_before = synchronizer.last_synced_transition_index
+        sync_cache_before = copy.deepcopy(synchronizer._usage_cache)
+        sync_trans_before = copy.deepcopy(synchronizer._consumed_transitions)
 
         # Repeated presentation rendering
         for _ in range(5):
@@ -599,6 +637,9 @@ class TestActivationDashboardIntegration:
         assert active_before == engine._active_activations
         assert controllers_before == engine._rearm_controllers
         assert history_before == engine._terminal_activations
+        assert synchronizer.last_synced_transition_index == sync_cursor_before
+        assert synchronizer._usage_cache == sync_cache_before
+        assert synchronizer._consumed_transitions == sync_trans_before
 
     def test_value_preserving_price_and_timestamp_formatting(self) -> None:
         """Verifies value preservation for narrow zones, subseconds, UTC conversions, and diagnostics."""
@@ -607,9 +648,10 @@ class TestActivationDashboardIntegration:
         assert _format_price("invalid") == "[INVALID_PRICE:'invalid']"
         assert _format_price(True) == "[INVALID_PRICE:True]"
         assert _format_price(1.135) == "1.1350"
-        assert _format_price(1.135001) == "1.135001"
-        assert _format_price(1.135002) == "1.135002"
-        assert _format_price(1.135001) != _format_price(1.135002)  # Narrow zone distinction preserved!
+        assert _format_price(1.135000001) == "1.135000001"
+        assert _format_price(1.135000002) == "1.135000002"
+        assert _format_price(1.135000001) != _format_price(1.135000002)  # 9th-decimal distinction preserved!
+        assert _format_price(1.12345678901234) == "1.12345678901234"
 
         # Datetime formatting
         assert _format_datetime(None) == "Unknown"
@@ -838,3 +880,138 @@ class TestActivationDashboardIntegration:
         assert "ACT_G01[16:ENGINE_EURUSD_H1][2:H1][6:EURUSD][5:SET_1][4:TJL1]" in all_text
         assert "1.1380" in all_text
         assert "EXTERNAL_ENTRY" in all_text
+
+    def test_same_run_successive_cancellation_sync_with_monotonic_sequences_and_error_preservation(self) -> None:
+        """Verifies monotonic sequence allocation across successive sync calls in the same run, and error preservation."""
+        coord = ActivationSessionCoordinator("RUN_MONOTONIC_TEST")
+        ctx = MSMContext(
+            data_source="OFFLINE_TEST",
+            symbol="EURUSD",
+            timeframe="H1",
+            start_candle_time=datetime(2026, 10, 1, 0, 0, tzinfo=timezone.utc),
+            direction=Direction.UPWARD,
+            calculation_mode=CalculationMode.INTEGRATED_MSM_CHOCH_TJL.value,
+        )
+
+        lid1 = StableLevelId("EURUSD", "H1", datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc), TJLSide.HIGH)
+        zone1 = TJLZone(lid1, TJLLabel.TJL1, 1.135, 1.140, False, 5, datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc), 10)
+        lid2 = StableLevelId("EURUSD", "H1", datetime(2026, 10, 1, 6, 0, tzinfo=timezone.utc), TJLSide.LOW)
+        zone2 = TJLZone(lid2, TJLLabel.TJL2_A_PLUS, 1.120, 1.125, False, 7, datetime(2026, 10, 1, 6, 0, tzinfo=timezone.utc), 10)
+        fp = TJLFingerprint("ENGINE_EURUSD_H1", Direction.UPWARD, 5, 7, 5)
+        set1 = CurrentEligibleSet("SET_1", fp, Direction.UPWARD, "ENGINE_EURUSD_H1", "EURUSD", "H1", zone1, zone2, 5, datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc), 1.140, datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc), 10)
+
+        # Call 1: Initial sync with 1 cancellation transition
+        trans1 = TJLTransitionRecord(
+            transition_type=TJLTransitionType.CHOCH_INVALIDATION,
+            outgoing_cancellation_intent=True,
+            current_set=None,
+            newly_labeled_zones=(),
+            transition_candle_index=12,
+            transition_time=datetime(2026, 10, 2, 9, 0, tzinfo=timezone.utc),
+            outgoing_cancelled_set_id="SET_1",
+            outgoing_cancelled_fingerprint=fp,
+        )
+        snap1 = TJLSnapshot(
+            source_engine_id="ENGINE_EURUSD_H1",
+            symbol_feed_id="EURUSD",
+            source_timeframe="H1",
+            direction=Direction.UPWARD,
+            structural_epoch=1,
+            current_eligible_set=None,
+            all_labeled_zones=(zone1, zone2),
+            historical_sets=(set1,),
+            outgoing_cancellation_intent=True,
+            last_transition=trans1,
+            transition_history=(trans1,),
+            is_unresolved=False,
+            unresolved_diagnostic=None,
+            last_processed_index=12,
+            last_received_index=12,
+        )
+
+        act_snap1 = coord.sync_tjl_snapshot(snap1, ctx)
+        assert act_snap1 is not None
+        assert coord.last_synced_transition_index == 0
+        assert coord.next_sequence_ref == 1
+
+        # Call 2: Successor sync in same run consuming second cancellation transition
+        trans2 = TJLTransitionRecord(
+            transition_type=TJLTransitionType.SET_REPLACEMENT,
+            outgoing_cancellation_intent=True,
+            current_set=None,
+            newly_labeled_zones=(),
+            transition_candle_index=15,
+            transition_time=datetime(2026, 10, 2, 10, 0, tzinfo=timezone.utc),
+            outgoing_cancelled_set_id="SET_2",
+            outgoing_cancelled_fingerprint=fp,
+        )
+        snap2 = TJLSnapshot(
+            source_engine_id="ENGINE_EURUSD_H1",
+            symbol_feed_id="EURUSD",
+            source_timeframe="H1",
+            direction=Direction.UPWARD,
+            structural_epoch=1,
+            current_eligible_set=None,
+            all_labeled_zones=(zone1, zone2),
+            historical_sets=(set1,),
+            outgoing_cancellation_intent=True,
+            last_transition=trans2,
+            transition_history=(trans1, trans2),
+            is_unresolved=False,
+            unresolved_diagnostic=None,
+            last_processed_index=15,
+            last_received_index=15,
+        )
+
+        act_snap2 = coord.sync_tjl_snapshot(snap2, ctx)
+        assert act_snap2 is not None
+        assert coord.last_synced_transition_index == 1
+        # Strictly monotonic sequence allocation: transition 1 got 0, transition 2 got 1, next is 2
+        assert coord.next_sequence_ref == 2
+
+        # Verify processed cancellation events have strictly monotonic sequences
+        events = list(coord.engine._processed_events.values())
+        cancellation_events = [e for e in events if hasattr(e, "sequence_ref")]
+        assert len(cancellation_events) >= 2
+        seqs = [e.sequence_ref for e in cancellation_events]
+        assert seqs == sorted(seqs)
+        assert len(set(seqs)) == len(seqs)  # Strictly unique!
+
+        # Call 3: Truncated / corrupted transition history rejected atomically by synchronizer
+        snap_corrupt = TJLSnapshot(
+            source_engine_id="ENGINE_EURUSD_H1",
+            symbol_feed_id="EURUSD",
+            source_timeframe="H1",
+            direction=Direction.UPWARD,
+            structural_epoch=1,
+            current_eligible_set=None,
+            all_labeled_zones=(zone1, zone2),
+            historical_sets=(set1,),
+            outgoing_cancellation_intent=False,
+            last_transition=None,
+            transition_history=(trans1,),  # Truncated history: only 1 transition when 2 were consumed!
+            is_unresolved=False,
+            unresolved_diagnostic=None,
+            last_processed_index=16,
+            last_received_index=16,
+        )
+
+        with pytest.raises(Exception) as exc_info:
+            coord.sync_tjl_snapshot(snap_corrupt, ctx)
+
+        assert "Transition history truncated" in str(exc_info.value)
+        # Prior valid coordinator state preserved!
+        assert coord.last_synced_transition_index == 1
+        assert coord.last_sync_error is not None
+        assert coord.engine is not None
+        assert len(coord.engine._processed_events) >= 2
+
+        # Verify UI rendering presents the diagnostic banner without wiping state
+        panel = build_activation_inspection_elements(
+            activation_snapshot=coord.engine.get_snapshot(),
+            activation_error=coord.last_sync_error,
+        )
+        tree = serialize_component(panel)
+        assert find_component(tree, "activation-sync-error-banner") is not None
+        all_text = extract_all_text(tree)
+        assert "Transition history truncated" in all_text

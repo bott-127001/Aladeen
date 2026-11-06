@@ -82,7 +82,7 @@ def _format_datetime(dt: Optional[Any]) -> str:
 
 
 def _format_price(price: Optional[Any]) -> str:
-    """Value-preserving price formatter without lossy 4-decimal rounding or float truncation."""
+    """Value-preserving price formatter without lossy rounding or float truncation."""
     if price is None:
         return "—"
     if isinstance(price, bool) or not isinstance(price, (int, float)):
@@ -90,14 +90,15 @@ def _format_price(price: Optional[Any]) -> str:
     if not math.isfinite(price):
         return str(price)
 
-    # Format with up to 8 decimal places, preserving precision while padding to at least 4 decimals
-    s = f"{price:.8f}".rstrip("0")
-    if s.endswith("."):
-        s += "0000"
-    else:
+    s = str(price)
+    if "e" in s or "E" in s:
+        s = f"{price:.12f}".rstrip("0")
+    if "." in s:
         parts = s.split(".")
-        if len(parts) == 2 and len(parts[1]) < 4:
-            s = f"{parts[0]}.{parts[1].ljust(4, '0')}"
+        if len(parts[1]) < 4:
+            s = f"{parts[0]}.{parts[1]:<04}"
+    else:
+        s = f"{s}.0000"
     return s
 
 
@@ -144,6 +145,7 @@ def build_activation_inspection_elements(
     tjl_snapshot: Optional[TJLSnapshot] = None,
     last_synced_transition_index: Optional[int] = None,
     exact_observation_count: Optional[int] = None,
+    activation_error: Optional[str] = None,
 ) -> List[html.Div]:
     """Pure functional presentation projection building activation dashboard inspection components.
 
@@ -174,21 +176,49 @@ def build_activation_inspection_elements(
         last_synced_transition_index = getattr(msm_result, "last_synced_transition_index", None)
     if exact_observation_count is None and msm_result is not None:
         exact_observation_count = getattr(msm_result, "exact_observation_count", None)
+    if activation_error is None and msm_result is not None:
+        activation_error = getattr(msm_result, "activation_error", None)
 
     # 2. Diagnostic fallback if context is missing or invalid
     if activation_snapshot is None or not isinstance(activation_snapshot, ActivationSnapshot):
-        return [
-            html.Div(
-                [
-                    html.P(
-                        AWAITING_CONTEXT_TEXT,
-                        id="activation-awaiting-context",
-                        style={"color": "#9e9e9e", "fontStyle": "italic", "fontSize": "12px", "padding": "8px 0"},
-                    )
-                ],
-                id="activation-inspection-container",
+        fallback_children = []
+        if activation_error is not None:
+            fallback_children.append(
+                html.Div(
+                    [
+                        html.Span("⚠️ ", style={"fontSize": "14px"}),
+                        html.Span(
+                            f"Activation Synchronization Diagnostic: {activation_error}",
+                            id="activation-sync-error-banner",
+                            style={"fontWeight": "bold", "color": "#ef5350"},
+                        ),
+                    ],
+                    style={
+                        "padding": "8px 12px",
+                        "marginBottom": "12px",
+                        "borderRadius": "4px",
+                        "backgroundColor": "#2a1515",
+                        "border": "1px solid #ef5350",
+                        "color": "#ef9a9a",
+                        "fontSize": "12px",
+                    },
+                )
             )
-        ]
+            fallback_children.append(
+                html.P(
+                    "Activation engine state unavailable due to synchronization error.",
+                    style={"color": "#9e9e9e", "fontStyle": "italic", "fontSize": "12px"},
+                )
+            )
+        else:
+            fallback_children.append(
+                html.P(
+                    AWAITING_CONTEXT_TEXT,
+                    id="activation-awaiting-context",
+                    style={"color": "#9e9e9e", "fontStyle": "italic", "fontSize": "12px", "padding": "8px 0"},
+                )
+            )
+        return [html.Div(fallback_children, id="activation-inspection-container")]
 
     container_children: List[html.Div] = []
 
@@ -215,6 +245,29 @@ def build_activation_inspection_elements(
         },
     )
     container_children.append(disclaimer_banner)
+
+    # 3b. Diagnostic Sync Error Banner (if error occurred during synchronization)
+    if activation_error is not None:
+        sync_error_banner = html.Div(
+            [
+                html.Span("⚠️ ", style={"fontSize": "14px"}),
+                html.Span(
+                    f"Activation Synchronization Diagnostic: {activation_error}",
+                    id="activation-sync-error-banner",
+                    style={"fontWeight": "bold", "color": "#ef5350"},
+                ),
+            ],
+            style={
+                "padding": "8px 12px",
+                "marginBottom": "10px",
+                "borderRadius": "4px",
+                "backgroundColor": "#2a1515",
+                "border": "1px solid #ef5350",
+                "color": "#ef9a9a",
+                "fontSize": "12px",
+            },
+        )
+        container_children.append(sync_error_banner)
 
     # 4. Canonical Unresolved Diagnostic Banner
     is_unresolved = False
@@ -460,20 +513,20 @@ def build_activation_inspection_elements(
         )
 
         # --- B. Orthogonal Evidence Gating & Eligibility Badge ---
+        # Usage check - USED always takes precedence over generic blocked reason
+        if usage_str == "USED" or raw_blocked == "USAGE_ALREADY_USED":
+            gating_bg, gating_fg = "#d32f2f", "#ffcdd2"
+            gating_text = "USAGE BLOCKED (USED) [USAGE_ALREADY_USED]"
+        elif usage_str == "UNKNOWN" or raw_blocked == "USAGE_EVIDENCE_UNCERTAIN_FAIL_CLOSED":
+            gating_bg, gating_fg = "#b71c1c", "#ef9a9a"
+            gating_text = "USAGE UNCERTAIN (FAIL-CLOSED) [USAGE_EVIDENCE_UNCERTAIN_FAIL_CLOSED]"
         # Coverage check
-        if coverage_status == CoverageStatus.INCOMPLETE:
+        elif coverage_status == CoverageStatus.INCOMPLETE:
             gating_bg, gating_fg = "#e65100", "#ffcc80"
             gating_text = "COVERAGE INCOMPLETE [COVERAGE_INCOMPLETE]"
         elif coverage_status == CoverageStatus.UNCERTAIN:
             gating_bg, gating_fg = "#b71c1c", "#ef9a9a"
             gating_text = "COVERAGE UNCERTAIN [COVERAGE_UNCERTAIN]"
-        # Usage check
-        elif usage_str == "UNKNOWN" or raw_blocked == "USAGE_EVIDENCE_UNCERTAIN_FAIL_CLOSED":
-            gating_bg, gating_fg = "#b71c1c", "#ef9a9a"
-            gating_text = "USAGE UNCERTAIN (FAIL-CLOSED) [USAGE_EVIDENCE_UNCERTAIN_FAIL_CLOSED]"
-        elif usage_str == "USED":
-            gating_bg, gating_fg = "#d32f2f", "#ffcdd2"
-            gating_text = "USAGE BLOCKED (USED) [USAGE_ALREADY_USED]"
         elif raw_blocked == "UNKNOWN_AVAILABILITY_TIMING":
             gating_bg, gating_fg = "#616161", "#e0e0e0"
             gating_text = "UNKNOWN AVAILABILITY [UNKNOWN_AVAILABILITY_TIMING]"
@@ -483,7 +536,7 @@ def build_activation_inspection_elements(
             gating_text = f"{friendly} [{raw_blocked}]"
         else:
             gating_bg, gating_fg = "#1b5e20", "#a5d6a7"
-            gating_text = "EVIDENCE VALID (READY)"
+            gating_text = "EVIDENCE VALID (PRESENT)"
 
         gating_badge = html.Span(
             gating_text,

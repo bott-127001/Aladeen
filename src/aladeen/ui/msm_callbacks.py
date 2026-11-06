@@ -43,6 +43,7 @@ from aladeen.strategy.tjl_types import (
 from aladeen.ui.activation_inspection import build_activation_inspection_elements
 from aladeen.ui.tjl_inspection import build_tjl_inspection_elements
 from aladeen.strategy.service import (
+    ActivationSessionCoordinator,
     MSMContext,
     MSMServiceResult,
     calculate_msm,
@@ -51,6 +52,8 @@ from aladeen.strategy.service import (
     validate_candle_completion,
 )
 from aladeen.strategy.types import Direction, MSMSnapshot
+
+_dashboard_activation_coordinator = ActivationSessionCoordinator('DASHBOARD_RUN')
 
 
 def get_completed_candle_options(snapshot_or_df: Any) -> list[dict]:
@@ -943,7 +946,7 @@ def evaluate_msm_for_snapshot(
 
     # Execute MSM calculation
     try:
-        res = calculate_msm(df, ctx)
+        res = calculate_msm(df, ctx, activation_coordinator=_dashboard_activation_coordinator)
     except Exception as e:
         status_text = f"❌ MSM Engine Calculation Error: {e} (rev: {snapshot.revision_id})"
         status_style = {"marginTop": "10px", "fontSize": "12px", "color": "#ff5252", "fontWeight": "bold"}
@@ -1297,7 +1300,7 @@ def process_msm_controls_update(
                 show_tjl_labels=show_tjl_l,
             )
             df = snapshot.to_dataframe()
-            res = calculate_msm(df, msm_ctx)
+            res = calculate_msm(df, msm_ctx, activation_coordinator=_dashboard_activation_coordinator, force_recalculation=True)
             if res.is_valid and res.snapshot is not None:
                 pair_cnt = len(res.snapshot.confirmed_pairs)
                 choch_cnt = len(res.confirmed_choch_events)

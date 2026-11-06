@@ -1220,3 +1220,58 @@ Last Updated: 2026-11-06 (Activation Engine Pure Offline Milestone Accepted — 
   3. *Engine Integrity*: Strictly zero modification to accepted strategy engines (`msm_engine`, `choch_engine`, `iss_engine`, `tjl_coordinator`, `activation_engine`, `activation_adapter`).
   4. *Core Ambiguities Preserved*: Upstream $c_1 == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
   5. *Branch Boundary*: Committed and pushed strictly on `feature/activation-dashboard`. No merging into `main`.
+
+
+### HANDOFF-069: Normal Service Path Session Retention, Monotonic Sequence Allocation, Lossless Fixture Continuity, and Error Diagnostics
+- **Active Branch**: `feature/activation-dashboard`
+- **Immediate Parent Commit**: `e5139b8272d7769e06382a9a7b0f936369a2529f` (HANDOFF-068)
+- **Requirements Baseline Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d` (Milestone 26 / HANDOFF-066 accepted)
+- **Root Baseline Engine Commit**: `0867c740352297fb43e781fb654706218771d533` (Milestone 25 / HANDOFF-061)
+- **Objective**: Deliver complete closure of all items from Perplexity's review of HANDOFF-068:
+  1. *Normal Service Path Session Retention*:
+     - Wired dedicated `_dashboard_activation_coordinator` into `src/aladeen/ui/msm_callbacks.py` across steady calculation (`update_msm_inspection_table`) and parameter applications (`apply_msm_configuration`, with explicit `force_recalculation=True`).
+     - `calculate_msm()` defaults to `get_default_activation_coordinator()` when no explicit coordinator is provided.
+     - Context boundary key now comprehensively tracks `(data_source, engine_id, symbol, timeframe, start_candle_time, active_run_id)`.
+     - Distinguishes incremental synchronization within the same run from explicit recalculations and source context changes.
+  2. *Strict Monotonic Sequence Allocation & State Preservation*:
+     - `ActivationSessionCoordinator` tracks strictly monotonic `_next_sequence_ref: int` incremented across successive sync calls within a run, preventing sequence re-use.
+     - On synchronization failures (e.g., truncated transition history), prior valid coordinator state (checkpoints, cursor, controllers, terminal records) is preserved.
+     - Added explicit `activation_error: Optional[str]` field on `MSMServiceResult` and rendered prominent `activation-sync-error-banner` in UI, never silently wiping state or hiding failures under "Awaiting activation context".
+  3. *Observation Count Diagnostic Integrity*:
+     - `exact_observation_count` now counts exclusively accepted distinct `ExactPricePrint` events (`sum(1 for ev in engine._processed_events.values() if isinstance(ev, ExactPricePrint))`).
+     - In candle-only runs without tick evidence boundaries, strictly returns `None`, omitting the diagnostic without fabrication.
+  4. *Truly Value-Preserving Price Formatting*:
+     - Replaced 8-decimal float formatting with exact round-trip string representation `str(price)` with cosmetic padding for short floats (`parts[1]:<04`), guaranteeing narrow-zone values differing at 9th+ decimal places (e.g. `1.135000001` vs `1.135000002`) remain distinct.
+  5. *Orthogonal Gating & Neutral Presentation*:
+     - In `activation_inspection.py`, `usage_str == "USED" or raw_blocked == "USAGE_ALREADY_USED"` is checked before generic blocked reasons, ensuring used members reliably display `USAGE BLOCKED (USED)`.
+     - Replaced execution-suggestive wording `EVIDENCE VALID (READY)` with strictly neutral observation wording `EVIDENCE VALID (PRESENT)`.
+  6. *Authoritative Lossless Fixtures & Derivation*:
+     - Added explicit `level_id`, `lower_edge`, and `upper_edge` to terminal history records across acceptance fixtures (`dash_act_07`, `dash_act_08`, `dash_act_11`, `dash_act_12`, `dash_act_14`), removing all arbitrary fallback constants from the test loader.
+     - Rearm controller state derived faithfully from `state` field or `rearm_armed`.
+  7. *Strengthened Integration Test Assertions*:
+     - Scenario 12: Explicitly asserts physical-level continuity between `SET_1` and `SET_2` (`active_rec.level_id == term_rec.level_id` with `StableLevelId` equality).
+     - Scenario 14: Asserts exact descending history order of rows (`#202` appears strictly before `#201` in DOM table).
+     - Purity Test: Asserts synchronizer cursor (`last_synced_transition_index`), `_usage_cache`, and `_consumed_transitions` preservation alongside complete engine checkpoints.
+     - Added `test_same_run_successive_cancellation_sync_with_monotonic_sequences_and_error_preservation` verifying multi-call sequence monotonicity and sync error preservation.
+     - Verified 9th-decimal price preservation in formatting test.
+- **Completed Deliverables**:
+  1. [`src/aladeen/strategy/service.py`](file:///src/aladeen/strategy/service.py): `ActivationSessionCoordinator` monotonic sequence allocation, run_id tracking, observation count diagnostic, `activation_error` bridge field on `MSMServiceResult`.
+  2. [`src/aladeen/ui/msm_callbacks.py`](file:///src/aladeen/ui/msm_callbacks.py): Dashboard-scoped coordinator wiring for steady refresh and explicit recalculation.
+  3. [`src/aladeen/ui/activation_inspection.py`](file:///src/aladeen/ui/activation_inspection.py): Value-preserving float string formatting, neutral `EVIDENCE VALID (PRESENT)` badge, precedence for `USAGE BLOCKED (USED)`, and diagnostic sync error banner.
+  4. [`tests/fixtures/activation_dashboard_acceptance.json`](file:///tests/fixtures/activation_dashboard_acceptance.json): Explicit lossless `level_id`, `lower_edge`, `upper_edge` on terminal history and active reactivated records.
+  5. [`tests/test_activation_dashboard_integration.py`](file:///tests/test_activation_dashboard_integration.py): 9 comprehensive integration tests with zero loader fallbacks, Scenario 12 level continuity assertions, Scenario 14 history order assertions, synchronizer purity assertions, and multi-call monotonic sequence allocation test.
+  6. [`docs/development/status.md`](file:///docs/development/status.md): HANDOFF-069 documentation.
+- **Verification Summary**:
+  - Activation dashboard integration suite: **9 / 9 passed** in 0.58s (`pytest tests/test_activation_dashboard_integration.py -q`).
+  - Activation dashboard fixture integrity suite: **11 / 11 passed** in 0.46s (`pytest tests/test_activation_dashboard_fixture_integrity.py -q`).
+  - TJL dashboard integration suite: **32 / 32 passed** in 1.60s (`pytest tests/test_tjl_dashboard_integration.py -q`).
+  - Full offline repository test suite: **529 / 529 passed** in 10.50s (`pytest -q tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py`).
+  - Reconciled Test Inventory: 520 baseline tests + 9 integration tests = 529 passing offline tests.
+  - Runtime Engine Modification Audit: Exactly zero modifications to strategy engines (`msm_engine`, `choch_engine`, `iss_engine`, `tjl_coordinator`, `activation_engine`, `activation_adapter`).
+  - Visual Limitation: Offline test suite verifies HTML DOM tree structure and Dash component properties; visual browser acceptance remains unverified until live browser testing.
+- **Scope Compliance & Standing Invariants**:
+  1. *Pure Read-Only Presentation*: Strictly zero UI order execution, zero MT5 trading calls, zero live account modification.
+  2. *Downstream Invariant*: Strictly zero confirmation arbitration/selection, zero usage ledger writes, zero trade entry signals.
+  3. *Engine Integrity*: Strictly zero modification to accepted strategy engines (`msm_engine`, `choch_engine`, `iss_engine`, `tjl_coordinator`, `activation_engine`, `activation_adapter`).
+  4. *Core Ambiguities Preserved*: Upstream $c_1 == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
+  5. *Branch Boundary*: Committed and pushed strictly on `feature/activation-dashboard`. No merging into `main`.
