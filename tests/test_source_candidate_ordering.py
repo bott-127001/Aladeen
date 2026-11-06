@@ -1,18 +1,21 @@
 """Offline source-to-candidate integration proof tests — Equal-Time Causal Ordering and Determinism.
 
+Note: These tests verify engine lifecycle transitions and matcher ordering contracts under supplied
+synthetic member/evidence contracts. They do not independently establish candle-derived source/confirmation chains.
+
 Covers:
 - ORD-01: Timestamp tie between physical touch and confirmation evidence with missing sequence
   reference rejects fail-closed as UNKNOWN_ORDER.
 - ORD-02: Cross-domain sequence references during timestamp tie reject fail-closed as
   CROSS_DOMAIN_ORDERING_REJECTED.
-- ORD-03: Equal-time tie where confirmation sequence <= touch sequence rejects fail-closed as
-  PRE_ACTIVATION_CONFIRMATION.
+- ORD-03: Equal-time tie where confirmation sequence <= touch sequence (both equal and strictly earlier)
+  rejects fail-closed as PRE_ACTIVATION_CONFIRMATION.
 - ORD-04: Equal-time tie where confirmation sequence > touch sequence within the same sequence
   domain matches deterministically.
 - Deterministic repeated evaluation: Multiple sequential evaluations under unchanged context yield
-  strictly identical candidate setup keys and candidate IDs.
+  strictly identical complete ConfirmationMatchResult values.
 - MatchingContext input immutability: External mutations of caller-supplied mappings do not affect
-  the frozen context.
+  the frozen context; re-evaluation produces identical complete ConfirmationMatchResult values.
 """
 
 from __future__ import annotations
@@ -167,9 +170,9 @@ class TestSourceCandidateOrdering:
         assert ConfirmationRejectionReason.CROSS_DOMAIN_ORDERING_REJECTED in res_ord2.rejection_reasons
         assert res_ord2.candidate_record is None
 
-        # ORD-03: Confirmation sequence <= touch sequence rejects as PRE_ACTIVATION_CONFIRMATION
-        ev_earlier_seq = ConfirmationEvidenceRecord(
-            event_id="EV_ORD_03",
+        # ORD-03a: Confirmation sequence == touch sequence rejects as PRE_ACTIVATION_CONFIRMATION
+        ev_equal_seq = ConfirmationEvidenceRecord(
+            event_id="EV_ORD_03A",
             producer_id="PROD_CHOCH",
             confirmation_config_id="CONF_CFG_01",
             confirmation_timeframe="H1",
@@ -186,10 +189,34 @@ class TestSourceCandidateOrdering:
             structural_dependency_references=("DEP_01",),
             sequence_ref=1002,  # Exactly equal to touch sequence ref 1002!
         )
-        res_ord3 = matcher.match(act, ev_earlier_seq, ctx_with_seq)
-        assert res_ord3.status == ConfirmationMatchStatus.REJECTED
-        assert ConfirmationRejectionReason.PRE_ACTIVATION_CONFIRMATION in res_ord3.rejection_reasons
-        assert res_ord3.candidate_record is None
+        res_ord3a = matcher.match(act, ev_equal_seq, ctx_with_seq)
+        assert res_ord3a.status == ConfirmationMatchStatus.REJECTED
+        assert ConfirmationRejectionReason.PRE_ACTIVATION_CONFIRMATION in res_ord3a.rejection_reasons
+        assert res_ord3a.candidate_record is None
+
+        # ORD-03b: Confirmation sequence strictly earlier (< 1002) rejects as PRE_ACTIVATION_CONFIRMATION
+        ev_earlier_seq = ConfirmationEvidenceRecord(
+            event_id="EV_ORD_03B",
+            producer_id="PROD_CHOCH",
+            confirmation_config_id="CONF_CFG_01",
+            confirmation_timeframe="H1",
+            confirmation_candle_id="CANDLE_01",
+            direction=Direction.DOWNWARD,
+            pattern_type="CHOCH",
+            close_price=1.1350,
+            close_timestamp=touch_time,
+            symbol="FEED_EURUSD_D1",
+            feed_id="FEED_EURUSD_D1",
+            sequence_domain=DEFAULT_DOMAIN,
+            price_basis=PriceBasis.BID,
+            provenance_type=EvidenceProvenanceType.SYNTHETIC_TYPED,
+            structural_dependency_references=("DEP_01",),
+            sequence_ref=1001,  # Strictly earlier than touch sequence ref 1002!
+        )
+        res_ord3b = matcher.match(act, ev_earlier_seq, ctx_with_seq)
+        assert res_ord3b.status == ConfirmationMatchStatus.REJECTED
+        assert ConfirmationRejectionReason.PRE_ACTIVATION_CONFIRMATION in res_ord3b.rejection_reasons
+        assert res_ord3b.candidate_record is None
 
         # ORD-04: Confirmation sequence strictly later (> 1002) in matching domain matches
         ev_later_seq = ConfirmationEvidenceRecord(
@@ -231,7 +258,7 @@ class TestSourceCandidateOrdering:
         assert cand.candidate_id == expected_candidate_id
 
     def test_repeated_evaluation_and_input_immutability(self) -> None:
-        """Deterministic repeated evaluation yields identical setup keys; input mappings remain frozen."""
+        """Deterministic repeated evaluation yields identical complete match results; input mappings remain frozen."""
         matcher = ConfirmationMatcher()
         lvl = StableLevelId("FEED_EURUSD_D1", "D1", datetime(2026, 10, 1, 0, 0, tzinfo=timezone.utc), TJLSide.HIGH)
         mem = SourceMemberReference(
@@ -303,14 +330,16 @@ class TestSourceCandidateOrdering:
         res2 = matcher.match(act, ev, ctx)
         res3 = matcher.match(act, ev, ctx)
 
-        assert res1.status == res2.status == res3.status == ConfirmationMatchStatus.MATCHED
-        assert res1.candidate_record is not None and res2.candidate_record is not None and res3.candidate_record is not None
-        assert res1.candidate_record.setup_key == res2.candidate_record.setup_key == res3.candidate_record.setup_key
-        assert res1.candidate_record.candidate_id == res2.candidate_record.candidate_id == res3.candidate_record.candidate_id
-        assert res1.candidate_record.entry_reference_price == res2.candidate_record.entry_reference_price == res3.candidate_record.entry_reference_price
+        # Full ConfirmationMatchResult equality across repeated evaluations
+        assert res1 == res2 == res3
+        assert res1.status == ConfirmationMatchStatus.MATCHED
+        assert res1.candidate_record is not None
 
-        # External dictionary mutation has zero effect on frozen context
+        # External dictionary mutation has zero effect on frozen context; re-evaluation produces identical complete result
         members_map.clear()
         res_map[mem.member_key] = False
         assert mem.member_key in ctx.current_members
         assert ctx.source_resolution_status[mem.member_key] is True
+
+        res_mut = matcher.match(act, ev, ctx)
+        assert res_mut == res1

@@ -1,5 +1,8 @@
 """Offline source-to-candidate integration proof tests — Rearm Controllers & Generation Sequencing.
 
+Note: These tests verify engine lifecycle transitions and matcher ordering contracts under supplied
+synthetic member/evidence contracts. They do not independently establish candle-derived source/confirmation chains.
+
 Covers:
 - ACT-01: Rearm Path A (inside-at-cancel):
   * Gen 1 touch inside zone -> external commit event while inside transitions Gen 1 to

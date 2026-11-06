@@ -1,6 +1,6 @@
 # Development & Review Status — Aladeen / TopG
 
-Last Updated: 2026-11-07 (Milestone 33 Modular Integration Proof & Invariant Hardening — HANDOFF-104)
+Last Updated: 2026-11-07 (Milestone 33 Chronological Prefix Traces & Declared Daily Timeline — HANDOFF-105)
 
 ---
 
@@ -2927,6 +2927,45 @@ Last Updated: 2026-11-07 (Milestone 33 Modular Integration Proof & Invariant Har
 - **Verification Summary**:
   - Modular integration proof suites: **9 / 9 passed** in 0.64s (`pytest tests/test_source_candidate_chains.py tests/test_source_candidate_cancellation.py tests/test_source_candidate_rearm.py tests/test_source_candidate_ordering.py -v`).
   - Full offline repository test suite: **652 / 652 passed** in 8.94s (`pytest tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py --ignore=tests/test_activation_browser_controlled.py --ignore=tests/activation_browser_runner.py --ignore=tests/activation_browser_harness.py --ignore=tests/test_browser_race_controlled.py --ignore=tests/test_choch_browser_verification.py --ignore=tests/browser_check.py`).
+  - Core strategy engine purity: **0 diff** against `3f6689c194c95ca3761833f8831bb8a3f5b4740d` across `msm_engine.py`, `choch_detector.py`, `iss_engine.py`, `tjl_coordinator.py`, `activation_engine.py`, `activation_adapter.py`.
+- **Safety Boundary Maintained**:
+  - Pure offline read-only integration test proof. Zero MT5 live trading calls, zero order execution, zero account modification.
+  - Zero candidate arbitration, zero usage ledger writes, zero final signal publication, zero automated trading.
+  - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
+
+---
+
+## 51. Milestone 33 — Chronological Prefix Traces, Declared Daily Timeline & Snapshot Context Rebuilding (HANDOFF-105)
+- **Active Branch**: `feature/confirmation-monitor`
+- **Parent Commit**: `e3550f5f54c454b253e6843bf852faf06322cad7` (HANDOFF-104)
+- **Defects Addressed in HANDOFF-105 (Perplexity Directives 1–6)**:
+  1. *Declared Daily (D1) Source Timeline*:
+     - Replaced hourly candle intervals in D1 source fixtures with an explicit, declared daily timeline via `build_synthesized_daily_source_candles()` (`timedelta(days=1)`), with consistent calendar assumptions (24-hour daily sessions starting at 00:00 UTC).
+     - Confirmed valid timeframe mapping consistency across the entire pipeline: D1 source levels -> H1 confirmation candles (`timedelta(hours=1)`).
+     - Applied identical daily interval validation to both `INT-03` (CHOCH) and `INT-04` (ISS).
+  2. *Actual Chronological Evaluation Schedule with Decisive Prefix Assertions*:
+     - Replaced dictionary trace counting with actual chronological event/evaluation executions:
+       * Boundary 1 (pre-formation, Days 0..8): coordinator snapshot verifies `current_eligible_set is None`; 0 candidates.
+       * Boundary 2 (formation & sync): Day 9 closes at `2026-10-11 00:00 UTC`; SET_1 formed; synchronizer registers members as `INACTIVE_ELIGIBLE` (Gen 0); pre-touch evaluation at `2026-10-11 04:00 UTC` rejects fail-closed with `INELIGIBLE_ACTIVATION_STATE`; 0 candidates.
+       * Boundary 3 (touch): exact price print inside zone at `2026-10-11 08:30 UTC` transitions record to `PENDING_ACTIVATION`.
+       * Boundary 4 (pre-confirmation close / future evidence check): evaluating future completed evidence (closing at 16:00 UTC) against an earlier evaluation boundary (`T_eval = 2026-10-11 15:30 UTC < 16:00 UTC`) decisively rejects fail-closed with `ConfirmationRejectionReason.EVIDENCE_NOT_YET_AVAILABLE`; 0 candidates.
+       * Boundary 5 (at/after confirmation close): confirming candle 9 closes at 16:00 UTC; detector confirms pattern; envelope bound; matcher evaluates at `T_eval = 2026-10-11 16:30 UTC >= 16:00 UTC` matching with `ConfirmationMatchStatus.MATCHED` and exact runtime-derived canonical setup key.
+  3. *Snapshot-Rebuilt Cancellation Contexts*:
+     - In both `ACT-02` (replacement) and `ACT-03` (CHOCH invalidation), dynamically rebuilt `MatchingContext` from `snap_post_out` and `snap_post_in` at each post-cancellation observation boundary:
+       * `ctx_post_out` built from `snap_post_out.current_members` at `print_post_outside.timestamp`.
+       * `ctx_post_in` built from `snap_post_in.current_members` at `print_post_inside.timestamp`.
+     - Matcher evaluated and asserted rejected fail-closed at each boundary (`MEMBERSHIP_CANCELLED_OR_REPLACED` in ACT-02, `INELIGIBLE_ACTIVATION_STATE` in ACT-03).
+     - Preserved terminal-record equality checks (`term_after[0] == term_record`).
+  4. *Complete Match Result Equality & Earlier-Sequence Case*:
+     - In `test_repeated_evaluation_and_input_immutability`, asserted full `ConfirmationMatchResult` dataclass equality across repeated evaluations (`assert res1 == res2 == res3`). Re-evaluated after external dictionary mutations and confirmed identical result (`assert res_mut == res1`).
+     - In `ORD-03`, implemented both equal sequence (`sequence_ref == 1002`) and strictly earlier sequence (`sequence_ref == 1001 < 1002`), verifying both reject fail-closed with `PRE_ACTIVATION_CONFIRMATION`.
+  5. *Separated Synthetic Authority Boundaries Module*:
+     - Extracted authority boundary tests into dedicated module `tests/test_source_candidate_authority_boundaries.py` for full, untruncated retrieval (Boundaries A, B, C, D).
+  6. *Explicit Synthetic Contract Scope Labeling*:
+     - Explicitly annotated rearm and ordering modules as verifying engine lifecycle transitions and matcher ordering contracts under supplied synthetic member/evidence contracts, without independently establishing candle-derived source/confirmation chains.
+- **Verification Summary**:
+  - Modular integration proof suites: **9 / 9 passed** in 0.66s across all 5 modules (`pytest tests/test_source_candidate_chains.py tests/test_source_candidate_cancellation.py tests/test_source_candidate_rearm.py tests/test_source_candidate_ordering.py tests/test_source_candidate_authority_boundaries.py -v`).
+  - Full offline repository test suite: **652 / 652 passed** in 8.62s (`pytest tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py --ignore=tests/test_activation_browser_controlled.py --ignore=tests/activation_browser_runner.py --ignore=tests/activation_browser_harness.py --ignore=tests/test_browser_race_controlled.py --ignore=tests/test_choch_browser_verification.py --ignore=tests/browser_check.py`).
   - Core strategy engine purity: **0 diff** against `3f6689c194c95ca3761833f8831bb8a3f5b4740d` across `msm_engine.py`, `choch_detector.py`, `iss_engine.py`, `tjl_coordinator.py`, `activation_engine.py`, `activation_adapter.py`.
 - **Safety Boundary Maintained**:
   - Pure offline read-only integration test proof. Zero MT5 live trading calls, zero order execution, zero account modification.

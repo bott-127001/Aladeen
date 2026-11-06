@@ -208,6 +208,23 @@ class TestSourceCandidateCancellation:
         assert mem_key_s1 not in snap_post_out.active_activations
         assert mem_key_s1 not in snap_post_out.rearm_controllers
 
+        # Rebuild context from snap_post_out and assert rejection
+        ctx_post_out = MatchingContext(
+            domain_session_id="SESS_01",
+            revision_id="REV_01",
+            expected_price_basis=PriceBasis.BID,
+            expected_confirmation_config_id="CONF_CFG_01",
+            matching_sequence_domain=DEFAULT_D1_DOMAIN,
+            evaluation_time=print_post_outside.timestamp,
+            current_members=dict(snap_post_out.current_members),
+            source_resolution_status={m_k: True for m_k in snap_post_out.current_members},
+            coverage_status=CoverageStatus.COMPLETE,
+        )
+        res_post_out = matcher.match(act_s1, ev, ctx_post_out)
+        assert res_post_out.status == ConfirmationMatchStatus.REJECTED
+        assert ConfirmationRejectionReason.MEMBERSHIP_CANCELLED_OR_REPLACED in res_post_out.rejection_reasons
+        assert res_post_out.candidate_record is None
+
         # 2. Drive an inside print at old SET_1 zone [1.1800, 1.1850]
         print_post_inside = ExactPricePrint(
             observation_id="OBS_POST_IN_01",
@@ -231,10 +248,22 @@ class TestSourceCandidateCancellation:
         assert len(term_after) == 1
         assert term_after[0] == term_record
         assert term_after[0].state == ActivationState.CANCELLED_SOURCE_REPLACEMENT
-        # e) Matching produces no candidate
-        res_post = matcher.match(act_s1, ev, ctx)
-        assert res_post.status == ConfirmationMatchStatus.REJECTED
-        assert res_post.candidate_record is None
+        # e) Rebuild context from snap_post_in and assert rejection
+        ctx_post_in = MatchingContext(
+            domain_session_id="SESS_01",
+            revision_id="REV_01",
+            expected_price_basis=PriceBasis.BID,
+            expected_confirmation_config_id="CONF_CFG_01",
+            matching_sequence_domain=DEFAULT_D1_DOMAIN,
+            evaluation_time=print_post_inside.timestamp,
+            current_members=dict(snap_post_in.current_members),
+            source_resolution_status={m_k: True for m_k in snap_post_in.current_members},
+            coverage_status=CoverageStatus.COMPLETE,
+        )
+        res_post_in = matcher.match(act_s1, ev, ctx_post_in)
+        assert res_post_in.status == ConfirmationMatchStatus.REJECTED
+        assert ConfirmationRejectionReason.MEMBERSHIP_CANCELLED_OR_REPLACED in res_post_in.rejection_reasons
+        assert res_post_in.candidate_record is None
 
     def test_act_03_source_main_choch_invalidation_terminal_non_revival(self) -> None:
         """ACT-03: Source Main CHOCH invalidates pending activation.
@@ -355,6 +384,23 @@ class TestSourceCandidateCancellation:
         assert mem_key_tjl1 not in snap_post_out.active_activations
         assert mem_key_tjl1 not in snap_post_out.rearm_controllers
 
+        # Rebuild context from snap_post_out and assert rejection
+        ctx_post_out = MatchingContext(
+            domain_session_id="SESS_01",
+            revision_id="REV_01",
+            expected_price_basis=PriceBasis.BID,
+            expected_confirmation_config_id="CONF_CFG_01",
+            matching_sequence_domain=FEED_H1_DOMAIN,
+            evaluation_time=print_post_outside.timestamp,
+            current_members=dict(snap_post_out.current_members),
+            source_resolution_status={m_k: True for m_k in snap_post_out.current_members},
+            coverage_status=CoverageStatus.COMPLETE,
+        )
+        res_post_out = matcher.match(term_record, ev, ctx_post_out)
+        assert res_post_out.status == ConfirmationMatchStatus.REJECTED
+        assert ConfirmationRejectionReason.INELIGIBLE_ACTIVATION_STATE in res_post_out.rejection_reasons
+        assert res_post_out.candidate_record is None
+
         # 2. Drive an inside print at old zone (1.1370)
         print_post_inside = ExactPricePrint(
             observation_id="OBS_POST_IN_CH",
@@ -378,8 +424,19 @@ class TestSourceCandidateCancellation:
         assert len(term_after) == 1
         assert term_after[0] == term_record
         assert term_after[0].state == ActivationState.CANCELLED_SOURCE_CHOCH
-        # e) Matching produces no candidate
-        res_post = matcher.match(term_record, ev, ctx)
-        assert res_post.status == ConfirmationMatchStatus.REJECTED
-        assert ConfirmationRejectionReason.INELIGIBLE_ACTIVATION_STATE in res_post.rejection_reasons
-        assert res_post.candidate_record is None
+        # e) Rebuild context from snap_post_in and assert rejection
+        ctx_post_in = MatchingContext(
+            domain_session_id="SESS_01",
+            revision_id="REV_01",
+            expected_price_basis=PriceBasis.BID,
+            expected_confirmation_config_id="CONF_CFG_01",
+            matching_sequence_domain=FEED_H1_DOMAIN,
+            evaluation_time=print_post_inside.timestamp,
+            current_members=dict(snap_post_in.current_members),
+            source_resolution_status={m_k: True for m_k in snap_post_in.current_members},
+            coverage_status=CoverageStatus.COMPLETE,
+        )
+        res_post_in = matcher.match(term_record, ev, ctx_post_in)
+        assert res_post_in.status == ConfirmationMatchStatus.REJECTED
+        assert ConfirmationRejectionReason.INELIGIBLE_ACTIVATION_STATE in res_post_in.rejection_reasons
+        assert res_post_in.candidate_record is None
