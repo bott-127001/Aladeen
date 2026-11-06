@@ -1,6 +1,6 @@
 # Development & Review Status — Aladeen / TopG
 
-Last Updated: 2026-11-05 (MSM Dashboard Milestone Accepted — Transition to CHOCH Specification)
+Last Updated: 2026-11-06 (Activation Engine Pure Offline Milestone Accepted — HANDOFF-061 Baseline)
 
 ---
 
@@ -946,3 +946,25 @@ Last Updated: 2026-11-05 (MSM Dashboard Milestone Accepted — Transition to CHO
   2. *Downstream Invariant*: Strictly zero usage ledger implementation, zero confirmation arbitration, zero trade entry signals.
   3. *Core Ambiguities Preserved*: Upstream $c_1 == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
   4. *Branch Boundary*: Committed and pushed strictly on `feature/activation-engine`. No merging into `main`.
+
+## 25. Milestone Acceptance: Pure Offline Activation Engine Implementation (HANDOFF-061)
+- **Accepted Milestone**: Pure Offline Activation Engine Lifecycle Reducer & TJL Adapter (`HANDOFF-061`).
+- **Accepted Commit Hash**: `0867c740352297fb43e781fb654706218771d533`
+- **Active Branch**: `feature/activation-engine`
+- **Reviewer Status**: **ACCEPTED** by Perplexity as the bounded offline Activation Engine baseline.
+- **Accepted Scope**:
+  1. Exact-observation activation and fail-closed evidence gating.
+  2. Source cancellation and outgoing-identity permanent retirement within the run.
+  3. Externally supplied commit cancellation, commit routing, and winner exclusion.
+  4. Separate rearm controllers and linked activation generations.
+  5. Transactional processing, atomic rollbacks, and snapshot synchronization.
+  6. Canonical unambiguous identifiers and verified every-prefix replay.
+  7. Successor-set registration of persistent physical levels under distinct set identities.
+  8. Activation provenance preservation across temporary `UNKNOWN` usage evidence fluctuations.
+- **Recorded Review Verification Boundaries & Exclusions**:
+  1. *Source Diff Inspection*: Perplexity independently inspected full source diffs of `activation_evidence.py`, `activation_handlers.py`, `activation_state.py`, and both added regression tests.
+  2. *Evidence Classification*: 509 passing offline repository tests and 26 acceptance fixtures are implementation-reported evidence, not rerun independently in Perplexity's review.
+  3. *Actionability Distinction*: Temporary gating and lifecycle history remain strictly distinct: downstream consumers must not treat a pending record with uncertain usage or a blocked reason as actionable.
+  4. *Standing Exclusions Preserved*: Acceptance does not resolve upstream $c_1 == p_2$ ambiguity or ISS multi-candle pullbacks. It does not authorize UI integration, ingestion, confirmation selection, arbitration, usage-ledger commits, signals, broker operations, or execution.
+  5. *Branch Boundary*: No merge into `main`. The next milestone requires an explicit scope and acceptance contract before implementation begins.
+
