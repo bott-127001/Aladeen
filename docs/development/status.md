@@ -1634,3 +1634,57 @@ Last Updated: 2026-11-06 (Milestone 27 Read-Only Activation Dashboard Accepted â
   3. *Engine Integrity*: Strictly zero modification to accepted strategy engines (`msm_engine`, `choch_engine`, `iss_engine`, `tjl_coordinator`, `activation_engine`, `activation_adapter`).
   4. *Core Ambiguities Preserved*: Upstream $c_1 == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
   5. *Branch Boundary*: Committed and pushed strictly on `feature/activation-dashboard`. No merging into `main`.
+
+---
+
+## Milestone 28 â€” Controlled Offline Browser Validation of Activation Dashboard (HANDOFF-076)
+
+- **Active Branch**: `feature/activation-dashboard`
+- **Immediate Parent Commit**: `39af508db71462d2a7173a80c533c960beba1ede` (HANDOFF-075)
+- **Accepted Implementation Baseline Commit**: `d6587a1200735fe6453ff24f043931699f21f407` (Milestone 27 accepted)
+- **Requirements Baseline Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d` (Milestone 26 / HANDOFF-066 accepted)
+- **Root Baseline Engine Commit**: `0867c740352297fb43e781fb654706218771d533` (Milestone 25 / HANDOFF-061)
+- **Objective**: Deliver rigorous, fail-verifiable offline browser validation for Milestone 28 addressing all Perplexity feedback items from HANDOFF-075:
+  1. *Context-Level Exact-Origin Request Firewall (`ContextSecurityFirewall`)*:
+     - Implemented active route interception across all Playwright browser contexts (`ctx.route("**/*", intercept)`).
+     - Enforced strict origin allowlisting against authoritative local ports (`http://127.0.0.1:8068`, `http://127.0.0.1:8069`).
+     - Aborts non-allowlisted external network requests at the browser network layer before navigation occurs.
+     - Tracks all allowed requests and asserts zero blocked or unauthorized external connections.
+  2. *Server-Side Network Socket Guard (`install_server_socket_guard`)*:
+     - Context manager monkeypatching Python's `socket.socket.connect` to catch and record any outbound socket calls outside `127.0.0.1` and `localhost`.
+     - Verified clean execution with zero outbound connection attempts.
+  3. *Fail-Verifiable Server Lifecycle & Failure Injection*:
+     - Enhanced `ControlledServerHandle` to trap Werkzeug's `SystemExit(1)` on occupied-port binding collision, converting it into a standard `RuntimeError`.
+     - Added `verify_server_lifecycle_failure_injection()` executing:
+       * Single server lifecycle: verified clean socket binding, thread join, and port release upon stop.
+       * Multi-server failure injection: held an ephemeral port open to simulate an occupied port collision on Server 2; verified `managed_servers` catches the collision and cleanly stops Server 1 with zero leaked sockets or orphaned threads.
+  4. *Real Horizontal Scroll Usability Assertions*:
+     - Programmatically identified `window` / `document.documentElement` as the true scroll container at 800x600 viewport.
+     - Documented initial out-of-viewport position: rightmost header (`Usage Evidence`) at `x=1005px` (> 800px viewport boundary).
+     - Executed `rightmost_header.scroll_into_view_if_needed()`, verifying `window.scrollX` scrolled to 256px, bringing the rightmost header bounding box fully within the viewport (`x=749.3px`, right edge `799.6px <= 800px`).
+     - Typography verified readable: code elements verified font size 10.0px (within `[9.0px, 11.5px]`).
+  5. *Accurately Scoped Tab Ownership Evidence*:
+     - Documented tab ownership mechanism via programmatic `window.open` / tab duplication, where an un-named or mismatched tab triggers generation of an independent UUID session ID before Dash mounts.
+     - Accurately clarified that browser-native UI context menu duplication cannot be driven through Playwright API without manual interaction; programmatic `window.open` provides the exact equivalent browser session boundary.
+  6. *Modular Non-Truncating Test Architecture*:
+     - Split the test suite into two compact, non-truncating modules under 450 lines each:
+       * [`tests/activation_browser_harness.py`](file:///tests/activation_browser_harness.py): Server handles, managed_servers context manager, ContextSecurityFirewall, install_server_socket_guard, ControllableActivationMockAdapter, BrowserAuditWatcher, and fixture harness app.
+       * [`tests/test_activation_browser_controlled.py`](file:///tests/test_activation_browser_controlled.py): Master test runner, failure injection, Section A, Section B, Section C (15 scenarios), and final audit verifications.
+- **Completed Deliverables**:
+  1. [`tests/activation_browser_harness.py`](file:///tests/activation_browser_harness.py): Modular harness and security infrastructure.
+  2. [`tests/test_activation_browser_controlled.py`](file:///tests/test_activation_browser_controlled.py): Hardened controlled Playwright browser test suite with firewall, socket guard, failure-injection tests, real scroll assertions, and 15 lifecycle scenarios.
+  3. `tests/evidence/activation_browser/`: 9 captured visual validation screenshots updated.
+  4. [`docs/development/status.md`](file:///docs/development/status.md): Appended HANDOFF-076 documentation.
+- **Verification Summary**:
+  - Failure-Injection & Server Lifecycle: **Passed** (single server start/stop and managed_servers recovery verified).
+  - Controlled browser validation suite: **All assertions passed, 0 failures, 9 screenshots captured, ports 8068 and 8069 cleanly released** (`python tests/test_activation_browser_controlled.py`).
+  - Activation dashboard integration suite: **22 / 22 passed** in 2.26s (`pytest tests/test_activation_dashboard_integration.py`).
+  - App unit suite: **16 / 16 passed** in 2.26s (`pytest tests/test_app.py`).
+  - Full offline repository test suite: **542 / 542 passed** in 8.93s (`pytest -q tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py --ignore=tests/test_activation_browser_controlled.py`).
+  - Strategy Engine Purity Audit: Exactly zero modifications to strategy engines (`msm_engine.py`, `choch_engine.py`, `iss_engine.py`, `tjl_coordinator.py`, `activation_engine.py`, `activation_adapter.py`). `git diff 3f6689c194c95ca3761833f8831bb8a3f5b4740d -- src/aladeen/strategy/` is completely clean.
+- **Scope Compliance & Standing Invariants**:
+  1. *Pure Read-Only Presentation*: Strictly zero UI order execution, zero MT5 live trading calls, zero live account modification.
+  2. *Downstream Invariant*: Strictly zero confirmation arbitration/selection, zero usage ledger writes, zero trade entry signals.
+  3. *Engine Integrity*: Strictly zero modification to accepted strategy engines (`msm_engine`, `choch_engine`, `iss_engine`, `tjl_coordinator`, `activation_engine`, `activation_adapter`).
+  4. *Core Ambiguities Preserved*: Upstream $c_1 == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
+  5. *Branch Boundary*: Committed and pushed strictly on `feature/activation-dashboard`. No merging into `main`.
