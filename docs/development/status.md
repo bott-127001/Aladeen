@@ -741,3 +741,43 @@ Last Updated: 2026-11-05 (MSM Dashboard Milestone Accepted — Transition to CHO
   2. *Downstream Invariant*: Strictly zero usage ledger implementation, zero confirmation arbitration, zero trade entry signals.
   3. *Core Ambiguities Preserved*: Upstream $c_1 == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
   4. *Branch Boundary*: Committed and pushed strictly on `feature/activation-engine`. No merging into `main`.
+
+
+### Milestone 20 (Activation Engine): Full Adversarial Lifecycle Regression, State Extraction, and Acceptance Closeout (HANDOFF-057)
+- **Active Branch**: feature/activation-engine
+- **Parent Commit**: ac8ea186a23862237a17f118dcb8f1d6b1d72fc5 (HANDOFF-056)
+- **Root Baseline Commit**: 535af1434ed9a6b93328202039db7f1d4f4be410 (Accepted TJL Dashboard Integration)
+- **Objective**: Address Perplexity's review of HANDOFF-056: extend adversarial-identifier test across the full lifecycle (`first activation -> external cancellation -> departure -> linked reactivation -> source invalidation -> replay`); modularize internal state container into `src/aladeen/strategy/activation_state.py` to prevent review truncation; add coverage scope filtering and recovery from `BLOCKED_UNKNOWN_ORDER`; and provide explicit finding-to-test mapping for acceptance closeout.
+- **Completed Deliverables**:
+  1. **Full Adversarial Delimiter Lifecycle Regression**:
+     - Extended `test_canonical_unambiguous_identifiers_with_adversarial_delimiters` across all lifecycle stages:
+       - Initial registration of adversarial members with delimiters (`set_id="SET::1"` vs `set_id="SET"`).
+       - First activation touches creating distinct generation 1 IDs.
+       - External cancellation creating separate `RearmController` instances with distinct prior activation IDs.
+       - Confirmed outside departure arming controllers to `OUT_OF_ZONE_ARMED`.
+       - Retouch prints creating distinct generation 2 `REARMED_PENDING` activations linked to generation 1 parents.
+       - Targeted source replacement invalidating `SET::1` while preserving `SET`.
+       - Subsequent source CHOCH invalidating `SET`.
+       - 100% bit-for-bit replay equivalence from scratch across every prefix.
+  2. **Modular State Container (`activation_state.py`)**:
+     - Extracted `ActivationEngineState` into [`src/aladeen/strategy/activation_state.py`](file:///src/aladeen/strategy/activation_state.py) (90 lines), keeping all strategy modules well under 400 lines so no files truncate during review retrieval.
+  3. **Coverage Scope Filtering & Stale Rejection**:
+     - `_process_coverage_evidence` enforces scope matching (`self.symbol`, `self.engine_id`, `ALL`, `GLOBAL`). Unrelated scopes are cleanly ignored.
+     - Out-of-order sequence references strictly raise `SequenceOrderError`.
+     - Ordered restoration from `INCOMPLETE` to `COMPLETE` restores activation gating.
+  4. **Unknown-Order Recovery via Authoritative Prints**:
+     - `_process_exact_price_print` allows members placed in `BLOCKED_UNKNOWN_ORDER` by uncertain candle evidence to recover cleanly to `PENDING_ACTIVATION` upon arrival of subsequent discrete price prints at or after availability.
+  5. **Direct Test Assertions Added**:
+     - `test_coverage_evidence_scope_and_stale_rejection`
+     - `test_unknown_order_recovery_with_subsequent_exact_print`
+- **Verification Summary**:
+  - Activation engine execution suite: 42/42 passed in 0.90s (`pytest tests/test_activation_engine.py -v`).
+  - Activation adapter suite: 14/14 passed in 0.61s (`pytest tests/test_activation_adapter.py -v`).
+  - Activation fixture integrity suite: 28/28 passed in 0.60s (`pytest tests/test_activation_fixture_integrity.py -v`).
+  - Total activation tests: 84/84 passed.
+  - Full offline repository test suite: 504/504 passed in 16.49s (`pytest -q tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py`).
+- **Scope Compliance & Standing Invariants**:
+  1. *Offline Only*: Strictly zero UI order execution, zero MT5 trading calls, zero live account modification.
+  2. *Downstream Invariant*: Strictly zero usage ledger implementation, zero confirmation arbitration, zero trade entry signals.
+  3. *Core Ambiguities Preserved*: Upstream $c_1 == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
+  4. *Branch Boundary*: Committed and pushed strictly on `feature/activation-engine`. No merging into `main`.

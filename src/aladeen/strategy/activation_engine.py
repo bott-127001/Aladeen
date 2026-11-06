@@ -447,7 +447,7 @@ class ActivationEngine:
             is_outside = (event.price < member.lower_edge or event.price > member.upper_edge)
 
             rec = self._active_activations.get(member_key)
-            if rec is None or rec.state == ActivationState.INACTIVE_ELIGIBLE:
+            if rec is None or rec.state in (ActivationState.INACTIVE_ELIGIBLE, ActivationState.BLOCKED_UNKNOWN_ORDER):
                 if is_inside:
                     # Check evidence recycling across generations for this level
                     consumed = self._member_consumed_observations.get(member_key, set())
@@ -732,7 +732,16 @@ class ActivationEngine:
         if is_duplicate:
             return self.get_snapshot()
 
-        self._coverage_status = event.coverage_status
+        # Scope validation: only update coverage if scope matches this engine's context
+        valid_scopes = {
+            self.symbol,
+            f"{self.symbol}_{self.source_timeframe}",
+            self.engine_id,
+            "ALL",
+            "GLOBAL",
+        }
+        if event.scope in valid_scopes:
+            self._coverage_status = event.coverage_status
         return self.get_snapshot()
 
     def create_checkpoint(self) -> Dict[str, Any]:

@@ -933,7 +933,7 @@ class TestActivationEngineExecution:
         assert eng.get_snapshot().rearm_controllers[m1.member_key].state == ActivationState.CANCELLED_EXTERNAL_ENTRY
 
         # Incomplete coverage event arrives
-        eng.process_event(CoverageEvidence("COV_INC", default_domain, 603, CoverageStatus.INCOMPLETE, "EURUSD_H1", missing_gap_count=1, timestamp=datetime(2026, 10, 2, 8, 35, tzinfo=timezone.utc)))
+        eng.process_event(CoverageEvidence("COV_INC", default_domain, 603, CoverageStatus.INCOMPLETE, "FEED_EURUSD_H1", missing_gap_count=1, timestamp=datetime(2026, 10, 2, 8, 35, tzinfo=timezone.utc)))
 
         # Outside departure print under incomplete coverage
         eng.process_event(ExactPricePrint("O_DEP_INC", 1.1200, PriceBasis.BID, datetime(2026, 10, 2, 8, 40, tzinfo=timezone.utc), default_domain, 604))
@@ -960,7 +960,7 @@ class TestActivationEngineExecution:
         assert eng.get_snapshot().rearm_controllers[m1.member_key].state == ActivationState.OUT_OF_ZONE_ARMED
 
         # Incomplete coverage arrives
-        eng.process_event(CoverageEvidence("COV_INC", default_domain, 704, CoverageStatus.INCOMPLETE, "EURUSD_H1", missing_gap_count=1, timestamp=datetime(2026, 10, 2, 8, 40, tzinfo=timezone.utc)))
+        eng.process_event(CoverageEvidence("COV_INC", default_domain, 704, CoverageStatus.INCOMPLETE, "FEED_EURUSD_H1", missing_gap_count=1, timestamp=datetime(2026, 10, 2, 8, 40, tzinfo=timezone.utc)))
 
         # Inside retouch print under incomplete coverage MUST NOT create REARMED_PENDING
         eng.process_event(ExactPricePrint("O_RET", 1.1370, PriceBasis.BID, datetime(2026, 10, 2, 8, 45, tzinfo=timezone.utc), default_domain, 705))
@@ -1013,13 +1013,13 @@ class TestActivationEngineExecution:
         eng.process_event(ExternalCommitEvent("C1", datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc), default_domain, 902, winning_engine_id="OTHER", winning_set_id="SET_X", winning_role="R"))
 
         # Incomplete coverage
-        eng.process_event(CoverageEvidence("COV_INC", default_domain, 903, CoverageStatus.INCOMPLETE, "EURUSD_H1", timestamp=datetime(2026, 10, 2, 8, 35, tzinfo=timezone.utc)))
+        eng.process_event(CoverageEvidence("COV_INC", default_domain, 903, CoverageStatus.INCOMPLETE, "FEED_EURUSD_H1", timestamp=datetime(2026, 10, 2, 8, 35, tzinfo=timezone.utc)))
         # Blocked departure
         eng.process_event(ExactPricePrint("O_DEP_BLOCKED", 1.1200, PriceBasis.BID, datetime(2026, 10, 2, 8, 40, tzinfo=timezone.utc), default_domain, 904))
         assert eng.get_snapshot().rearm_controllers[m1.member_key].state == ActivationState.CANCELLED_EXTERNAL_ENTRY
 
         # Coverage restored to COMPLETE
-        eng.process_event(CoverageEvidence("COV_OK", default_domain, 905, CoverageStatus.COMPLETE, "EURUSD_H1", timestamp=datetime(2026, 10, 2, 8, 45, tzinfo=timezone.utc)))
+        eng.process_event(CoverageEvidence("COV_OK", default_domain, 905, CoverageStatus.COMPLETE, "FEED_EURUSD_H1", timestamp=datetime(2026, 10, 2, 8, 45, tzinfo=timezone.utc)))
         # Valid outside departure under COMPLETE coverage
         eng.process_event(ExactPricePrint("O_DEP_VALID", 1.1200, PriceBasis.BID, datetime(2026, 10, 2, 8, 50, tzinfo=timezone.utc), default_domain, 906))
         assert eng.get_snapshot().rearm_controllers[m1.member_key].state == ActivationState.OUT_OF_ZONE_ARMED
@@ -1033,36 +1033,108 @@ class TestActivationEngineExecution:
         assert act.prior_activation_id == format_activation_id("ENGINE_TEST", "H1", "FEED_EURUSD_H1", "SET_1", "TJL1", 1)
 
     def test_canonical_unambiguous_identifiers_with_adversarial_delimiters(self, default_domain: SequenceDomain) -> None:
-        """Directive 3: Canonical length-prefixed identifiers guarantee collision resistance across adversarial delimiter components."""
-        from aladeen.strategy.activation_types import format_activation_id, format_member_key
+        """Directive 1 & 3: Full lifecycle regression covering adversarial delimiter identifiers from activation through replay."""
+        from aladeen.strategy.activation_types import format_activation_id, format_member_key, RegisterMembersEvent
 
-        # Adversarial pair 1: Delimiters in engine_id, source_timeframe, symbol
-        # engine_id="a::H4", tf="H1", sym="x" VS engine_id="a", tf="H4", sym="H1::x"
+        # 1. Component encoding checks
         id1 = format_activation_id("a::H4", "H1", "x", "SET", "TJL1", 1)
         id2 = format_activation_id("a", "H4", "H1::x", "SET", "TJL1", 1)
         assert id1 != id2
         assert id1 == "ACT_G01[5:a::H4][2:H1][1:x][3:SET][4:TJL1]"
         assert id2 == "ACT_G01[1:a][2:H4][5:H1::x][3:SET][4:TJL1]"
 
-        # Adversarial pair 2: Delimiters in set_id and role
-        # set_id="SET::1", role="TJL1" VS set_id="SET", role="1::TJL1"
         mk1 = format_member_key("SET::1", "TJL1")
         mk2 = format_member_key("SET", "1::TJL1")
         assert mk1 != mk2
         assert mk1 == "MK[6:SET::1][4:TJL1]"
         assert mk2 == "MK[3:SET][7:1::TJL1]"
 
-        # Live engine execution with delimiter-containing set_id and engine_id
-        eng = ActivationEngine(ActivationEngineConfig("ENGINE::EURUSD::H1", "FEED::EURUSD::H1", "H1", default_domain, PriceBasis.BID))
+        # 2. Live engine full lifecycle execution with recorded events
+        config = ActivationEngineConfig("ENGINE::EURUSD::H1", "FEED::EURUSD::H1", "H1", default_domain, PriceBasis.BID)
+        eng = ActivationEngine(config)
         lvl = StableLevelId("FEED::EURUSD::H1", "H1", datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc), TJLSide.HIGH)
         m_adv1 = SourceMemberReference("ENGINE::EURUSD::H1", "FEED::EURUSD::H1", "H1", "SET::1", "TJL1", "HIGH", 1.1350, 1.1400, False, Direction.UPWARD, lvl, datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc), UsageEvidenceStatus.UNUSED)
         m_adv2 = SourceMemberReference("ENGINE::EURUSD::H1", "FEED::EURUSD::H1", "H1", "SET", "TJL1", "HIGH", 1.1040, 1.1050, False, Direction.UPWARD, lvl, datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc), UsageEvidenceStatus.UNUSED)
 
-        snap = eng.register_source_members([m_adv1, m_adv2])
+        ev_reg = RegisterMembersEvent("EV_REG", default_domain, 100, datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc), (m_adv1, m_adv2))
+        snap = eng.process_event(ev_reg)
         assert len(snap.current_members) == 2
         assert m_adv1.member_key != m_adv2.member_key
-        assert m_adv1.member_key in snap.current_members
-        assert m_adv2.member_key in snap.current_members
+
+        # Phase A: First activation touches for both adversarial members
+        ev_touch1 = ExactPricePrint("O1", 1.1370, PriceBasis.BID, datetime(2026, 10, 2, 8, 15, tzinfo=timezone.utc), default_domain, 101)
+        ev_touch2 = ExactPricePrint("O2", 1.1045, PriceBasis.BID, datetime(2026, 10, 2, 8, 20, tzinfo=timezone.utc), default_domain, 102)
+        eng.process_event(ev_touch1)
+        snap_act = eng.process_event(ev_touch2)
+
+        act1 = snap_act.active_activations[m_adv1.member_key]
+        act2 = snap_act.active_activations[m_adv2.member_key]
+        assert act1.state == ActivationState.PENDING_ACTIVATION
+        assert act2.state == ActivationState.PENDING_ACTIVATION
+        assert act1.activation_id != act2.activation_id
+        assert act1.activation_id == format_activation_id("ENGINE::EURUSD::H1", "H1", "FEED::EURUSD::H1", "SET::1", "TJL1", 1)
+        assert act2.activation_id == format_activation_id("ENGINE::EURUSD::H1", "H1", "FEED::EURUSD::H1", "SET", "TJL1", 1)
+
+        # Phase B: External cancellation terminalizes both into CANCELLED_EXTERNAL_ENTRY
+        ev_commit = ExternalCommitEvent("C1", datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc), default_domain, 103, winning_engine_id="OTHER", winning_set_id="OTHER_SET", winning_role="TJL1")
+        snap_commit = eng.process_event(ev_commit)
+        assert len(snap_commit.active_activations) == 0
+        assert len(snap_commit.terminal_activations) == 2
+        assert len(snap_commit.rearm_controllers) == 2
+        assert snap_commit.rearm_controllers[m_adv1.member_key].prior_activation_id == act1.activation_id
+        assert snap_commit.rearm_controllers[m_adv2.member_key].prior_activation_id == act2.activation_id
+
+        # Phase C: Confirmed departure outside both zones
+        ev_dep = ExactPricePrint("O_DEP", 1.1200, PriceBasis.BID, datetime(2026, 10, 2, 8, 35, tzinfo=timezone.utc), default_domain, 104)
+        snap_dep = eng.process_event(ev_dep)
+        assert snap_dep.rearm_controllers[m_adv1.member_key].state == ActivationState.OUT_OF_ZONE_ARMED
+        assert snap_dep.rearm_controllers[m_adv2.member_key].state == ActivationState.OUT_OF_ZONE_ARMED
+
+        # Phase D: Linked reactivation touches creating generation 2
+        ev_ret1 = ExactPricePrint("O_RET1", 1.1370, PriceBasis.BID, datetime(2026, 10, 2, 8, 40, tzinfo=timezone.utc), default_domain, 105)
+        ev_ret2 = ExactPricePrint("O_RET2", 1.1045, PriceBasis.BID, datetime(2026, 10, 2, 8, 45, tzinfo=timezone.utc), default_domain, 106)
+        eng.process_event(ev_ret1)
+        snap_rearm = eng.process_event(ev_ret2)
+
+        react1 = snap_rearm.active_activations[m_adv1.member_key]
+        react2 = snap_rearm.active_activations[m_adv2.member_key]
+        assert react1.state == ActivationState.REARMED_PENDING
+        assert react2.state == ActivationState.REARMED_PENDING
+        assert react1.generation_seq == 2
+        assert react2.generation_seq == 2
+        assert react1.activation_id != react2.activation_id
+        assert react1.prior_activation_id == act1.activation_id
+        assert react2.prior_activation_id == act2.activation_id
+
+        # Phase E: Source invalidation targeted specifically at SET::1 (does not affect SET)
+        ev_cancel_set1 = SourceCancellationEvent("CAN_SET1", CancellationReason.SOURCE_REPLACEMENT, default_domain, 107, datetime(2026, 10, 2, 8, 50, tzinfo=timezone.utc), target_set_id="SET::1")
+        snap_after_cancel1 = eng.process_event(ev_cancel_set1)
+        assert m_adv1.member_key not in snap_after_cancel1.current_members
+        assert m_adv2.member_key in snap_after_cancel1.current_members
+        assert m_adv2.member_key in snap_after_cancel1.active_activations
+
+        # Source CHOCH invalidates remaining SET
+        ev_choch = SourceCancellationEvent("CAN_CHOCH", CancellationReason.SOURCE_CHOCH, default_domain, 108, datetime(2026, 10, 2, 8, 55, tzinfo=timezone.utc), affected_direction=Direction.UPWARD)
+        snap_final = eng.process_event(ev_choch)
+        assert len(snap_final.current_members) == 0
+        assert len(snap_final.active_activations) == 0
+        assert len(snap_final.terminal_activations) == 4
+        # All 4 terminal activations have globally unique IDs
+        terminal_ids = [t.activation_id for t in snap_final.terminal_activations]
+        assert len(terminal_ids) == len(set(terminal_ids))
+
+        # Phase F: Every-prefix replay equivalence from scratch
+        recorded_events = [ev_reg, ev_touch1, ev_touch2, ev_commit, ev_dep, ev_ret1, ev_ret2, ev_cancel_set1, ev_choch]
+        replay_engine = ActivationEngine(config)
+        replayed_snapshots = replay_engine.replay(recorded_events)
+        replayed_snap = replayed_snapshots[-1]
+
+        assert replayed_snap.current_members == snap_final.current_members
+        assert replayed_snap.active_activations == snap_final.active_activations
+        assert replayed_snap.terminal_activations == snap_final.terminal_activations
+        assert replayed_snap.rearm_controllers == snap_final.rearm_controllers
+        assert replayed_snap.last_processed_sequence == snap_final.last_processed_sequence
+        assert replayed_snap.last_processed_timestamp == snap_final.last_processed_timestamp
 
     def test_supported_roles_validation(self) -> None:
         """Directive 3: Validates supported roles and rejects undocumented roles."""
@@ -1104,3 +1176,63 @@ class TestActivationEngineExecution:
         snap = eng.register_source_members([m, m, m])
         assert len(snap.current_members) == 1
         assert m.member_key in snap.current_members
+
+
+    def test_coverage_evidence_scope_and_stale_rejection(self, default_domain: SequenceDomain) -> None:
+        """Directive 4: Coverage evidence respects scope filtering, enforces monotonic ordering, and enables ordered restoration."""
+        eng = ActivationEngine(ActivationEngineConfig("ENGINE_EURUSD_H1", "FEED_EURUSD_H1", "H1", default_domain, PriceBasis.BID))
+        lvl = StableLevelId("FEED_EURUSD_H1", "H1", datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc), TJLSide.HIGH)
+        m = SourceMemberReference("ENGINE_EURUSD_H1", "FEED_EURUSD_H1", "H1", "SET_1", "TJL1", "HIGH", 1.1350, 1.1400, False, Direction.UPWARD, lvl, datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc), UsageEvidenceStatus.UNUSED)
+        eng.register_source_members([m])
+
+        # 1. Coverage evidence with unrelated scope does not affect this engine
+        eng.process_event(CoverageEvidence("COV_OTHER", default_domain, 201, CoverageStatus.INCOMPLETE, scope="GBPUSD_H1", missing_gap_count=5, timestamp=datetime(2026, 10, 2, 8, 5, tzinfo=timezone.utc)))
+        assert eng.get_snapshot().coverage_status == CoverageStatus.COMPLETE
+
+        # 2. Coverage evidence matching symbol/timeframe sets coverage to INCOMPLETE
+        eng.process_event(CoverageEvidence("COV_INCOMPLETE", default_domain, 202, CoverageStatus.INCOMPLETE, scope="FEED_EURUSD_H1", missing_gap_count=1, timestamp=datetime(2026, 10, 2, 8, 10, tzinfo=timezone.utc)))
+        assert eng.get_snapshot().coverage_status == CoverageStatus.INCOMPLETE
+
+        # While incomplete, inside print produces zero activation (remains INACTIVE_ELIGIBLE)
+        eng.process_event(ExactPricePrint("O1", 1.1370, PriceBasis.BID, datetime(2026, 10, 2, 8, 15, tzinfo=timezone.utc), default_domain, 203))
+        assert eng.get_snapshot().active_activations[m.member_key].state == ActivationState.INACTIVE_ELIGIBLE
+
+        # 3. Stale / out-of-order sequence ref rejected with SequenceOrderError
+        with pytest.raises(SequenceOrderError):
+            eng.process_event(CoverageEvidence("COV_STALE", default_domain, 202, CoverageStatus.COMPLETE, scope="FEED_EURUSD_H1", timestamp=datetime(2026, 10, 2, 8, 16, tzinfo=timezone.utc)))
+
+        # 4. Ordered restoration back to COMPLETE restores activation capability
+        eng.process_event(CoverageEvidence("COV_RESTORED", default_domain, 204, CoverageStatus.COMPLETE, scope="FEED_EURUSD_H1", timestamp=datetime(2026, 10, 2, 8, 20, tzinfo=timezone.utc)))
+        assert eng.get_snapshot().coverage_status == CoverageStatus.COMPLETE
+
+        snap_act = eng.process_event(ExactPricePrint("O2", 1.1370, PriceBasis.BID, datetime(2026, 10, 2, 8, 25, tzinfo=timezone.utc), default_domain, 205))
+        assert snap_act.active_activations[m.member_key].state == ActivationState.PENDING_ACTIVATION
+
+    def test_unknown_order_recovery_with_subsequent_exact_print(self, default_domain: SequenceDomain) -> None:
+        """Directive 4: A member placed into BLOCKED_UNKNOWN_ORDER by uncertain candle evidence recovers cleanly upon subsequent exact print."""
+        eng = ActivationEngine(ActivationEngineConfig("ENGINE_EURUSD_H1", "FEED_EURUSD_H1", "H1", default_domain, PriceBasis.BID))
+        lvl = StableLevelId("FEED_EURUSD_H1", "H1", datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc), TJLSide.HIGH)
+        avail = datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc)
+        m = SourceMemberReference("ENGINE_EURUSD_H1", "FEED_EURUSD_H1", "H1", "SET_1", "TJL1", "HIGH", 1.1350, 1.1400, False, Direction.UPWARD, lvl, avail, UsageEvidenceStatus.UNUSED)
+        eng.register_source_members([m])
+
+        # Candle straddles availability with unknown intra-bar sequence -> BLOCKED_UNKNOWN_ORDER
+        candle = IntervalBoundedCandleEvidence(
+            event_id="CANDLE_01",
+            sequence_domain=default_domain,
+            sequence_ref=301,
+            candle_id="BAR_10",
+            interval_open=datetime(2026, 10, 2, 8, 25, tzinfo=timezone.utc),
+            interval_close=datetime(2026, 10, 2, 8, 35, tzinfo=timezone.utc),
+            observed_field="HIGH",
+            observed_value=1.1450,
+            sub_bar_sequence_available=False,
+        )
+        snap_candle = eng.process_event(candle)
+        assert snap_candle.active_activations[m.member_key].state == ActivationState.BLOCKED_UNKNOWN_ORDER
+
+        # Subsequent discrete price print inside zone at 08:35 recovers the blocked level cleanly
+        print_recovery = ExactPricePrint("O_REC", 1.1370, PriceBasis.BID, datetime(2026, 10, 2, 8, 35, tzinfo=timezone.utc), default_domain, 302)
+        snap_rec = eng.process_event(print_recovery)
+        assert snap_rec.active_activations[m.member_key].state == ActivationState.PENDING_ACTIVATION
+        assert snap_rec.active_activations[m.member_key].generation_seq == 1
