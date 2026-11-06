@@ -2733,3 +2733,45 @@ Last Updated: 2026-11-06 (Milestone 29 Release-Readiness Audit & Offline Runbook
   - Zero order execution, zero MT5 trading, zero live account modification, zero arbitration, zero usage ledger writes, zero final signal publication.
   - Core strategy engines (`msm_engine.py`, `choch_detector.py`, `iss_engine.py`, `tjl_coordinator.py`, `activation_engine.py`, `activation_adapter.py`) remain 100% untouched (0 diff against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`).
   - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
+
+
+---
+
+## 46. Milestone 32 — Offline Integration Contract Alignment & Acceptance Inventory Hardening (HANDOFF-100)
+- **Active Branch**: `feature/confirmation-monitor`
+- **Parent Commit**: `30848b5b4ff6818d8c1c7b1d0e45a67018bb3dbc` (HANDOFF-099)
+- **Accepted Milestone 31 Baseline Commit**: `083d8df43c71ed0a56c6b020178dbdfdd3bf23d0` (HANDOFF-098)
+- **Defects Addressed in HANDOFF-100 (Review Directives 1–7)**:
+  1. *Restored Canonical Candidate Setup Key Contract*:
+     - Replaced abbreviated formula with the accepted `format_candidate_setup_key()` encoding: `CSK[{len:session}][{len:rev}][{len:act}][{len:member}][{len:conf_cfg}][{len:candle}][{len:close}]`.
+     - Final setup-stable candidate identity: `f"CAND[{len(setup_key)}:{setup_key}]"`.
+  2. *Strict Separation of Terminal Cancellation vs. Valid Rearm*:
+     - Formalized that source replacement (`CANCELLED_SOURCE_REPLACEMENT`) and source main CHOCH (`CANCELLED_SOURCE_CHOCH`) are terminal and remove outgoing membership eligibility; a persistent physical level does NOT authorize revival.
+     - Rearm is restricted strictly to external finalized entry commit cancellation (`CANCELLED_EXTERNAL_ENTRY`), detailing both Path A (inside at cancel $\rightarrow$ leave zone $\rightarrow$ retouch) and Path B (already outside at cancel $\rightarrow$ retouch) to `REARMED_PENDING` (Gen 2).
+  3. *Exact Diagnostic and State Name Alignment*:
+     - Realigned all contract failure reasons strictly with accepted `ConfirmationRejectionReason` enums:
+       * `BLOCKED_UNRESOLVED_SOURCE_DEPENDENCY`
+       * `MEMBERSHIP_CANCELLED_OR_REPLACED`
+       * `CONTEXT_MISMATCH`
+       * `UNKNOWN_ELIGIBILITY_AVAILABLE_TIME`
+       * `TOUCH_BEFORE_ELIGIBILITY`
+       * `CROSS_DOMAIN_ORDERING_REJECTED`
+       * `EVIDENCE_NOT_YET_AVAILABLE`
+       * `PRE_ACTIVATION_CONFIRMATION`
+       * `INCOMPLETE_EVIDENCE`
+       * `UNKNOWN_USAGE` / `STALE_EVIDENCE_FOR_GENERATION`
+  4. *Upstream Authority Propagation Table*:
+     - Specified exact upstream evidence origins for member resolution (source state transition), current membership (TJL active set snapshot), usage status (usage ledger/commit audit trail), stream coverage (gap detection ledger), touch authority (validated physical trade print in zone), and sequence domain (execution run binding). Unmapped values strictly remain unresolved integration contracts.
+  5. *Segregated Fixture Inventory & Execution Matrix*:
+     - Detailed 20 distinct case IDs with explicit execution status (`EXISTING`, `PROPOSED`, `BLOCKED`), input provenance, intended outcome, and decisive assertions.
+     - Clarified that CHOCH demonstration uses synthesized H1 timeline, ISS uses canonical fixture with native timestamps, and independent confirmation detection runs concurrently before/across activation tap.
+  6. *Decisive Acceptance Assertions & Explicit Upstream Boundaries*:
+     - Formulated decisive assertions: no candidate before eligibility, no candidate before confirmation completion, no cross-generation reuse, no revival of cancelled memberships, deterministic repeated evaluation, zero input mutation.
+     - Cataloged upstream boundaries without speculative heuristics, leaving arbitration as a future, separately authorized milestone.
+- **Verification Summary**:
+  - Full offline repository test suite: **643/643 passed** (carried forward from verified baseline `083d8df43c71ed0a56c6b020178dbdfdd3bf23d0` and re-confirmed).
+- **Safety Boundary Maintained**:
+  - Specification and contract deliverables only. Zero runtime code altered.
+  - Zero order execution, zero MT5 trading, zero live account modification, zero arbitration, zero usage ledger writes, zero final signal publication.
+  - Core strategy engines (`msm_engine.py`, `choch_detector.py`, `iss_engine.py`, `tjl_coordinator.py`, `activation_engine.py`, `activation_adapter.py`) remain 100% untouched (0 diff against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`).
+  - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
