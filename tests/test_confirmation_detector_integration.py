@@ -99,15 +99,22 @@ def create_synthesized_h1_candles_from_prices(
 
 
 def parse_canonical_iss_candles(raw_candles: List[Dict[str, Any]]) -> List[StrategyCandle]:
-    """Parses raw candles preserving original fixture timestamps and completion attributes."""
+    """Parses raw candles strictly requiring original fixture close_time and completion attributes.
+
+    Authoritative fixture 'iss_02_bullish_basic_end_to_end' natively declares 'time', 'close_time',
+    'is_forming', and 'bar_status' for every candle. This parser enforces them strictly without fallbacks.
+    """
     candles: List[StrategyCandle] = []
     for i, c in enumerate(raw_candles):
+        if "close_time" not in c:
+            raise ValueError(f"Fixture candle {i} missing mandatory authoritative 'close_time'")
+        if "bar_status" not in c:
+            raise ValueError(f"Fixture candle {i} missing mandatory authoritative 'bar_status'")
+        if "is_forming" not in c:
+            raise ValueError(f"Fixture candle {i} missing mandatory authoritative 'is_forming'")
+
         open_time = datetime.fromisoformat(c["time"]).astimezone(timezone.utc)
-        close_time = (
-            datetime.fromisoformat(c["close_time"]).astimezone(timezone.utc)
-            if "close_time" in c
-            else open_time + timedelta(hours=1)
-        )
+        close_time = datetime.fromisoformat(c["close_time"]).astimezone(timezone.utc)
         candles.append(
             StrategyCandle(
                 index=i,
@@ -116,8 +123,8 @@ def parse_canonical_iss_candles(raw_candles: List[Dict[str, Any]]) -> List[Strat
                 high=float(c["high"]),
                 low=float(c["low"]),
                 close=float(c["close"]),
-                is_forming=bool(c.get("is_forming", False)),
-                bar_status=str(c.get("bar_status", "CONFIRMED_COMPLETED")),
+                is_forming=bool(c["is_forming"]),
+                bar_status=str(c["bar_status"]),
                 close_time=close_time,
             )
         )

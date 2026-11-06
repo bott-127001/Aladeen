@@ -1656,6 +1656,7 @@ class TestAdapterProvenanceAndCompletionIntegrity:
             close_time=close_time,
         )
 
+        # 1. Missing sequence_domain in envelope
         envelope_no_domain = ValidatedCandleStreamEnvelope(
             candle=candle,
             symbol="EURUSD",
@@ -1673,6 +1674,30 @@ class TestAdapterProvenanceAndCompletionIntegrity:
                 confirmation_timeframe="M5",
                 confirmation_candle_id="CANDLE_01",
                 envelope=envelope_no_domain,
+                symbol="EURUSD",
+                feed_id="FEED_01",
+                sequence_domain=DEFAULT_DOMAIN,
+            )
+
+        # 2. Contradictory sequence_domain in envelope
+        other_domain = SequenceDomain(feed_id="FEED_OTHER", run_id="RUN_OTHER")
+        envelope_wrong_domain = ValidatedCandleStreamEnvelope(
+            candle=candle,
+            symbol="EURUSD",
+            feed_id="FEED_01",
+            timeframe="M5",
+            price_basis=PriceBasis.BID,
+            confirmation_config_id="CONF_CFG_01",
+            confirmation_candle_id="CANDLE_01",
+            sequence_domain=other_domain,
+        )
+        with pytest.raises(ValueError, match="Envelope sequence_domain .* contradicts parameter"):
+            adapt_confirmed_iss_to_evidence(
+                iss=iss,
+                confirmation_config_id="CONF_CFG_01",
+                confirmation_timeframe="M5",
+                confirmation_candle_id="CANDLE_01",
+                envelope=envelope_wrong_domain,
                 symbol="EURUSD",
                 feed_id="FEED_01",
                 sequence_domain=DEFAULT_DOMAIN,

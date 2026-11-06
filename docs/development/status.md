@@ -2671,3 +2671,31 @@ Last Updated: 2026-11-06 (Milestone 29 Release-Readiness Audit & Offline Runbook
   - Zero order execution, zero MT5 trading, zero live account modification, zero arbitration, zero usage ledger writes, zero final signal publication.
   - Core strategy engines (`msm_engine.py`, `choch_detector.py`, `iss_engine.py`, `tjl_coordinator.py`, `activation_engine.py`, `activation_adapter.py`) remain 100% untouched (0 diff against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`).
   - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
+
+
+---
+
+## 44. Milestone 31 — Offline Confirmation Matcher Closeout: Strict Fixture Authority & Symmetric ISS Domain Regression (HANDOFF-098)
+- **Active Branch**: `feature/confirmation-monitor`
+- **Parent Commit**: `338f25cdd8ce978b0b8435f74a4c859af0d0e46b` (HANDOFF-097)
+- **Defects Addressed in HANDOFF-098 (Review Directives 1–3)**:
+  1. *Strict Fixture Authority Enforcement in ISS Integration*:
+     - In `parse_canonical_iss_candles()` (`tests/test_confirmation_detector_integration.py`), completely removed fallback calculations (`else open_time + timedelta(hours=1)`) and defaulted completion attributes (`is_forming=False`, `bar_status="CONFIRMED_COMPLETED"`).
+     - Explicitly verified and strictly asserted that every fixture candle in `iss_02_bullish_basic_end_to_end` natively declares `time`, `close_time`, `is_forming`, and `bar_status`, raising `ValueError` immediately if any authoritative field is missing.
+  2. *Symmetric Contradictory-Domain ISS Test Coverage*:
+     - Extended `test_iss_envelope_missing_or_contradictory_sequence_domain_fails_closed` in `tests/test_confirmation_matcher.py` with Case 2 (contradictory sequence_domain in envelope), matching the symmetry of the CHOCH domain test and verifying that `adapt_confirmed_iss_to_evidence` rejects cross-domain envelopes with `"Envelope sequence_domain .* contradicts parameter"`.
+  3. *Exact Verification Locations for Context Freezing and Batch Consolidation*:
+     - Context boolean validation: `tests/test_confirmation_matcher.py::TestAuthoritativeMatchingAuthority::test_matching_context_source_resolution_status_must_be_strict_bool` (L736-L762).
+     - Context defensive freezing: `tests/test_confirmation_matcher.py::TestAuthoritativeMatchingAuthority::test_matching_context_defensively_freezes_external_dictionaries` (L763-L796).
+     - Same-pattern multiple events (`is_consolidated=False`): `tests/test_confirmation_matcher.py::TestBatchConsolidationAndDeterministicOrdering::test_batch_consolidation_same_pattern_multiple_events_not_marked_consolidated` (L1844-L1859).
+     - Dual-pattern consolidation (`is_consolidated=True`): `tests/test_confirmation_matcher.py::TestBatchConsolidationAndDeterministicOrdering::test_batch_consolidation_dual_pattern_marked_consolidated` (L1860-L1875).
+- **Verification Summary**:
+  - Focused confirmation matcher test suite: **66/66 passed in 0.82s** (`pytest tests/test_confirmation_matcher.py -v`).
+  - Separately retrievable detector integration test suite: **2/2 passed in 0.56s** (`pytest tests/test_confirmation_detector_integration.py -v`).
+  - Total confirmation test suite: **68/68 passed in 0.76s** (`pytest tests/test_confirmation_detector_integration.py tests/test_confirmation_matcher.py -v`).
+  - Full offline repository test suite: **643/643 passed in 8.22s** (`pytest tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py --ignore=tests/test_activation_browser_controlled.py --ignore=tests/activation_browser_runner.py --ignore=tests/activation_browser_harness.py --ignore=tests/test_browser_race_controlled.py --ignore=tests/test_choch_browser_verification.py --ignore=tests/browser_check.py`).
+- **Safety Boundary Maintained**:
+  - Pure offline calculation layer only.
+  - Zero order execution, zero MT5 trading, zero live account modification, zero arbitration, zero usage ledger writes, zero final signal publication.
+  - Core strategy engines (`msm_engine.py`, `choch_detector.py`, `iss_engine.py`, `tjl_coordinator.py`, `activation_engine.py`, `activation_adapter.py`) remain 100% untouched (0 diff against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`).
+  - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
