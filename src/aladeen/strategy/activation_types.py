@@ -80,6 +80,17 @@ class SequenceDomain:
             raise ValueError(f"run_id must be non-empty string, got {self.run_id!r}")
 
 
+SUPPORTED_SOURCE_ROLES = frozenset({"TJL1", "TJL2_A_PLUS"})
+
+
+def format_member_key(set_id: str, role: str) -> str:
+    """Canonical, unambiguous length-prefixed member key encoding.
+
+    Length-prefixing prevents collision even if set_id or role contains delimiters.
+    """
+    return f"MK[{len(set_id)}:{set_id}][{len(role)}:{role}]"
+
+
 @dataclass(frozen=True)
 class SourceMemberReference:
     """Current eligible source level member registered with the activation engine."""
@@ -98,6 +109,10 @@ class SourceMemberReference:
     usage_evidence_status: UsageEvidenceStatus = UsageEvidenceStatus.UNKNOWN
 
     def __post_init__(self) -> None:
+        if self.role not in SUPPORTED_SOURCE_ROLES:
+            raise ValueError(
+                f"Unsupported role {self.role!r}. Supported roles are: {sorted(SUPPORTED_SOURCE_ROLES)}"
+            )
         if not math.isfinite(self.lower_edge) or self.lower_edge <= 0:
             raise ValueError(f"lower_edge must be finite positive float, got {self.lower_edge}")
         if not math.isfinite(self.upper_edge) or self.upper_edge <= 0:
@@ -111,8 +126,8 @@ class SourceMemberReference:
 
     @property
     def member_key(self) -> str:
-        """Deterministic member lookup key scoped by set_id and role."""
-        return f"{self.set_id}::{self.role}"
+        """Deterministic, unambiguous member lookup key scoped by set_id and role."""
+        return format_member_key(self.set_id, self.role)
 
 
 @dataclass(frozen=True)
@@ -266,11 +281,19 @@ def format_activation_id(
     role: str,
     generation_seq: int,
 ) -> str:
-    """Canonical, unambiguous activation-ID encoding.
+    """Canonical, unambiguous length-prefixed activation-ID encoding.
 
-    Format: ACT::<engine_id>::<source_timeframe>::<symbol>::<set_id>::<role>::<generation_seq:02d>
+    Length-prefixing mathematically guarantees collision resistance even if
+    arbitrary identifier components contain delimiter strings.
     """
-    return f"ACT::{engine_id}::{source_timeframe}::{symbol}::{set_id}::{role}::{generation_seq:02d}"
+    return (
+        f"ACT_G{generation_seq:02d}"
+        f"[{len(engine_id)}:{engine_id}]"
+        f"[{len(source_timeframe)}:{source_timeframe}]"
+        f"[{len(symbol)}:{symbol}]"
+        f"[{len(set_id)}:{set_id}]"
+        f"[{len(role)}:{role}]"
+    )
 
 
 @dataclass(frozen=True)
@@ -303,8 +326,8 @@ class ActivationRecord:
 
     @property
     def member_key(self) -> str:
-        """Deterministic member lookup key scoped by set_id and role."""
-        return f"{self.set_id}::{self.role}"
+        """Deterministic, unambiguous member lookup key scoped by set_id and role."""
+        return format_member_key(self.set_id, self.role)
 
 
 @dataclass(frozen=True)

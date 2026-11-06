@@ -134,6 +134,7 @@ class ActivationEngine:
     def register_source_members(self, members: Sequence[SourceMemberReference]) -> ActivationSnapshot:
         """Registers a sequence of eligible source level members atomically."""
         # 1. Validate all members before mutating state
+        staged_candidates: Dict[str, SourceMemberReference] = {}
         for m in members:
             if m.engine_id != self.engine_id:
                 raise InvalidEvidenceError(
@@ -147,6 +148,19 @@ class ActivationEngine:
                 raise InvalidEvidenceError(
                     f"Member source_timeframe {m.source_timeframe!r} does not match activation engine {self.source_timeframe!r}"
                 )
+
+            # Check intra-batch conflicts
+            if m.member_key in staged_candidates:
+                prev_cand = staged_candidates[m.member_key]
+                if prev_cand == m:
+                    # Coalesce identical duplicates within same submitted batch
+                    continue
+                raise InvalidEvidenceError(
+                    f"Conflicting member registration within submitted batch for {m.member_key}: "
+                    f"candidate {prev_cand} != candidate {m}. "
+                    "Conflicting duplicate keys within one registration call are rejected before mutation."
+                )
+            staged_candidates[m.member_key] = m
 
             # Check conflicting registration against existing membership
             existing_m = self._current_members.get(m.member_key)
@@ -488,6 +502,20 @@ class ActivationEngine:
         for member_key, ctrl in list(self._rearm_controllers.items()):
             member = self._current_members.get(member_key)
             if member is None:
+                continue
+
+            # Fail closed on coverage
+            if self._coverage_status != CoverageStatus.COMPLETE:
+                continue
+
+            # Fail closed on usage
+            if member.usage_evidence_status != UsageEvidenceStatus.UNUSED:
+                continue
+
+            # Fail closed on availability
+            if member.eligibility_available_time is None:
+                continue
+            if event.timestamp < member.eligibility_available_time:
                 continue
 
             is_inside = (event.price == member.lower_edge) if member.is_line else (member.lower_edge <= event.price <= member.upper_edge)

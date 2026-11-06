@@ -22,6 +22,7 @@ from typing import Mapping, Optional
 
 import pytest
 
+from aladeen.strategy.activation_types import format_member_key
 from aladeen.strategy import (
     ActivationEngine,
     ActivationEngineConfig,
@@ -232,7 +233,7 @@ class TestActivationTJLAdapter:
         }
         snap_act = synchronizer.sync(s7, sequence_ref_start=1701, usage_evidence=usage_s7)
         assert len(snap_act.current_members) == 2
-        m_tjl1 = snap_act.current_members["SET_1::TJL1"]
+        m_tjl1 = snap_act.current_members[format_member_key("SET_1", "TJL1")]
         assert m_tjl1.lower_edge == pytest.approx(1.1350)
         assert m_tjl1.upper_edge == pytest.approx(1.1400)
 
@@ -246,13 +247,13 @@ class TestActivationTJLAdapter:
             sequence_ref=1703,
         )
         snap_touch = adapter_engine.process_event(print_in_zone)
-        assert snap_touch.active_activations["SET_1::TJL1"].state == ActivationState.PENDING_ACTIVATION
+        assert snap_touch.active_activations[format_member_key("SET_1", "TJL1")].state == ActivationState.PENDING_ACTIVATION
 
         # Bar 8 continuation
         coord.process_candle(candles[8])
         s8 = coord.get_snapshot()
         snap_act8 = synchronizer.sync(s8, sequence_ref_start=1704)
-        assert snap_act8.active_activations["SET_1::TJL1"].state == ActivationState.PENDING_ACTIVATION
+        assert snap_act8.active_activations[format_member_key("SET_1", "TJL1")].state == ActivationState.PENDING_ACTIVATION
 
         # Bar 9 Bearish CHOCH confirmation cancels SET_1
         coord.process_candle(candles[9])
@@ -465,8 +466,8 @@ class TestActivationTJLAdapter:
             sequence_domain=default_domain,
             sequence_ref=1002,
         ))
-        assert adapter_engine.get_snapshot().active_activations["SET_1::TJL1"].state == ActivationState.PENDING_ACTIVATION
-        assert adapter_engine.get_snapshot().active_activations["SET_1::TJL2_A_PLUS"].state == ActivationState.INACTIVE_ELIGIBLE
+        assert adapter_engine.get_snapshot().active_activations[format_member_key("SET_1", "TJL1")].state == ActivationState.PENDING_ACTIVATION
+        assert adapter_engine.get_snapshot().active_activations[format_member_key("SET_1", "TJL2_A_PLUS")].state == ActivationState.INACTIVE_ELIGIBLE
         assert len(adapter_engine.get_snapshot().active_activations) == 2
 
         # Finalized CHOCH invalidation transition occurs in market, but engine becomes unresolved
@@ -476,9 +477,13 @@ class TestActivationTJLAdapter:
             outgoing_cancelled_set_id="SET_1",
             outgoing_cancelled_fingerprint=cset1.fingerprint,
         )
+        t_diag = TJLTransitionRecord(
+            TJLTransitionType.BLOCKED_UNRESOLVED, False, None, (), 15,
+            datetime(2026, 10, 2, 9, 30, tzinfo=timezone.utc),
+        )
         unresolved_snap = TJLSnapshot(
             "ENGINE_EURUSD_H1", "FEED_EURUSD_H1", "H1", Direction.UPWARD,
-            None, (), (), True, t1, (t0, t1),
+            None, (), (), True, t_diag, (t0, t1),
             is_unresolved=True, unresolved_diagnostic="Frozen on c1 == p2 ambiguity",
             last_processed_index=14, last_received_index=15,
         )
@@ -593,7 +598,7 @@ class TestActivationTJLAdapter:
 
         # In-zone print activates TJL1
         eng.process_event(ExactPricePrint("OBS_TOUCH", 1.1370, PriceBasis.BID, t0 + timedelta(hours=8, minutes=15), default_domain, 1002))
-        assert eng.get_snapshot().active_activations["SET_1::TJL1"].state == ActivationState.PENDING_ACTIVATION
+        assert eng.get_snapshot().active_activations[format_member_key("SET_1", "TJL1")].state == ActivationState.PENDING_ACTIVATION
 
         # 2. CHOCH event at Bar 9 emits authoritative cancellation in market
         snap_choch = reducer.reduce(TJLStructuralObservation(
@@ -646,3 +651,44 @@ class TestActivationTJLAdapter:
         # 3. Synchronizer cursor advanced and transition consumed
         assert synchronizer.last_synced_transition_index == 1
         assert len(synchronizer._consumed_transitions) == 2
+
+
+    def test_tjl_synchronizer_rejects_inconsistent_receipt_diagnostic_combinations(self, default_domain: SequenceDomain) -> None:
+        """Directive 5: Explicitly validates supported receipt diagnostic combinations and rejects inconsistent snapshots."""
+        eng = ActivationEngine(ActivationEngineConfig("ENGINE_EURUSD_H1", "FEED_EURUSD_H1", "H1", default_domain, PriceBasis.BID))
+        synchronizer = TJLSynchronizer(engine=eng)
+
+        lvl1 = StableLevelId("FEED_EURUSD_H1", "H1", datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc), TJLSide.HIGH)
+        lvl2 = StableLevelId("FEED_EURUSD_H1", "H1", datetime(2026, 10, 1, 3, 0, tzinfo=timezone.utc), TJLSide.LOW)
+        z1 = TJLZone(lvl1, TJLLabel.TJL1, 1.1350, 1.1400, False, 10, datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc), 12)
+        z2 = TJLZone(lvl2, TJLLabel.TJL2_A_PLUS, 1.1040, 1.1050, False, 8, datetime(2026, 10, 1, 3, 0, tzinfo=timezone.utc), 12)
+        cset = CurrentEligibleSet("SET_1", TJLFingerprint("ENGINE_EURUSD_H1", Direction.UPWARD, 10, 8, 11), Direction.UPWARD, "ENGINE_EURUSD_H1", "FEED_EURUSD_H1", "H1", z1, z2, 11, datetime(2026, 10, 1, 5, 0, tzinfo=timezone.utc), 1.1040, datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc), 12)
+
+        t0 = TJLTransitionRecord(TJLTransitionType.FIRST_CREATION, False, cset, (), 12, datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc))
+        t_blocked = TJLTransitionRecord(TJLTransitionType.BLOCKED_UNRESOLVED, False, None, (), 13, datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc))
+        t_choch = TJLTransitionRecord(TJLTransitionType.CHOCH_INVALIDATION, True, None, (), 14, datetime(2026, 10, 2, 9, 0, tzinfo=timezone.utc), outgoing_cancelled_set_id="SET_1", outgoing_cancelled_fingerprint=cset.fingerprint)
+
+        # Combination 1: Resolved snapshot (is_unresolved=False) carrying BLOCKED_UNRESOLVED -> Rejected!
+        snap_resolved_with_blocked = TJLSnapshot(
+            "ENGINE_EURUSD_H1", "FEED_EURUSD_H1", "H1", Direction.UPWARD,
+            cset, (), (), False, t_blocked, (t0,), is_unresolved=False, unresolved_diagnostic=None, last_processed_index=13, last_received_index=13
+        )
+        with pytest.raises(InvalidEvidenceError, match="resolved snapshot carries BLOCKED_UNRESOLVED"):
+            synchronizer.sync(snap_resolved_with_blocked, sequence_ref_start=1001)
+
+        # Combination 2: Unresolved snapshot (is_unresolved=True) carrying non-diagnostic last_transition (CHOCH_INVALIDATION) -> Rejected!
+        snap_unresolved_with_choch = TJLSnapshot(
+            "ENGINE_EURUSD_H1", "FEED_EURUSD_H1", "H1", Direction.UPWARD,
+            None, (), (), True, t_choch, (t0, t_choch), is_unresolved=True, unresolved_diagnostic="Frozen on ambiguity", last_processed_index=14, last_received_index=14
+        )
+        with pytest.raises(InvalidEvidenceError, match="unresolved snapshot carries non-diagnostic last_transition"):
+            synchronizer.sync(snap_unresolved_with_choch, sequence_ref_start=1002)
+
+        # Combination 3: Resolved snapshot with last_transition not matching history tail -> Rejected!
+        t1_other = TJLTransitionRecord(TJLTransitionType.CONTINUATION_RETAINED, False, cset, (), 13, datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc))
+        snap_resolved_mismatched_tail = TJLSnapshot(
+            "ENGINE_EURUSD_H1", "FEED_EURUSD_H1", "H1", Direction.UPWARD,
+            cset, (), (), False, t1_other, (t0,), is_unresolved=False, unresolved_diagnostic=None, last_processed_index=13, last_received_index=13
+        )
+        with pytest.raises(InvalidEvidenceError, match="last_transition does not match the tail"):
+            synchronizer.sync(snap_resolved_mismatched_tail, sequence_ref_start=1003)

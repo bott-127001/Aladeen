@@ -702,3 +702,42 @@ Last Updated: 2026-11-05 (MSM Dashboard Milestone Accepted — Transition to CHO
   2. *Downstream Invariant*: Strictly zero usage ledger implementation, zero confirmation arbitration, zero trade entry signals.
   3. *Core Ambiguities Preserved*: Upstream  == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
   4. *Branch Boundary*: Committed and pushed strictly on eature/activation-engine. No merging into main.
+
+
+### Milestone 19 (Activation Engine): Rearm Gating, Canonical Length-Prefixed Identities, and Batch Validation (HANDOFF-056)
+- **Active Branch**: feature/activation-engine
+- **Parent Commit**: 5bebbabf0d65e27c6dd9cd566d656c6f1e5e3dfd (HANDOFF-055)
+- **Root Baseline Commit**: 535af1434ed9a6b93328202039db7f1d4f4be410 (Accepted TJL Dashboard Integration)
+- **Objective**: Address Perplexity's review of HANDOFF-055: gate rearm departure and retouch transitions on coverage, usage, and availability; implement canonical length-prefixed identifier encodings; validate supported roles; prevalidate intra-batch conflicts in member registration; and narrow receipt-diagnostic validation to supported combinations.
+- **Completed Deliverables**:
+  1. **Rearm Controller Evidence Gating**:
+     - In `src/aladeen/strategy/activation_engine.py`, gated both rearm controller transitions (`AWAITING_DEPARTURE -> OUT_OF_ZONE_ARMED` and `OUT_OF_ZONE_ARMED -> REARMED_PENDING`) on complete coverage (`self._coverage_status == CoverageStatus.COMPLETE`), unused usage evidence (`member.usage_evidence_status == UsageEvidenceStatus.UNUSED`), and valid availability timing (`event.timestamp >= member.eligibility_available_time`).
+     - Terminal activations and controllers remain preserved without mutating or consuming invalid observations.
+  2. **Canonical Length-Prefixed Unambiguous Encodings**:
+     - Implemented `format_activation_id()` and `format_member_key()` in `src/aladeen/strategy/activation_types.py` using canonical length-prefixing (`[len:string]`), mathematically guaranteeing collision resistance against arbitrary delimiter-containing inputs.
+     - Defined `SUPPORTED_SOURCE_ROLES = frozenset({"TJL1", "TJL2_A_PLUS"})` and enforced role validation in `SourceMemberReference.__post_init__()`.
+  3. **Intra-Batch Conflict Prevalidation in Registration**:
+     - In `ActivationEngine.register_source_members()`, staged candidates into a map during prevalidation. Identical duplicates within the batch are coalesced cleanly; conflicting duplicates reject the entire batch with `InvalidEvidenceError` before any state mutation.
+  4. **Strict Receipt-Diagnostic Combination Validation**:
+     - In `src/aladeen/strategy/activation_adapter.py`, resolved snapshots carrying `BLOCKED_UNRESOLVED` or mismatched tails are strictly rejected, while unresolved snapshots carrying non-diagnostic last transitions are also rejected. Compatibility with real reducer-produced unresolved snapshots is fully preserved.
+  5. **Focused Regressions Added**:
+     - `test_rearm_controller_inside_at_cancel_incomplete_coverage_departure_blocks_rearm`
+     - `test_rearm_controller_already_armed_incomplete_coverage_retouch_blocks_rearm`
+     - `test_rearm_controller_with_unknown_or_used_usage_blocks_rearm`
+     - `test_rearm_controller_valid_later_evidence_activates_cleanly_without_recycled_blocked_evidence`
+     - `test_canonical_unambiguous_identifiers_with_adversarial_delimiters`
+     - `test_supported_roles_validation`
+     - `test_conflicting_duplicate_members_in_same_batch_rejected_before_mutation`
+     - `test_identical_duplicate_members_in_same_batch_coalesced`
+     - `test_tjl_synchronizer_rejects_inconsistent_receipt_diagnostic_combinations`
+- **Verification Summary**:
+  - Activation engine execution suite: 40/40 passed in 0.63s (`pytest tests/test_activation_engine.py -v`).
+  - Activation adapter suite: 14/14 passed in 0.61s (`pytest tests/test_activation_adapter.py -v`).
+  - Activation fixture integrity suite: 28/28 passed in 0.60s (`pytest tests/test_activation_fixture_integrity.py -v`).
+  - Total activation tests: 82/82 passed.
+  - Full offline repository test suite: 502/502 passed in 19.55s (`pytest -q tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py`).
+- **Scope Compliance & Standing Invariants**:
+  1. *Offline Only*: Strictly zero UI order execution, zero MT5 trading calls, zero live account modification.
+  2. *Downstream Invariant*: Strictly zero usage ledger implementation, zero confirmation arbitration, zero trade entry signals.
+  3. *Core Ambiguities Preserved*: Upstream $c_1 == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
+  4. *Branch Boundary*: Committed and pushed strictly on `feature/activation-engine`. No merging into `main`.

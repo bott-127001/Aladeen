@@ -916,3 +916,191 @@ class TestActivationEngineExecution:
         assert act2.state == ActivationState.REARMED_PENDING
         assert act2.activation_id == format_activation_id("ENGINE_TEST", "H1", "FEED_EURUSD_H1", "SET_1", "TJL2_A_PLUS", 2)
         assert act2.prior_activation_id == format_activation_id("ENGINE_TEST", "H1", "FEED_EURUSD_H1", "SET_1", "TJL2_A_PLUS", 1)
+
+
+    def test_rearm_controller_inside_at_cancel_incomplete_coverage_departure_blocks_rearm(self, default_domain: SequenceDomain) -> None:
+        """Directive 2: Departure under incomplete coverage fails closed; does not arm and blocks subsequent retouch."""
+        eng = ActivationEngine(ActivationEngineConfig("ENGINE_TEST", "FEED_EURUSD_H1", "H1", default_domain, PriceBasis.BID))
+        lvl1 = StableLevelId("FEED_EURUSD_H1", "H1", datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc), TJLSide.HIGH)
+        m1 = SourceMemberReference("ENGINE_TEST", "FEED_EURUSD_H1", "H1", "SET_1", "TJL1", "HIGH", 1.1350, 1.1400, False, Direction.UPWARD, lvl1, datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc), UsageEvidenceStatus.UNUSED)
+        eng.register_source_members([m1])
+
+        # Touch at 08:15 -> PENDING_ACTIVATION
+        eng.process_event(ExactPricePrint("O1", 1.1370, PriceBasis.BID, datetime(2026, 10, 2, 8, 15, tzinfo=timezone.utc), default_domain, 601))
+        # Commit at 08:30 -> CANCELLED_EXTERNAL_ENTRY (inside at cancel)
+        eng.process_event(ExternalCommitEvent("C1", datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc), default_domain, 602, winning_engine_id="OTHER", winning_set_id="SET_X", winning_role="R"))
+        assert m1.member_key in eng.get_snapshot().rearm_controllers
+        assert eng.get_snapshot().rearm_controllers[m1.member_key].state == ActivationState.CANCELLED_EXTERNAL_ENTRY
+
+        # Incomplete coverage event arrives
+        eng.process_event(CoverageEvidence("COV_INC", default_domain, 603, CoverageStatus.INCOMPLETE, "EURUSD_H1", missing_gap_count=1, timestamp=datetime(2026, 10, 2, 8, 35, tzinfo=timezone.utc)))
+
+        # Outside departure print under incomplete coverage
+        eng.process_event(ExactPricePrint("O_DEP_INC", 1.1200, PriceBasis.BID, datetime(2026, 10, 2, 8, 40, tzinfo=timezone.utc), default_domain, 604))
+        # Controller MUST NOT be armed! Remains in CANCELLED_EXTERNAL_ENTRY
+        ctrl = eng.get_snapshot().rearm_controllers[m1.member_key]
+        assert ctrl.state == ActivationState.CANCELLED_EXTERNAL_ENTRY
+        assert ctrl.rearm_armed is False
+
+        # Subsequent inside print must NOT rearm
+        eng.process_event(ExactPricePrint("O_RET_INC", 1.1370, PriceBasis.BID, datetime(2026, 10, 2, 8, 45, tzinfo=timezone.utc), default_domain, 605))
+        assert len(eng.get_snapshot().active_activations) == 0
+
+    def test_rearm_controller_already_armed_incomplete_coverage_retouch_blocks_rearm(self, default_domain: SequenceDomain) -> None:
+        """Directive 2: An already-armed controller under incomplete coverage fails closed upon retouch."""
+        eng = ActivationEngine(ActivationEngineConfig("ENGINE_TEST", "FEED_EURUSD_H1", "H1", default_domain, PriceBasis.BID))
+        lvl1 = StableLevelId("FEED_EURUSD_H1", "H1", datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc), TJLSide.HIGH)
+        m1 = SourceMemberReference("ENGINE_TEST", "FEED_EURUSD_H1", "H1", "SET_1", "TJL1", "HIGH", 1.1350, 1.1400, False, Direction.UPWARD, lvl1, datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc), UsageEvidenceStatus.UNUSED)
+        eng.register_source_members([m1])
+
+        # Touch -> Commit -> Valid outside departure under COMPLETE coverage
+        eng.process_event(ExactPricePrint("O1", 1.1370, PriceBasis.BID, datetime(2026, 10, 2, 8, 15, tzinfo=timezone.utc), default_domain, 701))
+        eng.process_event(ExternalCommitEvent("C1", datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc), default_domain, 702, winning_engine_id="OTHER", winning_set_id="SET_X", winning_role="R"))
+        eng.process_event(ExactPricePrint("O_DEP", 1.1200, PriceBasis.BID, datetime(2026, 10, 2, 8, 35, tzinfo=timezone.utc), default_domain, 703))
+        assert eng.get_snapshot().rearm_controllers[m1.member_key].state == ActivationState.OUT_OF_ZONE_ARMED
+
+        # Incomplete coverage arrives
+        eng.process_event(CoverageEvidence("COV_INC", default_domain, 704, CoverageStatus.INCOMPLETE, "EURUSD_H1", missing_gap_count=1, timestamp=datetime(2026, 10, 2, 8, 40, tzinfo=timezone.utc)))
+
+        # Inside retouch print under incomplete coverage MUST NOT create REARMED_PENDING
+        eng.process_event(ExactPricePrint("O_RET", 1.1370, PriceBasis.BID, datetime(2026, 10, 2, 8, 45, tzinfo=timezone.utc), default_domain, 705))
+        assert len(eng.get_snapshot().active_activations) == 0
+        # Controller remains preserved
+        assert eng.get_snapshot().rearm_controllers[m1.member_key].state == ActivationState.OUT_OF_ZONE_ARMED
+
+    def test_rearm_controller_with_unknown_or_used_usage_blocks_rearm(self, default_domain: SequenceDomain) -> None:
+        """Directive 2: A controller whose member usage changed to UNKNOWN or USED blocks new rearmed activation."""
+        eng = ActivationEngine(ActivationEngineConfig("ENGINE_TEST", "FEED_EURUSD_H1", "H1", default_domain, PriceBasis.BID))
+        lvl1 = StableLevelId("FEED_EURUSD_H1", "H1", datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc), TJLSide.HIGH)
+        m1 = SourceMemberReference("ENGINE_TEST", "FEED_EURUSD_H1", "H1", "SET_1", "TJL1", "HIGH", 1.1350, 1.1400, False, Direction.UPWARD, lvl1, datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc), UsageEvidenceStatus.UNUSED)
+        eng.register_source_members([m1])
+
+        # Touch -> Commit -> Valid outside departure
+        eng.process_event(ExactPricePrint("O1", 1.1370, PriceBasis.BID, datetime(2026, 10, 2, 8, 15, tzinfo=timezone.utc), default_domain, 801))
+        eng.process_event(ExternalCommitEvent("C1", datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc), default_domain, 802, winning_engine_id="OTHER", winning_set_id="SET_X", winning_role="R"))
+        eng.process_event(ExactPricePrint("O_DEP", 1.1200, PriceBasis.BID, datetime(2026, 10, 2, 8, 35, tzinfo=timezone.utc), default_domain, 803))
+        assert eng.get_snapshot().rearm_controllers[m1.member_key].state == ActivationState.OUT_OF_ZONE_ARMED
+
+        # Member usage changes to UNKNOWN
+        m_unknown = SourceMemberReference("ENGINE_TEST", "FEED_EURUSD_H1", "H1", "SET_1", "TJL1", "HIGH", 1.1350, 1.1400, False, Direction.UPWARD, lvl1, datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc), UsageEvidenceStatus.UNKNOWN)
+        eng.register_source_members([m_unknown])
+
+        # Touch while usage is UNKNOWN -> blocked! Controller remains preserved and no rearmed activation created
+        eng.process_event(ExactPricePrint("O_RET_UNK", 1.1370, PriceBasis.BID, datetime(2026, 10, 2, 8, 40, tzinfo=timezone.utc), default_domain, 804))
+        snap_unk = eng.get_snapshot()
+        assert snap_unk.rearm_controllers[m1.member_key].state == ActivationState.OUT_OF_ZONE_ARMED
+        assert snap_unk.active_activations[m1.member_key].state != ActivationState.REARMED_PENDING
+
+        # Member usage changes to USED
+        m_used = SourceMemberReference("ENGINE_TEST", "FEED_EURUSD_H1", "H1", "SET_1", "TJL1", "HIGH", 1.1350, 1.1400, False, Direction.UPWARD, lvl1, datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc), UsageEvidenceStatus.USED)
+        eng.register_source_members([m_used])
+
+        # Touch while usage is USED -> blocked! Controller remains preserved and no rearmed activation created
+        eng.process_event(ExactPricePrint("O_RET_USED", 1.1370, PriceBasis.BID, datetime(2026, 10, 2, 8, 45, tzinfo=timezone.utc), default_domain, 805))
+        snap_used = eng.get_snapshot()
+        assert snap_used.rearm_controllers[m1.member_key].state == ActivationState.OUT_OF_ZONE_ARMED
+        assert snap_used.active_activations[m1.member_key].state != ActivationState.REARMED_PENDING
+
+    def test_rearm_controller_valid_later_evidence_activates_cleanly_without_recycled_blocked_evidence(self, default_domain: SequenceDomain) -> None:
+        """Directive 2: When valid coverage and unused evidence arrive later, controller transitions cleanly without recycling blocked observations."""
+        eng = ActivationEngine(ActivationEngineConfig("ENGINE_TEST", "FEED_EURUSD_H1", "H1", default_domain, PriceBasis.BID))
+        lvl1 = StableLevelId("FEED_EURUSD_H1", "H1", datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc), TJLSide.HIGH)
+        m1 = SourceMemberReference("ENGINE_TEST", "FEED_EURUSD_H1", "H1", "SET_1", "TJL1", "HIGH", 1.1350, 1.1400, False, Direction.UPWARD, lvl1, datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc), UsageEvidenceStatus.UNUSED)
+        eng.register_source_members([m1])
+
+        # Touch at 08:15 -> Commit at 08:30 (inside at cancel)
+        eng.process_event(ExactPricePrint("O1", 1.1370, PriceBasis.BID, datetime(2026, 10, 2, 8, 15, tzinfo=timezone.utc), default_domain, 901))
+        eng.process_event(ExternalCommitEvent("C1", datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc), default_domain, 902, winning_engine_id="OTHER", winning_set_id="SET_X", winning_role="R"))
+
+        # Incomplete coverage
+        eng.process_event(CoverageEvidence("COV_INC", default_domain, 903, CoverageStatus.INCOMPLETE, "EURUSD_H1", timestamp=datetime(2026, 10, 2, 8, 35, tzinfo=timezone.utc)))
+        # Blocked departure
+        eng.process_event(ExactPricePrint("O_DEP_BLOCKED", 1.1200, PriceBasis.BID, datetime(2026, 10, 2, 8, 40, tzinfo=timezone.utc), default_domain, 904))
+        assert eng.get_snapshot().rearm_controllers[m1.member_key].state == ActivationState.CANCELLED_EXTERNAL_ENTRY
+
+        # Coverage restored to COMPLETE
+        eng.process_event(CoverageEvidence("COV_OK", default_domain, 905, CoverageStatus.COMPLETE, "EURUSD_H1", timestamp=datetime(2026, 10, 2, 8, 45, tzinfo=timezone.utc)))
+        # Valid outside departure under COMPLETE coverage
+        eng.process_event(ExactPricePrint("O_DEP_VALID", 1.1200, PriceBasis.BID, datetime(2026, 10, 2, 8, 50, tzinfo=timezone.utc), default_domain, 906))
+        assert eng.get_snapshot().rearm_controllers[m1.member_key].state == ActivationState.OUT_OF_ZONE_ARMED
+
+        # Fresh inside retouch print
+        snap = eng.process_event(ExactPricePrint("O_RET_VALID", 1.1370, PriceBasis.BID, datetime(2026, 10, 2, 8, 55, tzinfo=timezone.utc), default_domain, 907))
+        assert m1.member_key in snap.active_activations
+        act = snap.active_activations[m1.member_key]
+        assert act.state == ActivationState.REARMED_PENDING
+        assert act.generation_seq == 2
+        assert act.prior_activation_id == format_activation_id("ENGINE_TEST", "H1", "FEED_EURUSD_H1", "SET_1", "TJL1", 1)
+
+    def test_canonical_unambiguous_identifiers_with_adversarial_delimiters(self, default_domain: SequenceDomain) -> None:
+        """Directive 3: Canonical length-prefixed identifiers guarantee collision resistance across adversarial delimiter components."""
+        from aladeen.strategy.activation_types import format_activation_id, format_member_key
+
+        # Adversarial pair 1: Delimiters in engine_id, source_timeframe, symbol
+        # engine_id="a::H4", tf="H1", sym="x" VS engine_id="a", tf="H4", sym="H1::x"
+        id1 = format_activation_id("a::H4", "H1", "x", "SET", "TJL1", 1)
+        id2 = format_activation_id("a", "H4", "H1::x", "SET", "TJL1", 1)
+        assert id1 != id2
+        assert id1 == "ACT_G01[5:a::H4][2:H1][1:x][3:SET][4:TJL1]"
+        assert id2 == "ACT_G01[1:a][2:H4][5:H1::x][3:SET][4:TJL1]"
+
+        # Adversarial pair 2: Delimiters in set_id and role
+        # set_id="SET::1", role="TJL1" VS set_id="SET", role="1::TJL1"
+        mk1 = format_member_key("SET::1", "TJL1")
+        mk2 = format_member_key("SET", "1::TJL1")
+        assert mk1 != mk2
+        assert mk1 == "MK[6:SET::1][4:TJL1]"
+        assert mk2 == "MK[3:SET][7:1::TJL1]"
+
+        # Live engine execution with delimiter-containing set_id and engine_id
+        eng = ActivationEngine(ActivationEngineConfig("ENGINE::EURUSD::H1", "FEED::EURUSD::H1", "H1", default_domain, PriceBasis.BID))
+        lvl = StableLevelId("FEED::EURUSD::H1", "H1", datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc), TJLSide.HIGH)
+        m_adv1 = SourceMemberReference("ENGINE::EURUSD::H1", "FEED::EURUSD::H1", "H1", "SET::1", "TJL1", "HIGH", 1.1350, 1.1400, False, Direction.UPWARD, lvl, datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc), UsageEvidenceStatus.UNUSED)
+        m_adv2 = SourceMemberReference("ENGINE::EURUSD::H1", "FEED::EURUSD::H1", "H1", "SET", "TJL1", "HIGH", 1.1040, 1.1050, False, Direction.UPWARD, lvl, datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc), UsageEvidenceStatus.UNUSED)
+
+        snap = eng.register_source_members([m_adv1, m_adv2])
+        assert len(snap.current_members) == 2
+        assert m_adv1.member_key != m_adv2.member_key
+        assert m_adv1.member_key in snap.current_members
+        assert m_adv2.member_key in snap.current_members
+
+    def test_supported_roles_validation(self) -> None:
+        """Directive 3: Validates supported roles and rejects undocumented roles."""
+        from aladeen.strategy.activation_types import SUPPORTED_SOURCE_ROLES
+        assert SUPPORTED_SOURCE_ROLES == frozenset({"TJL1", "TJL2_A_PLUS"})
+
+        # Valid roles succeed
+        m1 = SourceMemberReference("E", "S", "H1", "SET_1", "TJL1", "HIGH", 1.10, 1.20, False, Direction.UPWARD)
+        m2 = SourceMemberReference("E", "S", "H1", "SET_1", "TJL2_A_PLUS", "LOW", 1.10, 1.20, False, Direction.UPWARD)
+        assert m1.role == "TJL1"
+        assert m2.role == "TJL2_A_PLUS"
+
+        # Invalid roles fail closed with ValueError
+        for bad_role in ("INVALID", "CH1", "CL1", "TJL3", ""):
+            with pytest.raises(ValueError, match="Unsupported role"):
+                SourceMemberReference("E", "S", "H1", "SET_1", bad_role, "HIGH", 1.10, 1.20, False, Direction.UPWARD)
+
+    def test_conflicting_duplicate_members_in_same_batch_rejected_before_mutation(self, default_domain: SequenceDomain) -> None:
+        """Directive 4: Prevalidates conflicting duplicate keys within one registration call and asserts complete rollback."""
+        eng = ActivationEngine(ActivationEngineConfig("ENGINE_TEST", "FEED_EURUSD_H1", "H1", default_domain, PriceBasis.BID))
+        lvl = StableLevelId("FEED_EURUSD_H1", "H1", datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc), TJLSide.HIGH)
+        m_good = SourceMemberReference("ENGINE_TEST", "FEED_EURUSD_H1", "H1", "SET_1", "TJL1", "HIGH", 1.1350, 1.1400, False, Direction.UPWARD, lvl, datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc), UsageEvidenceStatus.UNUSED)
+        m_conflict = SourceMemberReference("ENGINE_TEST", "FEED_EURUSD_H1", "H1", "SET_1", "TJL1", "HIGH", 1.1200, 1.1300, False, Direction.UPWARD, lvl, datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc), UsageEvidenceStatus.UNUSED)
+
+        # Batch contains conflicting duplicates for the same member key
+        with pytest.raises(InvalidEvidenceError, match="Conflicting member registration within submitted batch"):
+            eng.register_source_members([m_good, m_conflict])
+
+        # Assert 100% no-mutation rollback: zero members registered
+        assert len(eng.get_snapshot().current_members) == 0
+        assert len(eng.get_snapshot().active_activations) == 0
+
+    def test_identical_duplicate_members_in_same_batch_coalesced(self, default_domain: SequenceDomain) -> None:
+        """Directive 4: Identical duplicate candidates within the same registration call are coalesced cleanly."""
+        eng = ActivationEngine(ActivationEngineConfig("ENGINE_TEST", "FEED_EURUSD_H1", "H1", default_domain, PriceBasis.BID))
+        lvl = StableLevelId("FEED_EURUSD_H1", "H1", datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc), TJLSide.HIGH)
+        m = SourceMemberReference("ENGINE_TEST", "FEED_EURUSD_H1", "H1", "SET_1", "TJL1", "HIGH", 1.1350, 1.1400, False, Direction.UPWARD, lvl, datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc), UsageEvidenceStatus.UNUSED)
+
+        snap = eng.register_source_members([m, m, m])
+        assert len(snap.current_members) == 1
+        assert m.member_key in snap.current_members
