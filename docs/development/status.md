@@ -2125,3 +2125,32 @@ Last Updated: 2026-11-06 (Milestone 29 Release-Readiness Audit & Offline Runbook
   - Zero confirmation arbitration/selection, zero usage ledger writes, zero trade entry signals.
   - Strategy engines 100% untouched (0 diff against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`).
   - Committed and pushed on `requirements/dashboard-release-readiness`. Never merge into `main`.
+
+- **Reviewer Status**: **ACCEPTED** by Perplexity as the bounded Milestone 29 baseline for the Read-Only Dashboard Release-Readiness Audit and Reproducible Offline Runbook.
+- **Accepted Commit Hash**: `0144ddb8150b4132a7b60d24698105d897514cb2`
+- **Active Branch**: `requirements/dashboard-release-readiness`
+- **Acceptance Scope & Recorded Boundaries**:
+  1. *Audit, Runbook, Retained Evidence & Validation Tooling Acceptance*: Accepts the audit, runbook, retained evidence, and supporting validation tooling within their stated limits.
+  2. *Review Findings Closed*:
+     - Shared execution and honest simulation labeling verified (real subprocess execution, explicit simulation manifest labeling, no fabricated browser provenance).
+     - Authoritative mandatory-step evaluation verified (requiredness derived from `MANDATORY_STEP_NAMES`, caller override rejected, malformed records rejected).
+     - Normal validator CLI failure path verified (`--matrix` testing on temporary invalid matrix missing `MSM-01`, shared `evaluate_matrix_row()` engine).
+  3. *Recorded Acceptance Dispositions & Limitations*:
+     - Final tooling corrections: Source-reviewed.
+     - Focused tooling self-tests and reference-validation execution: Implementation-reported.
+     - Historical focused/full/browser reproduction: Retained evidence for checkout `3770989114997280b4f1b19406e294a16ec6c7b9`.
+     - Reference validation: Establishes reference existence/collection and documented gaps — not assertion-level requirement sufficiency.
+     - Environment setup: Operator-reported commands; interactive setup transcripts not retained.
+     - Production, live-broker, or cross-platform readiness: Not established.
+  4. *Preserved Strategy Invariants & Boundaries*:
+     - Unresolved $c_1 == p_2$ and ISS multi-candle pullback ambiguities remain explicitly open.
+     - Isolated tracking evidence distinct from complete candle-driven integration.
+     - Scenario 13 synthetic presentation distinct from genuine candle-derived construction.
+     - Confirmation timeframe metadata distinct from confirmation selection/arbitration.
+     - Programmatic `window.open()` evidence distinct from unverified native duplicate-tab behavior.
+  5. *Closeout Directives*:
+     - **Milestone 29 is fully accepted and complete**.
+     - Strictly do **not** merge into `main`.
+     - Do **not** rerun full/browser suites solely to restate acceptance.
+     - Do **not** create another hardening handoff solely for acceptance wording.
+     - Do **not** begin an unspecified strategy or deployment milestone without explicit strategy reconciliation.
