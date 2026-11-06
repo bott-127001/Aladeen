@@ -1069,3 +1069,35 @@ Last Updated: 2026-11-06 (Activation Engine Pure Offline Milestone Accepted — 
   4. *Core Ambiguities Preserved*: Upstream $c_1 == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
   5. *Branch Boundary*: Committed and pushed strictly on `requirements/activation-dashboard-acceptance`. No merging into `main`.
 
+### HANDOFF-065: Service Diagnostic Notice Delineation, Canonical Activation ID Formatting, and Enforceable Architecture Safeguards
+- **Active Branch**: `requirements/activation-dashboard-acceptance`
+- **Immediate Parent Commit**: `77645caa0a12e2dfebcf4096052be53612ce24e5` (HANDOFF-064)
+- **Root Baseline Engine Commit**: `0867c740352297fb43e781fb654706218771d533` (Milestone 25 / HANDOFF-061)
+- **Objective**: Address Perplexity's review of HANDOFF-064:
+  1. *Observation vs. Cursor Delineation*: Clarify that `ActivationSnapshot.last_processed_sequence` is an engine cursor advancing for all events (registrations, coverage, cancellations), not an observation counter. Omit unverified observation-count claims unless explicit service diagnostic `exact_observation_count` is supplied. Delineate observation lifecycle cases.
+  2. *Canonical Activation ID Formatting*: Replace synthetic activation IDs (`ACT_EURUSD_H1_SET_1_TJL1_GEN1`) with canonical length-prefixed IDs generated via `format_activation_id()` across Scenario 11, fixtures catalog, and integrity tests.
+  3. *Architecture Safeguards*: Codify enforceable architecture safeguards in requirements: pure functional presentation projection (zero reducer/synchronizer calls), internal state preservation (checkpoints, cursor, usage cache unmutated), bounded DOM pagination without underlying sequence pruning, and clean fallback components.
+  4. *Scenario 13 Status*: Explicitly mark Scenario 13 candle-derived construction procedure as `planned/unverified`.
+  5. *Domain Consistency Validation*: Add automated requirements-side domain consistency checks using accepted public engine types without claiming UI execution.
+- **Completed Deliverables**:
+  1. [`docs/requirements/activation-dashboard-acceptance.md`](file:///docs/requirements/activation-dashboard-acceptance.md) (146 lines):
+     - Section 4.1: Clarified engine cursor semantics vs observation counter; documented the 3 observation lifecycle cases; specified optional service diagnostic `exact_observation_count`.
+     - Section 4.2: Formalized 5 enforceable architecture safeguards (rendering purity, state preservation, bounded history display, diagnostic error presentation, deterministic sorting).
+     - Section 5: Updated Scenario 11 to canonical activation ID format; updated Scenario 13 construction procedure to `planned/unverified`.
+  2. [`tests/fixtures/activation_dashboard_acceptance.json`](file:///tests/fixtures/activation_dashboard_acceptance.json):
+     - Version 1.3 with canonical `format_activation_id()` outputs across Scenario 11, prior activation links, and terminal history records.
+     - Scenario 13 construction procedure marked as `planned/unverified`.
+  3. [`tests/test_activation_dashboard_fixture_integrity.py`](file:///tests/test_activation_dashboard_fixture_integrity.py) (397 lines):
+     - Updated fixture version assertion to 1.3.
+     - Scenario 11 assertions verifying canonical `format_activation_id()` output and provenance linkage.
+     - Added `test_requirements_domain_consistency_against_engine_types` validating default usage gating (`INACTIVE_INELIGIBLE` / `USAGE_EVIDENCE_UNCERTAIN_FAIL_CLOSED`), price print gating under unknown usage, pending provenance preservation under subsequent usage uncertainty, and canonical reactivation ID format matching.
+- **Verification Summary**:
+  - Activation dashboard fixture integrity suite: **9 / 9 passed** in 0.69s (`pytest tests/test_activation_dashboard_fixture_integrity.py -q`).
+  - Full offline repository test suite: **518 / 518 passed** in 15.96s (`pytest -q tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py`).
+  - Runtime modification audit: Exactly zero runtime files modified (`git diff 3aed45bb9e0e3b9f61bb8d02cd40cff39a5f5bae..HEAD src/` is empty).
+- **Scope Compliance & Standing Invariants**:
+  1. *Requirements Phase Only*: Zero runtime modifications to strategy engine, adapter, or UI files.
+  2. *Offline Only*: Strictly zero UI order execution, zero MT5 trading calls, zero live account modification.
+  3. *Downstream Invariant*: Strictly zero usage ledger implementation, zero confirmation arbitration, zero trade entry signals.
+  4. *Core Ambiguities Preserved*: Upstream $c_1 == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
+  5. *Branch Boundary*: Committed and pushed strictly on `requirements/activation-dashboard-acceptance`. No merging into `main`.

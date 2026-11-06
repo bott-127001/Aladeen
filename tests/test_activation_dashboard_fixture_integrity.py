@@ -19,14 +19,29 @@ It does NOT claim executable UI integration or DOM coverage.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 from typing import Any, Dict
 
 import pytest
 
-from aladeen.strategy.activation_types import CoverageStatus, TIMEFRAME_CONFIRMATION_MAP
+from aladeen.strategy.activation_types import (
+    ActivationState,
+    CoverageStatus,
+    Direction,
+    PriceBasis,
+    TIMEFRAME_CONFIRMATION_MAP,
+    UsageEvidenceStatus,
+    format_activation_id,
+)
+from aladeen.strategy.activation_engine import (
+    ActivationEngine,
+    ActivationEngineConfig,
+    ExactPricePrint,
+    SequenceDomain,
+    SourceMemberReference,
+)
 
 
 EXPECTED_SCENARIOS = [
@@ -77,7 +92,7 @@ class TestActivationDashboardFixtureIntegrity:
 
     def test_schema_and_metadata(self, fixture_catalog: Dict[str, Any]) -> None:
         """Verifies top-level fixture metadata, authorities, and non-execution disclaimer."""
-        assert fixture_catalog.get("version") == "1.2"
+        assert fixture_catalog.get("version") == "1.3"
         assert len(fixture_catalog.get("authorities", [])) >= 3
 
         disclaimer = fixture_catalog.get("disclaimer", "")
@@ -220,8 +235,13 @@ class TestActivationDashboardFixtureIntegrity:
 
         # Scenario 11: Valid reactivation
         sc11 = fixtures["dash_act_11_valid_reactivation"]
-        assert sc11["assertions"]["prior_activation_id"] == "ACT_EURUSD_H1_SET_1_TJL1_GEN1"
+        expected_prior_id = format_activation_id("ENGINE_EURUSD_H1", "H1", "EURUSD", "SET_1", "TJL1", 1)
+        expected_active_id = format_activation_id("ENGINE_EURUSD_H1", "H1", "EURUSD", "SET_1", "TJL1", 2)
+        assert sc11["assertions"]["prior_activation_id"] == expected_prior_id
+        assert sc11["expected_view"]["prior_activation_display"] == expected_prior_id
+        assert sc11["presentation_inputs"]["active_activations"][0]["activation_id"] == expected_active_id
         assert sc11["assertions"]["generation_seq"] == 2
+        assert sc11["assertions"]["canonical_id_formatter_match"] is True
 
         # Scenario 12: Successor set
         sc12 = fixtures["dash_act_12_successor_set_persistent_level"]
@@ -254,3 +274,121 @@ class TestActivationDashboardFixtureIntegrity:
         assert sc16["assertions"]["component_tree_hash_identical"] is True
         assert sc16["assertions"]["engine_state_unmutated"] is True
         assert sc16["assertions"]["synchronizer_cursor_unmutated"] is True
+
+    def test_requirements_domain_consistency_against_engine_types(self) -> None:
+        """Verifies requirements-phase domain invariants directly against accepted engine types.
+
+        Validates:
+        1. Untouched member with default usage defaults to UNKNOWN -> INACTIVE_INELIGIBLE
+           with blocked_reason == 'USAGE_EVIDENCE_UNCERTAIN_FAIL_CLOSED'.
+        2. Explicit UNUSED evidence transitions untouched member to INACTIVE_ELIGIBLE.
+        3. Initial UNKNOWN usage fails closed on price print (produces 0 activations).
+        4. Preserved pending uncertainty follows UNUSED -> touch -> UNKNOWN sequence.
+        5. Canonical reactivation ID linkage check via format_activation_id.
+        """
+        domain = SequenceDomain(feed_id="FEED_EURUSD_H1", run_id="RUN_DOM_CHECK")
+        config = ActivationEngineConfig(
+            engine_id="ENGINE_EURUSD_H1",
+            symbol="EURUSD",
+            source_timeframe="H1",
+            sequence_domain=domain,
+            price_basis=PriceBasis.BID,
+        )
+        engine = ActivationEngine(config)
+
+        # 1. Untouched member with default usage is INACTIVE_INELIGIBLE
+        m_default = SourceMemberReference(
+            engine_id="ENGINE_EURUSD_H1",
+            symbol="EURUSD",
+            source_timeframe="H1",
+            set_id="SET_1",
+            role="TJL1",
+            side="HIGH",
+            lower_edge=1.1350,
+            upper_edge=1.1400,
+            is_line=False,
+            direction=Direction.UPWARD,
+            eligibility_available_time=datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc),
+            # usage_evidence_status omitted; defaults to UNKNOWN
+        )
+        assert m_default.usage_evidence_status == UsageEvidenceStatus.UNKNOWN
+        snap1 = engine.register_source_member(m_default)
+        rec1 = snap1.active_activations[m_default.member_key]
+        assert rec1.state == ActivationState.INACTIVE_INELIGIBLE
+        assert rec1.blocked_reason == "USAGE_EVIDENCE_UNCERTAIN_FAIL_CLOSED"
+
+        # 2. Initial UNKNOWN usage fails closed on price print (0 pending activations)
+        print_in_zone = ExactPricePrint(
+            observation_id="OBS_01",
+            price=1.1370,
+            price_basis=PriceBasis.BID,
+            timestamp=datetime(2026, 10, 2, 8, 15, tzinfo=timezone.utc),
+            sequence_domain=domain,
+            sequence_ref=101,
+        )
+        snap2 = engine.process_event(print_in_zone)
+        rec2 = snap2.active_activations[m_default.member_key]
+        assert rec2.state == ActivationState.INACTIVE_INELIGIBLE
+        assert rec2.first_touch_time is None
+        assert rec2.trigger_observation_id is None
+
+        # 3. Explicit UNUSED evidence transitions to INACTIVE_ELIGIBLE
+        engine.reset()
+        m_unused = SourceMemberReference(
+            engine_id="ENGINE_EURUSD_H1",
+            symbol="EURUSD",
+            source_timeframe="H1",
+            set_id="SET_1",
+            role="TJL1",
+            side="HIGH",
+            lower_edge=1.1350,
+            upper_edge=1.1400,
+            is_line=False,
+            direction=Direction.UPWARD,
+            eligibility_available_time=datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc),
+            usage_evidence_status=UsageEvidenceStatus.UNUSED,
+        )
+        snap3 = engine.register_source_member(m_unused)
+        rec3 = snap3.active_activations[m_unused.member_key]
+        assert rec3.state == ActivationState.INACTIVE_ELIGIBLE
+        assert rec3.blocked_reason is None
+
+        # 4. Touch transitions to PENDING_ACTIVATION
+        snap4 = engine.process_event(print_in_zone)
+        rec4 = snap4.active_activations[m_unused.member_key]
+        assert rec4.state == ActivationState.PENDING_ACTIVATION
+        assert rec4.first_touch_price == 1.1370
+        assert rec4.trigger_observation_id == "OBS_01"
+        orig_act_id = rec4.activation_id
+
+        # 5. Subsequent UNKNOWN usage preserves pending provenance while gating
+        m_unknown = SourceMemberReference(
+            engine_id="ENGINE_EURUSD_H1",
+            symbol="EURUSD",
+            source_timeframe="H1",
+            set_id="SET_1",
+            role="TJL1",
+            side="HIGH",
+            lower_edge=1.1350,
+            upper_edge=1.1400,
+            is_line=False,
+            direction=Direction.UPWARD,
+            eligibility_available_time=datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc),
+            usage_evidence_status=UsageEvidenceStatus.UNKNOWN,
+        )
+        snap5 = engine.register_source_member(m_unknown)
+        rec5 = snap5.active_activations[m_unknown.member_key]
+        assert rec5.state == ActivationState.PENDING_ACTIVATION
+        assert rec5.activation_id == orig_act_id
+        assert rec5.first_touch_price == 1.1370
+        assert rec5.trigger_observation_id == "OBS_01"
+        assert rec5.generation_seq == 1
+        assert rec5.blocked_reason == "USAGE_EVIDENCE_UNCERTAIN_FAIL_CLOSED"
+        assert rec5.usage_evidence_status == UsageEvidenceStatus.UNKNOWN
+
+        # 6. Canonical reactivation ID linkage check
+        gen1_id = format_activation_id("ENGINE_EURUSD_H1", "H1", "EURUSD", "SET_1", "TJL1", 1)
+        gen2_id = format_activation_id("ENGINE_EURUSD_H1", "H1", "EURUSD", "SET_1", "TJL1", 2)
+        assert orig_act_id == gen1_id
+        assert gen2_id.startswith("ACT_G02[16:ENGINE_EURUSD_H1][2:H1][6:EURUSD][5:SET_1][4:TJL1]")
+        assert gen1_id.startswith("ACT_G01[16:ENGINE_EURUSD_H1][2:H1][6:EURUSD][5:SET_1][4:TJL1]")

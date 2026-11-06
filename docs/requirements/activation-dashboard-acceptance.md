@@ -1,6 +1,6 @@
 # Activation Read-Only Dashboard Integration — Requirements & Acceptance Specification
 
-**Milestone**: Requirements & Acceptance Contract for Read-Only Activation Dashboard Integration (HANDOFF-064)  
+**Milestone**: Requirements & Acceptance Contract for Read-Only Activation Dashboard Integration (HANDOFF-065)  
 **Accepted Engine Baseline**: `0867c740352297fb43e781fb654706218771d533` (Milestone 25 / HANDOFF-061)  
 **Branch**: `requirements/activation-dashboard-acceptance`  
 **Status**: Requirements & Acceptance Specification Phase (Zero runtime changes)  
@@ -58,7 +58,7 @@ Every rendered field maps directly to public dataclass attributes without invent
 | **G3 Activation** | First Touch Time | `ActivationRecord` | `.first_touch_time` | Optional | `"—"` | Formatted ISO UTC if present |
 | **G3 Activation** | First Touch Price | `ActivationRecord` | `.first_touch_price` | Optional | `"—"` | Precision-preserving float string |
 | **G3 Activation** | Trigger Observation ID | `ActivationRecord` | `.trigger_observation_id` | Optional | `"—"` | String ID if present |
-| **G3 Activation** | Prior Activation ID | `ActivationRecord` | `.prior_activation_id` | Optional | `"—"` | Links reactivated generation to prior record |
+| **G3 Activation** | Prior Activation ID | `ActivationRecord` | `.prior_activation_id` | Optional | `"—"` | Canonical ID linking reactivated generation |
 | **G4 Gating** | Usage Evidence Status | `ActivationRecord` | `.usage_evidence_status.value` | Always | `"UNKNOWN"` | Enum: `UNUSED`, `USED`, `UNKNOWN` |
 | **G4 Gating** | Coverage Status | `ActivationSnapshot` | `.coverage_status.value` | Always | `"UNKNOWN"` | Enum: `COMPLETE`, `INCOMPLETE`, `UNCERTAIN` |
 | **G4 Gating** | Blocked Reason | `ActivationRecord` | `.blocked_reason` | Optional | `"—"` | Raw domain string (e.g. `UNKNOWN_AVAILABILITY_TIMING`) |
@@ -73,7 +73,7 @@ Every rendered field maps directly to public dataclass attributes without invent
 | **G6 Rearm** | Rearm Armed Flag | `RearmController` | `.rearm_armed` | Always | `"False"` | True if outside departure observed |
 | **G6 Rearm** | Last Observed Pos | `RearmController` | `.last_observed_position` | Optional | `"Unknown"` | `"INSIDE"` or `"OUTSIDE"` |
 | **G7 History** | Terminal Activations | `ActivationSnapshot` | `.terminal_activations` | Always | `[]` | Immutable sequence of terminal `ActivationRecord`s |
-| **G8 Sync** | Engine Last Seq | `ActivationSnapshot` | `.last_processed_sequence` | Optional | `"—"` | Engine sequence cursor |
+| **G8 Sync** | Engine Last Seq | `ActivationSnapshot` | `.last_processed_sequence` | Optional | `"—"` | Engine sequence cursor (not observation count) |
 | **G8 Sync** | Engine Last Time | `ActivationSnapshot` | `.last_processed_timestamp` | Optional | `"—"` | Engine timestamp cursor |
 | **G8 Sync** | Synced Trans Index | `TJLSynchronizer` | `.last_synced_transition_index` | Optional | `"—"` | Sourced from synchronizer (not snapshot) |
 | **G8 Sync** | Source Unresolved | `TJLSnapshot` | `.is_unresolved` | Always | `"False"` | Sourced from `TJLSnapshot` / `MSMServiceResult` |
@@ -83,20 +83,25 @@ Every rendered field maps directly to public dataclass attributes without invent
 
 ---
 
-## 4. Offline Service Evidence Boundary & Context Lifecycle
+## 4. Offline Service Evidence Boundary, Observation Lifecycle & Architecture Safeguards
 
-1. **Offline Evidence Boundary**:
-   - Source members/transitions supplied to `TJLSynchronizer.sync()` directly from accepted `TJLSnapshot`.
-   - Exact price prints supplied exclusively by validated offline `ExactPricePrint` streams. In their absence, current members remain in their initial registered state. Candle highs/lows/closes are never synthesized into prints.
-   - Usage evidence defaults to `UNKNOWN` fail-closed unless provided by explicit test fixtures.
-   - Coverage declarations sourced from market batch evidence (`COMPLETE`, `INCOMPLETE`, `UNCERTAIN`).
-   - External commits are zero unless supplied by explicit test fixtures.
-2. **Context Fallback & Observation Notice**:
-   - Missing activation context (`activation_snapshot is None`): renders placeholder `"Awaiting activation context"`.
-   - Valid context with zero observations processed (`last_processed_sequence is None`): renders all registered members, zones, availability, and diagnostics normally with an informational notice: `"No intraday observations processed for this session"`.
-   - Existing pending/terminal evidence is never hidden when a request supplies no new prints.
+### 4.1 Offline Evidence Boundary & Observation Tracking
+1. **Engine Cursor vs. Observation Counter**:
+   - `ActivationSnapshot.last_processed_sequence` advances for registration events, cancellations, coverage declarations, commits, and candle evidence. It is **not** an observation counter.
+   - The UI does **not** infer "zero observations processed" from `last_processed_sequence is None`.
+   - If an explicit immutable service diagnostic `exact_observation_count: Optional[int]` is supplied by the service layer, the UI displays `f"Exact Observations Processed: {count}"`; otherwise, the panel omits any unverified observation-count claim.
+2. **Observation Lifecycle Cases**:
+   - *Non-observation events processed*: When registrations, coverage declarations, or cancellations advance sequence without price prints, members display in initial registered states with no observation count claim.
+   - *Observation processed without touch*: An exact price print outside zone bounds advances engine sequence without changing `INACTIVE_ELIGIBLE` state or establishing a first touch.
+   - *Existing evidence with no new prints*: Prior pending activations and terminal records remain fully visible; absence of new prints in a refresh cycle never clears or masks established evidence.
 3. **Session Reset Lifecycle**: On symbol, timeframe, data source, or recalculation changes, the service layer discards existing `ActivationEngine` and `TJLSynchronizer` instances and instantiates fresh, isolated instances. Zero cross-context state or cursor retention.
-4. **Deterministic Sorting**:
+
+### 4.2 Architecture Safeguards & Enforceable Clauses
+1. **Rendering Purity**: Pure presentation projection (`build_activation_inspection_elements()`) must **never** invoke `process_event()`, `register_source_members()`, `reset()`, or `synchronizer.sync()`.
+2. **Preservation of Internal State**: Repeated rendering must preserve bit-for-bit engine checkpoints, synchronizer cursor (`last_synced_transition_index`), and synchronizer usage cache (`_usage_cache`).
+3. **Bounded History Display Policy**: Visual pagination or table row limits (e.g., latest 50 rows) may be applied for DOM performance, but underlying `terminal_activations` sequence is never pruned or mutated; total historical count must remain clearly visible.
+4. **Diagnostic Error Presentation**: Missing context (`activation_snapshot is None`) or invalid presentation input produces a clean diagnostic component (`"Awaiting activation context"`), never an unhandled exception or crash.
+5. **Deterministic Sorting**:
    - Members/Activations: Alphabetical by `(set_id, role)`.
    - Rearm Controllers: Alphabetical by `(member_key, prior_activation_id)`.
    - Terminal History: Multi-tier sort without conflating missing with sequence zero:
@@ -110,7 +115,7 @@ All 16 scenarios have execution status: `specified; not yet executed through the
 
 | ID | Name | Category & Construction | Key Invariants & Assertions |
 |---|---|---|---|
-| `dash_act_01_eligible_untouched` | Eligible, untouched member | `engine-derived`: Register `CurrentEligibleSet` via synchronizer with zero prints | State = `INACTIVE_ELIGIBLE`. `first_touch_time` is `None` (`"—"`). `has_first_touch_claim == False`. `is_actionable == False`. |
+| `dash_act_01_eligible_untouched` | Eligible, untouched member | `engine-derived`: Register `CurrentEligibleSet` via synchronizer with zero price prints | State = `INACTIVE_ELIGIBLE`. `first_touch_time` is `None` (`"—"`). `has_first_touch_claim == False`. `is_actionable == False`. |
 | `dash_act_02_first_exact_touch` | First exact touch | `engine-derived`: Feed in-zone `ExactPricePrint(OBS_01, 1.1370)` at seq 101 | State = `PENDING_ACTIVATION`. `has_first_touch_claim == True`. `first_touch_price_exact == 1.1370`. `trigger_observation_id == "OBS_01"`. `is_actionable == False`. |
 | `dash_act_03_repeated_touch` | Repeated touch | `engine-derived`: Feed second print `OBS_02` in-zone | State remains `PENDING_ACTIVATION`. `first_touch_time` strictly preserved. `trigger_observation_id` remains `"OBS_01"`. Zero overwrite. `is_actionable == False`. |
 | `dash_act_04_unknown_usage` | Preserved pending under usage uncertainty | `engine-derived`: Register UNUSED -> touch to PENDING -> update usage to UNKNOWN | State = `PENDING_ACTIVATION`. Preserved `first_touch_time` and `generation_seq=1`. `blocked_reason == "USAGE_EVIDENCE_UNCERTAIN_FAIL_CLOSED"`. Badge = `"UNKNOWN (FAIL-CLOSED)"`. Separate check: initially UNKNOWN member touch fails closed with 0 activations. |
@@ -120,9 +125,9 @@ All 16 scenarios have execution status: `specified; not yet executed through the
 | `dash_act_08_cancellation_unknown_time` | Cancellation unknown time | `synthetic`: Terminal record with `cancellation_time = None`, `seq = 125` | `cancellation_time_display == "Unknown"`. `sequence_ref_display == "#125"`. `timestamp_shown_as_unknown == True`. `sequence_shown_separately == True`. Zero wall-clock interpolation. `is_actionable == False`. |
 | `dash_act_09_external_cancellation_inside` | External cancellation inside zone | `engine-derived`: External commit arrives with level inside zone | Terminal record = `CANCELLED_EXTERNAL_ENTRY`. Rearm controller created with `rearm_armed == False`, status = `"Awaiting Departure Outside Zone"`. Decoupled from terminal record. `is_actionable == False`. |
 | `dash_act_10_armed_controller` | Armed controller | `engine-derived`: Print outside zone arms controller | Rearm controller state = `OUT_OF_ZONE_ARMED`. `rearm_armed == True`. `active_activations_count == 0` (arming is not a pending activation). `is_actionable == False`. |
-| `dash_act_11_valid_reactivation` | Valid reactivation generation 2 | `engine-derived`: Retouch on armed controller activates generation 2 | Active state = `REARMED_PENDING`. `generation_seq == 2`. `prior_activation_id == "ACT_..._GEN1"`. Terminal history retains gen 1. Provenance intact. `is_actionable == False`. |
+| `dash_act_11_valid_reactivation` | Valid reactivation generation 2 | `engine-derived`: Retouch on armed controller activates generation 2 | Active state = `REARMED_PENDING`. `generation_seq == 2`. Canonical `prior_activation_id == "ACT_G01[16:ENGINE_EURUSD_H1][2:H1][6:EURUSD][5:SET_1][4:TJL1]"`. Provenance intact. |
 | `dash_act_12_successor_set_persistent_level` | Successor set, persistent level | `engine-derived`: Distinct `SET_2` registered containing same `StableLevelId` | `active_set_id == "SET_2"`. `distinct_set_identity == True`. `level_identity_continuous == True`. Zero activation inheritance from cancelled `SET_1`. `is_actionable == False`. |
-| `dash_act_13_unresolved_source_snapshot` | Unresolved source snapshot | `candle-pipeline-derived`: `TJLCoordinator` on ambiguous sequence from `tests/test_tjl_engine.py` | Canonical banner: `"LAST AUTHORITATIVE EVIDENCE — SOURCE UNRESOLVED"`. `is_unresolved == True`. `processed_bar_index == 15`, `received_bar_index == 19`. Zero fresh eligibility. `is_actionable == False`. |
+| `dash_act_13_unresolved_source_snapshot` | Unresolved source snapshot | `candle-pipeline-derived`: `planned/unverified` (Pipeline prefix producing ambiguous swing points) | Canonical banner: `"LAST AUTHORITATIVE EVIDENCE — SOURCE UNRESOLVED"`. `is_unresolved == True`. `processed_bar_index == 15`, `received_bar_index == 19`. Zero fresh eligibility. `is_actionable == False`. |
 | `dash_act_14_equal_coarse_timestamps` | Equal coarse timestamps | `synthetic`: Multiple records sharing timestamp `11:00 UTC` with seqs 201, 202 | `terminal_history_count == 2`. Disambiguated by canonical IDs and `distinct_sequences == [201, 202]`. Zero collapsing. `is_actionable == False`. |
 | `dash_act_15_multiple_source_timeframes` | Multiple source timeframes | `engine-derived`: H4 engine context (`confirmation_timeframe="M5"`) | Context header shows `H4 -> M5`. Disclaimer: metadata mapping only. `cross_timeframe_arbitration == False`. `is_actionable == False`. |
 | `dash_act_16_repeated_rendering` | Repeated rendering invariance | `engine-derived`: Consecutive calls to pure projection function | `render_invariant == True`. `component_tree_hash_identical == True`. `engine_state_unmutated == True`. `synchronizer_cursor_unmutated == True`. `is_actionable == False`. |
