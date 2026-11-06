@@ -2485,3 +2485,49 @@ Last Updated: 2026-11-06 (Milestone 29 Release-Readiness Audit & Offline Runbook
   - Zero confirmation arbitration implementation, zero usage ledger runtime writes, zero automated trading.
   - Strategy engines 100% untouched (0 diff against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`).
   - Dedicated branch boundary: committed and pushed strictly on `requirements/trade-signal-acceptance`. Never merge into `main`.
+
+
+---
+
+## 38. Milestone 31 — Offline Confirmation-to-Activation Matcher (HANDOFF-091)
+- **Active Branch**: `feature/confirmation-monitor`
+- **Immediate Parent Commit**: `411f49f884fbcf417a531ad1ac75a52779ce0d7a` (Milestone 30 Accepted Baseline)
+- **Accepted Milestone 29 Baseline Commit**: `0144ddb8150b4132a7b60d24698105d897514cb2`
+- **Scope & Design Boundary**:
+  - Smallest useful offline confirmation layer: typed immutable confirmation evidence records, adapters from accepted CHOCH/ISS outputs, and a passive matcher associating completed confirmation evidence with eligible activation generations.
+  - Emits `CandidateSetupRecord` candidates with explicit diagnostic results for rejected, blocked, or uncertain associations.
+  - Strictly passive: zero winner selection, zero level usage consumption, zero signal publication, zero activation state mutation, zero automated trading, and zero merging to `main`.
+  - Strategy engines (`msm_engine.py`, `choch_detector.py`, `iss_engine.py`, `tjl_coordinator.py`, `activation_engine.py`, `activation_adapter.py`) remain 100% untouched (0 diff against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`).
+- **Completed Deliverables**:
+  1. [`src/aladeen/strategy/confirmation_types.py`](file:///d:/Downloads/TopG/src/aladeen/strategy/confirmation_types.py):
+     - `ConfirmationMatchStatus` (`MATCHED`, `REJECTED`, `BLOCKED`, `UNCERTAIN`).
+     - `ConfirmationRejectionReason` (16 granular diagnostic reason codes).
+     - `ConfirmationEvidenceRecord`: Immutable frozen dataclass capturing `event_id`, `producer_id`, `pattern_type`, `confirmation_config_id`, `confirmation_timeframe`, `confirmation_candle_id`, `close_timestamp`, `close_price`, `price_basis`, `direction` (explicit observational field!), `structural_dependency_references`, `sequence_domain`, `sequence_ref`, `is_isolated_tracking`, `is_completed`, `has_unresolved_dependencies`.
+     - `CandidateSetupRecord`: All 20 typed fields specified in Milestone 30 §6.4.
+     - `ConfirmationMatchResult`: Immutable evaluation result linking match ID, status, candidate, rejection reasons, and diagnostic message.
+     - Canonical `format_candidate_setup_key()` and `parse_candidate_setup_key()` with length-prefix encoding.
+  2. [`src/aladeen/strategy/confirmation_adapters.py`](file:///d:/Downloads/TopG/src/aladeen/strategy/confirmation_adapters.py):
+     - `adapt_confirmed_choch_to_evidence()`: Adapts authoritative `ConfirmedChoch` into `ConfirmationEvidenceRecord`. Maps `ChochType.BULLISH_CHOCH` to `Direction.UPWARD` and `ChochType.BEARISH_CHOCH` to `Direction.DOWNWARD`. Captures explicit structural provenance (c1, c2, broken level, point 3, zones).
+     - `adapt_confirmed_iss_to_evidence()`: Adapts authoritative `ConfirmedISSEvent` into `ConfirmationEvidenceRecord`. Maps Bearish Main (`Direction.DOWNWARD`) with upward internal wave to `Direction.UPWARD` (Bullish ISS) and Bullish Main (`Direction.UPWARD`) with downward internal wave to `Direction.DOWNWARD` (Bearish ISS).
+  3. [`src/aladeen/strategy/confirmation_matcher.py`](file:///d:/Downloads/TopG/src/aladeen/strategy/confirmation_matcher.py):
+     - `MatchingContext`: Runtime evaluation context (session ID, revision ID, price basis, coverage status, active members, member directions, sequence references, evaluation time).
+     - `ConfirmationMatcher`: Passive, stateless matcher implementing all 9 required verification gates:
+       * Gate 1: Activation lifecycle state & membership (PENDING_ACTIVATION, REARMED_PENDING, active member registration).
+       * Gate 2: Context, feed & price basis compatibility (symbol, feed ID, PriceBasis).
+       * Gate 3: Assigned confirmation timeframe (D1->H1, H4->M5, H1->M1).
+       * Gate 4: Confirmation completion & provenance (is_completed, is_isolated_tracking, unresolved dependencies, structural refs).
+       * Gate 5: Directional concordance against intended trade side.
+       * Gate 6: Authoritative touch-before-completion ordering & causal sequence (Case A, Case B monotonic sequence, Case C unknown order fail-closed).
+       * Gate 7: Fresh evidence for activation generation (stale prior generation evidence rejected).
+       * Gate 8: Candidate setup construction with canonical setup key and rank hierarchy.
+       * Gate 9: Batch evaluation and OPEN-07 consolidation (consolidates CHOCH + ISS sharing setup key into single setup with both events/patterns).
+  4. [`src/aladeen/strategy/__init__.py`](file:///d:/Downloads/TopG/src/aladeen/strategy/__init__.py): Public exports for all new types, adapters, and matcher classes.
+  5. [`tests/test_confirmation_matcher.py`](file:///d:/Downloads/TopG/tests/test_confirmation_matcher.py): 26 focused unit and integration tests cleanly separated into synthetic typed matching and candle-derived continuous detection.
+- **Verification Summary**:
+  - Focused confirmation matcher test suite: **26/26 passed in 0.59s** (`pytest tests/test_confirmation_matcher.py`).
+  - Trade-Signal fixture integrity test suite: **33/33 passed in 0.56s** (`pytest tests/test_trade_signal_fixture_integrity.py`).
+  - Full offline repository test suite: **603/603 passed in 120.68s** (`pytest -m "not browser"`).
+- **Continuous Detection & Blocked Branches**:
+  - *Demonstrated Continuous Detection*: `test_actual_candle_derived_choch_pattern_pre_tap_formation_post_tap_completion` proves that a genuine candle-derived CHOCH pattern beginning before activation tap (candle 1/4/5) and completing afterward (candle 9) matches against a valid H4 activation tapped at candle 7 without restarting pattern recognition.
+  - *Authoritative ISS Branch*: Validated against genuine candle-derived `iss_02` fixture (2-candle internal pullbacks under accepted detector contract).
+  - *Blocked ISS Branch*: Any ISS confirmation exhibiting unresolved dependencies (such as multi-candle pullback ambiguity) is strictly blocked fail-closed as `BLOCKED_UNRESOLVED_CONFIRMATION_GAP` without manufacturing completion records or introducing candle-count heuristics.

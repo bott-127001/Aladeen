@@ -106,6 +106,23 @@ from .activation_adapter import (
     adapt_tjl_current_set,
     sync_tjl_snapshot_to_activation_engine,
 )
+from .confirmation_types import (
+    CandidateSetupRecord,
+    ConfirmationEvidenceRecord,
+    ConfirmationMatchResult,
+    ConfirmationMatchStatus,
+    ConfirmationRejectionReason,
+    format_candidate_setup_key,
+    parse_candidate_setup_key,
+)
+from .confirmation_adapters import (
+    adapt_confirmed_choch_to_evidence,
+    adapt_confirmed_iss_to_evidence,
+)
+from .confirmation_matcher import (
+    ConfirmationMatcher,
+    MatchingContext,
+)
 
 __all__ = [
     "CandleColor",
@@ -199,4 +216,15 @@ __all__ = [
     "reset_activation_session_registry",
     "get_default_activation_coordinator",
     "reset_activation_coordinator",
+    "CandidateSetupRecord",
+    "ConfirmationEvidenceRecord",
+    "ConfirmationMatchResult",
+    "ConfirmationMatchStatus",
+    "ConfirmationRejectionReason",
+    "format_candidate_setup_key",
+    "parse_candidate_setup_key",
+    "adapt_confirmed_choch_to_evidence",
+    "adapt_confirmed_iss_to_evidence",
+    "ConfirmationMatcher",
+    "MatchingContext",
 ]
