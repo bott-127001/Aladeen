@@ -13,10 +13,11 @@ In Milestone 33 (accepted at `b05a391554c73f80652d4dada5310510ba20fbf5`), source
 
 The objective of Milestone 34 is to formally specify how these currently supplied authority assertions transition into **traceable offline inputs** without inventing upstream facts, broker feeds, or execution rights. This specification defines:
 1. Exact evidence origin, identity, scope, availability, and fail-closed validation for each authority domain, strictly separating coverage extent from knowledge availability time.
-2. Concrete schemas, fields, trust boundaries, and supersession behaviors for proposed authority records.
-3. Decisive fail-closed behaviors for missing, stale, contradictory, duplicate, or unsequenced evidence, strictly aligned with accepted runtime types and diagnostics.
-4. A 34-case acceptance inventory categorizing existing executable evidence, proposed synthetic authority contracts, proposed traceable offline integration cases, and blocked cases.
-5. Authority-to-origin mapping across strategy layers.
+2. Complete coverage acceptance predicates and deterministic supersession/conflict precedence rules.
+3. Separation between proposed authority-record preprocessing and accepted matcher runtime behavior.
+4. Concrete schemas, fields, trust boundaries, and supersession behaviors for proposed authority records.
+5. An executable and honest 41-case acceptance inventory distinguishing existing executable evidence, proposed synthetic authority contracts, proposed traceable offline integration cases, and blocked cases.
+6. Authority-to-origin mapping across strategy layers.
 
 ---
 
@@ -42,20 +43,21 @@ A container, boolean, or enum is a representation—not its own proof. Every aut
 | **Evidence Origin** | Explicit offline usage evidence ledger record `ProposedUsageEvidenceRecord` or upstream source proof. |
 | **Entity Identity** | Physical level identifier `StableLevelId(symbol_feed_id, source_timeframe, bar_time, side)` (NOT the ephemeral role or set label). |
 | **Scope** | Persistent physical price level. Usage authority survives level set replacements (e.g. SET_1 $\rightarrow$ SET_2) and role relabeling (e.g. TJL1 $\rightarrow$ TJL2). |
-| **Availability Time** | `established_time` ($\le T_{\text{eval}}$) and `available_time` ($\le T_{\text{eval}}$). |
+| **Availability Time** | `established_time` ($\le T_{\text{eval}}$) and knowledge `available_time` ($\le T_{\text{eval}}$). |
 | **Accepted Runtime Contract** | Status values from `UsageEvidenceStatus`: `UNUSED`, `USED`, `UNKNOWN`.<br>- If `UNKNOWN`: rejects fail-closed as `ConfirmationRejectionReason.UNKNOWN_USAGE`.<br>- If `USED`: rejects fail-closed as `ConfirmationRejectionReason.STALE_EVIDENCE_FOR_GENERATION` (if active generation has consumed it) or `ConfirmationRejectionReason.INELIGIBLE_ACTIVATION_STATE` (if activation is terminal). |
 | **Invariant: No Negative Proof** | Absence of a usage record does **NOT** prove `UNUSED`. Any level lacking explicit, authoritative proof of unused state MUST default to `UNKNOWN`. |
 
-### 2.3 Domain 3: Feed Coverage Authority — Separation of Extent from Knowledge Availability
+### 2.3 Domain 3: Feed Coverage Authority — Complete Acceptance Predicate & Separation of Extent
 
 | Contract Dimension | Specification |
 | :--- | :--- |
 | **Evidence Origin** | Feed completeness certificate `ProposedFeedCoverageRecord` issued by an authoritative offline feed audit process. |
 | **Entity Identity** | `(feed_id, sequence_domain, timeframe, covered_interval_start, covered_interval_end, confirmation_config_id)`. |
 | **Coverage Extent** | The closed interval $[T_{\text{covered\_start}}, T_{\text{covered\_end}}]$ across which continuous, gap-free bar data has been verified. |
-| **Knowledge Availability Time** | The timestamp $T_{\text{issued}}$ when the coverage certificate was generated and made available to the system. |
+| **Knowledge Availability Time** | The timestamp $T_{\text{available}}$ when the coverage certificate became available to the evaluator store. (Separated from $T_{\text{issued}}$: issuance alone does not imply delivery or knowledge). |
 | **Required Evaluation Interval** | The stream interval $[T_{\text{req\_start}}, T_{\text{req\_end}}]$ required by the confirmation configuration up to $T_{\text{eval}}$. |
-| **Two-Part Decisive Acceptance Rule** | An evaluation at $T_{\text{eval}}$ is authorized for coverage **if and only if both conditions are met**:<br>1. **Spatial Coverage**: $T_{\text{covered\_start}} \le T_{\text{req\_start}}$ AND $T_{\text{covered\_end}} \ge T_{\text{req\_end}}$.<br>2. **Temporal Knowledge Availability**: $T_{\text{issued}} \le T_{\text{eval}}$.<br>*Retroactive Prohibition*: A certificate issued at $T_{\text{issued}} > T_{\text{eval}}$ cannot retroactively authorize an evaluation at $T_{\text{eval}}$, even if its covered extent covers that historical time. |
+| **Complete Coverage Acceptance Predicate** | An evaluation at $T_{\text{eval}}$ is authorized for coverage **if and only if ALL of the following 7 conditions hold simultaneously**:<br>1. **Approved Issuer**: `issuer_id` belongs to the configured trusted issuer set under an explicitly declared trust assumption.<br>2. **Valid Schema & Identity**: `schema_version == "v1"` and `record_id` is unique with no payload conflict.<br>3. **Exact Scope Match**: `feed_id`, `sequence_domain`, `timeframe`, and `confirmation_config_id` match the evaluation request exactly.<br>4. **Complete Status**: `status == CoverageStatus.COMPLETE` (neither `INCOMPLETE` nor `UNCERTAIN`).<br>5. **Full Spatial Extent**: $T_{\text{covered\_start}} \le T_{\text{req\_start}}$ AND $T_{\text{covered\_end}} \ge T_{\text{req\_end}}$.<br>6. **Knowledge Availability by Boundary**: $T_{\text{available}} \le T_{\text{eval}}$ (no retroactive authorization from later-arriving certificates).<br>7. **No Active Supersession/Revocation**: Certificate has not been superseded or revoked by a higher-revision certificate available at or before $T_{\text{eval}}$. |
+| **Retroactive Prohibition** | A certificate with $T_{\text{available}} > T_{\text{eval}}$ cannot retroactively authorize an evaluation at $T_{\text{eval}}$, even if its covered extent covers that historical time. |
 | **Accepted Runtime Contract** | `CoverageStatus`: `COMPLETE`, `INCOMPLETE`, `UNCERTAIN`. Both `INCOMPLETE` and `UNCERTAIN` reject fail-closed as `ConfirmationRejectionReason.INCOMPLETE_COVERAGE`. |
 | **Invariant: No Gap Absence Proof** | Absence of a detected candle gap does **NOT** prove completeness. The interval must be actively certified. |
 
@@ -87,16 +89,28 @@ A container, boolean, or enum is a representation—not its own proof. Every aut
 | :--- | :--- |
 | **Evidence Origin** | Explicit caller-supplied `MatchingContext.evaluation_time` ($T_{\text{eval}}$). |
 | **Scope** | Point-in-time evaluation horizon for batch or pair matching. |
-| **Temporal Visibility Gating** | Matcher has visibility **ONLY** into authority records where $\text{availability\_time} \le T_{\text{eval}}$. Future records are invisible and fail closed. |
+| **Temporal Visibility Gating** | Matcher has visibility **ONLY** into authority records where $\text{available\_time} \le T_{\text{eval}}$. Future records are invisible and fail closed. |
 | **Immutability & Idempotence** | Repeated evaluations at identical $T_{\text{eval}}$ yield strictly identical `ConfirmationMatchResult` instances (`res1 == res2`). External caller mutations of context dictionaries do not affect the frozen context. |
 
 ---
 
-## 3. Explicit Proposed Authority Record Schemas
+## 3. Explicit Proposed Authority Record Schemas & Deterministic Precedence
 
-To transition from synthetic assertions to traceable inputs, we propose explicit, typed schemas. These schemas are proposed contract extensions and do not modify existing accepted runtime types.
+To transition from synthetic assertions to traceable inputs, we propose explicit, typed schemas and a distinct preprocessing boundary. These schemas are proposed contract extensions and do not modify existing accepted runtime types.
 
-### 3.1 Proposed Usage Evidence Record (`ProposedUsageEvidenceRecord`)
+### 3.1 Proposed Preprocessing Boundary (`AuthorityContextBuilder`)
+
+The accepted `ConfirmationMatcher` consumes `MatchingContext` and does **not** consume raw database or audit certificate records directly. We specify an explicit architectural boundary:
+- **`AuthorityContextBuilder`**:
+  1. Ingests raw `ProposedUsageEvidenceRecord` and `ProposedFeedCoverageRecord` instances.
+  2. Enforces trust verification, schema validation, point-in-time visibility ($\text{available\_time} \le T_{\text{eval}}$), and deterministic supersession/conflict resolution.
+  3. Maps the resolved authority into existing accepted runtime structures:
+     * Validated coverage $\rightarrow$ `MatchingContext.coverage_status` (`COMPLETE`, `INCOMPLETE`, or `UNCERTAIN`).
+     * Validated level usage $\rightarrow$ `SourceMemberReference.usage_evidence_status` (`UNUSED`, `USED`, or `UNKNOWN`).
+     * Validated source resolution $\rightarrow$ `MatchingContext.source_resolution_status` (`True` or `False`).
+  4. Preserves detailed audit diagnostics separately at the preprocessor boundary.
+
+### 3.2 Proposed Usage Evidence Record (`ProposedUsageEvidenceRecord`)
 
 ```python
 @dataclass(frozen=True)
@@ -110,16 +124,23 @@ class ProposedUsageEvidenceRecord:
     established_time: datetime              # Timestamp when status was authoritatively established
     available_time: datetime                # Timestamp when record became available in offline store
     provenance_ref: str                     # Reference to upstream audit log, trade ticket, or fixture ID
-    optional_integrity_hash: Optional[str] = None  # Optional SHA-256 for tampering detection (NOT authority proof)
+    predecessor_record_id: Optional[str] = None # Explicit predecessor reference for causal state transitions
+    optional_integrity_hash: Optional[str] = None # Optional SHA-256 for tampering detection (NOT authority proof)
 ```
 
-**Trust & Validation Rules**:
-- **Trust Assumption**: Issued only by an approved upstream trading ledger or authorized offline fixture harness.
-- **Physical Level Persistence**: The `level_id` is tied to the physical candle geometry, not the transient set ID. If Level $L$ is marked `USED`, that status persists even if SET_1 is replaced by SET_2.
-- **Duplicate Handling**: If two records with identical `record_id` have differing payloads, the matcher halts matching for that level and emits `ConfirmationRejectionReason.CONFLICTING_IDENTITY`.
-- **Supersession**: A record with `status == USED` is terminal for that physical level. It cannot be superseded by a later `UNUSED` record.
+**Deterministic Conflict & State Transition Precedence**:
+1. **Causal Lifecycle Transition vs Contradiction**:
+   - An initial record asserting `UNUSED` at $T_1$ followed by a subsequent record asserting `USED` at $T_2 > T_1$ with `predecessor_record_id` referencing $T_1$'s record is a **valid causal state transition**. It is NOT a conflict.
+   - For evaluations at $T_{\text{eval}} < T_{2,\text{avail}}$: Level is `UNUSED`.
+   - For evaluations at $T_{\text{eval}} \ge T_{2,\text{avail}}$: Level is `USED`.
+2. **Contradictory Assertions**:
+   - Two records asserting differing statuses (`UNUSED` vs `USED`) for the same `level_id` at the same evaluation boundary without causal sequence reference $\rightarrow$ contradictory conflict! Preprocessor degrades status to `UsageEvidenceStatus.UNKNOWN` (rejecting fail-closed as `UNKNOWN_USAGE`).
+3. **Duplicate Identity Conflicts**:
+   - If two records share an identical `record_id` but differ in status, timestamp, or level payload, preprocessor marks the record as corrupted, halting matching for that level with `ConfirmationRejectionReason.CONFLICTING_IDENTITY`.
+4. **Physical Level Persistence**:
+   - Once a level reaches `USED`, that status is terminal for the physical level geometry (`StableLevelId`). It survives set replacements (SET_1 $\rightarrow$ SET_2) and cannot transition back to `UNUSED`.
 
-### 3.2 Proposed Feed Coverage Record (`ProposedFeedCoverageRecord`)
+### 3.3 Proposed Feed Coverage Record (`ProposedFeedCoverageRecord`)
 
 ```python
 @dataclass(frozen=True)
@@ -135,63 +156,82 @@ class ProposedFeedCoverageRecord:
     covered_interval_start: datetime        # Start of continuous interval (inclusive)
     covered_interval_end: datetime          # End of continuous interval (inclusive)
     status: CoverageStatus                  # COMPLETE, INCOMPLETE, UNCERTAIN
-    issued_time: datetime                   # Knowledge availability timestamp (when certificate was published)
+    issued_time: datetime                   # Timestamp when certificate was computed by auditor
+    available_time: datetime                # Timestamp when certificate was received/published to store
+    revision_seq: int = 1                   # Monotonically increasing integer revision sequence
+    supersedes_record_id: Optional[str] = None # Explicit reference to superseded certificate
 ```
 
-**Trust & Validation Rules**:
-- **Trust Assumption**: Generated by an offline feed gap auditor inspecting raw MT5 historical export files.
-- **Point-in-Time Evaluation Rule**: At evaluation time $T_{\text{eval}}$, the record is considered valid only if $T_{\text{issued}} \le T_{\text{eval}}$. A certificate generated at 16:00 UTC cannot be used to justify an evaluation at 12:00 UTC.
-- **Duplicate & Supersession Rules**: If two certificates conflict on status for overlapping intervals, status degrades to `CoverageStatus.UNCERTAIN` $\rightarrow$ fail-closed. Newer revisions supersede older ones only after $T_{\text{issued}}$.
+**Deterministic Revision & Conflict Precedence**:
+1. **Predecessor Identity & Scope of Replacement**:
+   - A revision explicitly references its predecessor via `supersedes_record_id` and must have `revision_seq > predecessor.revision_seq`.
+   - A superseding certificate replaces the entire prior certificate for that feed/timeframe/config scope upon receipt.
+2. **Point-in-Time Visibility of Revisions**:
+   - For $T_{\text{eval}} < \text{available\_time}_{\text{new}}$: The prior certificate remains authoritative.
+   - For $T_{\text{eval}} \ge \text{available\_time}_{\text{new}}$: The new certificate governs.
+3. **Unrelated Overlapping Conflicts**:
+   - If two records cover overlapping intervals for the same scope without an explicit supersession link:
+     * If statuses agree: Coverage is the intersection of the two intervals.
+     * If statuses disagree (e.g. one asserts `COMPLETE`, the other asserts `INCOMPLETE`): Preprocessor immediately degrades coverage to `CoverageStatus.UNCERTAIN` $\rightarrow$ fail-closed as `INCOMPLETE_COVERAGE`.
+4. **Equal-Time Updates Without Sequence Authority**:
+   - If two conflicting certificates arrive at the exact same `available_time` without sequence authority, preprocessor degrades status to `CoverageStatus.UNCERTAIN`. It never arbitrarily selects the latest timestamp.
 
 ---
 
-## 4. Acceptance Inventory (34 Cases)
+## 4. Acceptance Inventory (41 Cases)
 
-The inventory catalogs 34 discrete cases across 4 categories:
+The inventory catalogs 41 discrete cases across 4 categories:
 
 ### 4.1 Existing Executable Evidence (16 Cases)
 
 | Case ID | Contract & File Reference | Input Evidence | Expected Status / Reason | Result Assertion |
 | :--- | :--- | :--- | :--- | :--- |
-| **INT-01** | Bearish CHOCH Matching (`tests/test_confirmation_matcher.py` L2160) | Synthetic member + H1 CHOCH envelope | `MATCHED` | 1 SELL candidate (1.0850) |
-| **INT-02** | Bearish ISS Matching (`tests/test_confirmation_matcher.py` L2240) | Synthetic member + H1 ISS envelope | `MATCHED` | 1 SELL candidate (1.1120) |
-| **INT-03** | Interleaved CHOCH Schedule (`tests/test_source_candidate_choch_chain.py`) | Retained CHOCH detector across 5 boundaries | B1..3: `[]`; B4: `MATCHED` | Zero candidates prior to close; 1 SELL candidate at close |
-| **INT-04** | Interleaved ISS Schedule (`tests/test_source_candidate_iss_chain.py`) | Retained ISS engine across 5 boundaries | B1..3: `[]`; B4: `MATCHED` | Zero candidates prior to close; 1 SELL candidate at close |
-| **ACT-01** | Rearm Path A (`tests/test_source_candidate_rearm.py`) | Inside at cancel $\rightarrow$ departure $\rightarrow$ retouch | `OUT_OF_ZONE_ARMED` $\rightarrow$ `REARMED_PENDING` | Predecessor immutable |
-| **ACT-02** | Replacement Cancellation (`tests/test_source_candidate_cancellation.py`) | Set replacement $\rightarrow$ post-out/in prints | `CANCELLED_SOURCE_REPLACEMENT` | Zero candidates (`MEMBERSHIP_CANCELLED_OR_REPLACED`) |
-| **ACT-03** | Main CHOCH Invalidation (`tests/test_source_candidate_cancellation.py`) | Invalidation $\rightarrow$ post-out/in prints | `CANCELLED_SOURCE_CHOCH` | Zero candidates (`INELIGIBLE_ACTIVATION_STATE`) |
-| **ACT-04** | Rearm Path B (`tests/test_source_candidate_rearm.py`) | Outside at cancel $\rightarrow$ arming $\rightarrow$ retouch | `OUT_OF_ZONE_ARMED` $\rightarrow$ `REARMED_PENDING` | Predecessor immutable |
-| **ORD-01** | Equal Time Missing Sequence (`tests/test_source_candidate_ordering.py`) | $T_{\text{conf}} == T_{\text{touch}}$, missing seq | `UNKNOWN_ORDER` | Zero candidates |
-| **ORD-02** | Equal Time Cross-Domain (`tests/test_source_candidate_ordering.py`) | $T_{\text{conf}} == T_{\text{touch}}$, domain mismatch | `CROSS_DOMAIN_ORDERING_REJECTED` | Zero candidates |
-| **ORD-03** | Equal Time Earlier/Equal Seq (`tests/test_source_candidate_ordering.py`) | $T_{\text{conf}} == T_{\text{touch}}$, seq $\le$ touch | `PRE_ACTIVATION_CONFIRMATION` | Zero candidates |
-| **ORD-04** | Equal Time Causal Seq (`tests/test_source_candidate_ordering.py`) | $T_{\text{conf}} == T_{\text{touch}}$, seq $>$ touch | `MATCHED` | 1 candidate formed |
-| **BND-A** | Boundary A: Usage (`tests/test_source_candidate_authority_boundaries.py`) | `UsageEvidenceStatus.UNKNOWN` | `UNKNOWN_USAGE` | Zero candidates |
-| **BND-B** | Boundary B: Coverage (`tests/test_source_candidate_authority_boundaries.py`) | `CoverageStatus.INCOMPLETE` / `UNCERTAIN` | `INCOMPLETE_COVERAGE` | Zero candidates |
-| **BND-C** | Boundary C: Source Resolution (`tests/test_source_candidate_authority_boundaries.py`) | `source_resolution_status == False` | `BLOCKED_UNRESOLVED_SOURCE_DEPENDENCY` | Zero candidates |
-| **BND-D** | Boundary D: Evidence Dependencies (`tests/test_source_candidate_authority_boundaries.py`) | `has_unresolved_dependencies == True` | `UNRESOLVED_DEPENDENCY` | Zero candidates |
+| **INT-01** | `test_actual_candle_derived_choch_pattern_pre_tap_formation_post_tap_completion`<br>(`tests/test_confirmation_matcher.py` L2092) | Synthetic member + H1 CHOCH envelope | `MATCHED` | 1 SELL candidate (1.0850) |
+| **INT-02** | `test_actual_candle_derived_iss_authoritative_matching_and_unresolved_blocking`<br>(`tests/test_confirmation_matcher.py` L2192) | Synthetic member + H1 ISS envelope | `MATCHED` | 1 SELL candidate (1.1120) |
+| **INT-03** | `test_int_03_genuine_source_exact_print_choch_chronological_schedule`<br>(`tests/test_source_candidate_choch_chain.py` L114) | Retained CHOCH detector across 5 boundaries | B1..3: `[]`; B4: `MATCHED` | Zero candidates prior to close; 1 SELL candidate at close |
+| **INT-04** | `test_int_04_genuine_source_exact_print_iss_chronological_schedule`<br>(`tests/test_source_candidate_iss_chain.py` L114) | Retained ISS engine across 5 boundaries | B1..3: `[]`; B4: `MATCHED` | Zero candidates prior to close; 1 SELL candidate at close |
+| **ACT-01** | `test_act_01_rearm_path_a_inside_at_cancel_with_immutable_predecessor`<br>(`tests/test_source_candidate_rearm.py` L58) | Inside at cancel $\rightarrow$ departure $\rightarrow$ retouch | `OUT_OF_ZONE_ARMED` $\rightarrow$ `REARMED_PENDING` | Predecessor immutable |
+| **ACT-02** | `test_act_02_source_set_replacement_terminal_non_revival`<br>(`tests/test_source_candidate_cancellation.py` L85) | Set replacement $\rightarrow$ post-out/in prints | `CANCELLED_SOURCE_REPLACEMENT` | Zero candidates (`MEMBERSHIP_CANCELLED_OR_REPLACED`) |
+| **ACT-03** | `test_act_03_source_main_choch_invalidation_terminal_non_revival`<br>(`tests/test_source_candidate_cancellation.py` L266) | Invalidation $\rightarrow$ post-out/in prints | `CANCELLED_SOURCE_CHOCH` | Zero candidates (`INELIGIBLE_ACTIVATION_STATE`) |
+| **ACT-04** | `test_act_04_rearm_path_b_already_outside_at_cancel_with_immutable_predecessor`<br>(`tests/test_source_candidate_rearm.py` L152) | Outside at cancel $\rightarrow$ arming $\rightarrow$ retouch | `OUT_OF_ZONE_ARMED` $\rightarrow$ `REARMED_PENDING` | Predecessor immutable |
+| **ORD-01** | `test_equal_time_causal_ordering_matrix`<br>(`tests/test_source_candidate_ordering.py` L99) | $T_{\text{conf}} == T_{\text{touch}}$, missing seq | `UNKNOWN_ORDER` | Zero candidates |
+| **ORD-02** | `test_equal_time_causal_ordering_matrix`<br>(`tests/test_source_candidate_ordering.py` L134) | $T_{\text{conf}} == T_{\text{touch}}$, domain mismatch | `CROSS_DOMAIN_ORDERING_REJECTED` | Zero candidates |
+| **ORD-03** | `test_equal_time_causal_ordering_matrix`<br>(`tests/test_source_candidate_ordering.py` L160) | $T_{\text{conf}} == T_{\text{touch}}$, seq $\le$ touch | `PRE_ACTIVATION_CONFIRMATION` | Zero candidates |
+| **ORD-04** | `test_equal_time_causal_ordering_matrix`<br>(`tests/test_source_candidate_ordering.py` L206) | $T_{\text{conf}} == T_{\text{touch}}$, seq $>$ touch | `MATCHED` | 1 candidate formed |
+| **BND-A** | `test_supplied_synthetic_authority_boundaries`<br>(`tests/test_source_candidate_authority_boundaries.py` L103) | `UsageEvidenceStatus.UNKNOWN` | `UNKNOWN_USAGE` | Zero candidates |
+| **BND-B** | `test_supplied_synthetic_authority_boundaries`<br>(`tests/test_source_candidate_authority_boundaries.py` L153) | `CoverageStatus.INCOMPLETE` | `INCOMPLETE_COVERAGE` | Zero candidates |
+| **BND-C** | `test_supplied_synthetic_authority_boundaries`<br>(`tests/test_source_candidate_authority_boundaries.py` L170) | `source_resolution_status == False` | `BLOCKED_UNRESOLVED_SOURCE_DEPENDENCY` | Zero candidates |
+| **BND-D** | `test_supplied_synthetic_authority_boundaries`<br>(`tests/test_source_candidate_authority_boundaries.py` L187) | `has_unresolved_dependencies == True` | `UNRESOLVED_DEPENDENCY` | Zero candidates |
 
-### 4.2 Proposed Synthetic Authority Contracts (8 Cases)
+### 4.2 Proposed Synthetic Authority Contracts (15 Cases)
 
 | Case ID | Contract Description | Test Setup | Expected Reason | Candidate Assertion |
 | :--- | :--- | :--- | :--- | :--- |
-| **AUT-SYN-01** | Contradictory Usage Evidence | Two records for same `level_id` asserting `UNUSED` and `USED` at $T_{\text{eval}}$ | Proposed: degrade to `UNKNOWN_USAGE` / `CONFLICTING_IDENTITY` | Zero candidates |
-| **AUT-SYN-02** | Retroactive Coverage Rejection | Coverage extent covers interval, but $T_{\text{issued}} > T_{\text{eval}}$ | `INCOMPLETE_COVERAGE` (not yet known at $T_{\text{eval}}$) | Zero candidates |
+| **AUT-SYN-01** | Contradictory Usage Evidence | Two records for same `level_id` asserting `UNUSED` and `USED` without causal sequence | Proposed preprocessor degrades to `UNKNOWN_USAGE` | Zero candidates |
+| **AUT-SYN-02** | Retroactive Coverage Rejection | Coverage extent covers interval, but $T_{\text{available}} > T_{\text{eval}}$ | `INCOMPLETE_COVERAGE` (not yet available at $T_{\text{eval}}$) | Zero candidates |
 | **AUT-SYN-03** | Coverage Config Mismatch | Certificate generated for `CONF_CFG_02`, evaluation requests `CONF_CFG_01` | `INCOMPLETE_COVERAGE` | Zero candidates |
 | **AUT-SYN-04** | Duplicate Conflicting Activations | Duplicate `activation_id` with contradictory touch prices | `CONFLICTING_IDENTITY` | Zero candidates |
 | **AUT-SYN-05** | Duplicate Conflicting Confirmations | Duplicate `event_id` with contradictory close prices | `CONFLICTING_IDENTITY` | Zero candidates |
 | **AUT-SYN-06** | Persistent Usage on Set Replacement | SET_1 uses Level $L$ (`USED`); SET_2 created on Level $L$; touch occurs | `STALE_EVIDENCE_FOR_GENERATION` | Zero candidates (Level $L$ used) |
 | **AUT-SYN-07** | Evaluation Before Availability | Evaluation requested at $T_{\text{eval}} < T_{\text{avail}}$ of source set | Missing member in `current_members` | Zero candidates |
-| **AUT-SYN-08** | Incomplete Confirmation Candle | Candle has `is_forming == True` or `bar_status != "CONFIRMED_COMPLETED"` | `INCOMPLETE_EVIDENCE` | Zero candidates |
+| **AUT-SYN-08** | Unresolved Source Cursor Notice | Upstream notice emitted when `processed_bar < received_bar` | `BLOCKED_UNRESOLVED_SOURCE_DEPENDENCY` | Zero candidates |
+| **AUT-SYN-09** | Uncertain Coverage Degradation | Coverage status explicitly set to `CoverageStatus.UNCERTAIN` | `INCOMPLETE_COVERAGE` | Zero candidates |
+| **AUT-SYN-10** | Incomplete Confirmation Candle | Candle has `is_forming == True` or `bar_status != "CONFIRMED_COMPLETED"` | `INCOMPLETE_EVIDENCE` | Zero candidates |
+| **AUT-SYN-11** | Missing Authority Record | Level omitted entirely from usage records (no record exists) | Defaults to `UNKNOWN_USAGE` (no negative proof) | Zero candidates |
+| **AUT-SYN-12** | Wrong Feed/Timeframe Scope | Coverage certificate for `FEED_GBPUSD` evaluated against `FEED_EURUSD` | Scope mismatch $\rightarrow$ `INCOMPLETE_COVERAGE` | Zero candidates |
+| **AUT-SYN-13** | Future Usage Knowledge Availability | Usage record established at $T_1 \le T_{\text{eval}}$ but $T_{\text{available}} > T_{\text{eval}}$ | Unavailable at $T_{\text{eval}} \rightarrow$ `UNKNOWN_USAGE` | Zero candidates |
+| **AUT-SYN-14** | Superseded Certificate Precedence | Rev 2 available at $T_2 > T_1$; evaluated at $T_{\text{eval}} \ge T_2$ | Rev 2 replaces Rev 1 in its entirety | Governed by Rev 2 |
+| **AUT-SYN-15** | Conflicting Authority-Record IDs | Two authority records share `record_id` with differing payloads | `CONFLICTING_IDENTITY` | Zero candidates |
 
 ### 4.3 Proposed Traceable Offline Integration Cases (6 Cases)
 
 | Case ID | Description | Verifiable Mechanism | Acceptance Criteria |
 | :--- | :--- | :--- | :--- |
-| **AUT-INT-01** | Traceable Usage Ledger Audit | Offline file-backed ledger supplying `ProposedUsageEvidenceRecord` instances | Matches under verified ledger; rejects as `UNKNOWN_USAGE` under missing level |
-| **AUT-INT-02** | Traceable Feed Coverage Audit | Feed auditor emitting `ProposedFeedCoverageRecord` across continuous ranges | Matches when $[T_{\text{start}}, T_{\text{end}}]$ covers required interval and $T_{\text{issued}} \le T_{\text{eval}}$ |
+| **AUT-INT-01** | Traceable Usage Ledger Audit | Offline file-backed ledger supplying `ProposedUsageEvidenceRecord` instances | Passes usage gate under verified ledger; rejects as `UNKNOWN_USAGE` under missing level |
+| **AUT-INT-02** | Traceable Feed Coverage Audit | Feed auditor emitting `ProposedFeedCoverageRecord` across continuous ranges | Passes coverage gate when $[T_{\text{start}}, T_{\text{end}}]$ covers required interval and $T_{\text{available}} \le T_{\text{eval}}$ |
 | **AUT-INT-03** | Point-in-Time Multi-Step Replay | Step-by-step evaluator testing availability boundaries against sliding $T_{\text{eval}}$ | Zero candidates until exact closed confirming candle; candidates form post-close |
 | **AUT-INT-04** | Concurrent Multi-Level Gating | Dual-level setup (TJL1 and TJL2) where TJL1 is `USED` and TJL2 is `UNUSED` | TJL1 rejects (`STALE_EVIDENCE_FOR_GENERATION`); TJL2 matches (`MATCHED`) |
-| **AUT-INT-05** | Persistent Usage Lingering Proof | Full lifecycle: SET_1 touch $\rightarrow$ usage commit $\rightarrow$ SET_2 replacement | SET_1 cannot revive; SET_2 recognises Level $L$ is already used |
+| **AUT-INT-05** | Persistent Usage Lingering Proof | Consumes externally supplied usage history: SET_1 touch $\rightarrow$ SET_2 replacement | SET_1 cannot revive; SET_2 recognises Level $L$ is already used |
 | **AUT-INT-06** | Rearm Audit Trail Verification | Full rearm cycle with observation log: cancel $\rightarrow$ departure $\rightarrow$ retouch | Gen 1 predecessor immutable; Gen 2 active activation verified |
 
 ### 4.4 Blocked Cases Requiring Upstream Contracts (4 Cases)
@@ -214,17 +254,16 @@ The inventory catalogs 34 discrete cases across 4 categories:
 | Domain                 | Originating Layer / Contract       | Accepted Runtime Representation           |
 +------------------------+------------------------------------+-------------------------------------------+
 | Source Resolution      | TJLCoordinator.get_snapshot()      | MatchingContext.source_resolution_status  |
-|                        | TJLSynchronizer sync snapshot      | (Missing -> UNKNOWN_SOURCE_RESOLUTION_    |
-|                        |                                    |  AUTHORITY; False -> BLOCKED_UNRESOLVED_  |
-|                        |                                    |  SOURCE_DEPENDENCY)                       |
+|                        | TJLSynchronizer sync snapshot      | (True -> Pass gate; False -> BLOCKED_     |
+|                        |                                    |  UNRESOLVED; Missing -> UNKNOWN_AUTHORITY)|
 +------------------------+------------------------------------+-------------------------------------------+
 | Physical Level Usage   | Upstream Usage Ledger              | UsageEvidenceStatus                       |
-|                        | StableLevelId physical persistence | (UNUSED -> Match; UNKNOWN -> UNKNOWN_    |
+|                        | StableLevelId physical persistence | (UNUSED -> Pass gate; UNKNOWN -> UNKNOWN_ |
 |                        |                                    |  USAGE; USED -> STALE_EVIDENCE)           |
 +------------------------+------------------------------------+-------------------------------------------+
 | Feed Coverage          | Offline Data Audit Certificate     | CoverageStatus                            |
-|                        | ProposedFeedCoverageRecord         | (COMPLETE -> Match; INCOMPLETE/UNCERTAIN  |
-|                        | (Extent + Knowledge Availability)  |  -> INCOMPLETE_COVERAGE)                  |
+|                        | ProposedFeedCoverageRecord         | (COMPLETE -> Pass gate; INCOMPLETE or     |
+|                        | (Extent + Knowledge Availability)  |  UNCERTAIN -> INCOMPLETE_COVERAGE)        |
 +------------------------+------------------------------------+-------------------------------------------+
 | Touch Ordering         | ExactPricePrint stream             | SequenceDomain + integer sequence_ref     |
 |                        | ActivationEngine.process_event()   | (Equal time tie-breaking: seq_conf > seq) |
@@ -234,9 +273,10 @@ The inventory catalogs 34 discrete cases across 4 categories:
 |                        |                                    |  bar_status == "CONFIRMED_COMPLETED")     |
 +------------------------+------------------------------------+-------------------------------------------+
 | Evaluation Boundary    | Caller Point-in-Time Request       | MatchingContext.evaluation_time (T_eval)  |
-|                        | Point-in-time temporal visibility  | (availability_time <= T_eval gating)      |
+|                        | Point-in-time temporal visibility  | (available_time <= T_eval gating)         |
 +------------------------+------------------------------------+-------------------------------------------+
 ```
+*(Note: Passing an individual gate is a necessary precondition; Candidate matching requires all authority gates to pass simultaneously).*
 
 ---
 
