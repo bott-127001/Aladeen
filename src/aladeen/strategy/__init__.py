@@ -119,6 +119,7 @@ from .confirmation_types import (
     parse_candidate_setup_key,
 )
 from .confirmation_adapters import (
+    ValidatedCandleStreamEnvelope,
     adapt_confirmed_choch_to_evidence,
     adapt_confirmed_iss_to_evidence,
 )
@@ -230,6 +231,7 @@ __all__ = [
     "TouchSequenceEvidence",
     "format_candidate_setup_key",
     "parse_candidate_setup_key",
+    "ValidatedCandleStreamEnvelope",
     "adapt_confirmed_choch_to_evidence",
     "adapt_confirmed_iss_to_evidence",
     "ConfirmationMatcher",

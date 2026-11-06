@@ -77,6 +77,8 @@ class ConfirmationRejectionReason(str, Enum):
     MISSING_CONFIRMING_CANDLE_AUTHORITY = "MISSING_CONFIRMING_CANDLE_AUTHORITY"
     CANDLE_EVENT_DISAGREEMENT = "CANDLE_EVENT_DISAGREEMENT"
     MISSING_STRUCTURAL_PROVENANCE = "MISSING_STRUCTURAL_PROVENANCE"
+    MISSING_TOUCH_EVIDENCE = "MISSING_TOUCH_EVIDENCE"
+    UNKNOWN_SOURCE_RESOLUTION_AUTHORITY = "UNKNOWN_SOURCE_RESOLUTION_AUTHORITY"
 
 
 def format_length_prefixed(val: str) -> str:
@@ -269,6 +271,7 @@ class CandidateSetupRecord:
     is_consolidated: bool
     timeframe_rank: int  # M1=1, M5=2, H1=3
     role_rank: int       # TJL2_A_PLUS=1, TJL1=2
+    provenance_type: EvidenceProvenanceType = EvidenceProvenanceType.DETECTOR_CONFIRMED
 
     def __post_init__(self) -> None:
         if not isinstance(self.candidate_id, str) or not self.candidate_id.strip():
@@ -287,6 +290,8 @@ class CandidateSetupRecord:
             raise ValueError(f"timeframe_rank must be 1, 2, or 3, got {self.timeframe_rank}")
         if self.role_rank not in (1, 2):
             raise ValueError(f"role_rank must be 1 or 2, got {self.role_rank}")
+        if not isinstance(self.provenance_type, EvidenceProvenanceType):
+            raise TypeError(f"provenance_type must be EvidenceProvenanceType enum, got {type(self.provenance_type).__name__}")
         if not isinstance(self.confirmation_event_ids, tuple):
             object.__setattr__(self, "confirmation_event_ids", tuple(self.confirmation_event_ids))
         if not isinstance(self.confirmation_patterns, tuple):

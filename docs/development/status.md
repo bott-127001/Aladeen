@@ -2570,3 +2570,25 @@ Last Updated: 2026-11-06 (Milestone 29 Release-Readiness Audit & Offline Runbook
   - Strategy engines (msm_engine.py, choch_detector.py, iss_engine.py, 	jl_coordinator.py, ctivation_engine.py, ctivation_adapter.py) remain 100% untouched (0 diff against 3f6689c194c95ca3761833f8831bb8a3f5b4740d).
   - Zero live MT5 trading, zero UI order execution, zero arbitration, zero usage writes, zero automated trading.
   - Dedicated branch: eature/confirmation-monitor. Never merge into main.
+
+
+---
+
+## 41. Milestone 31 — Offline Confirmation Matcher Authority, Setup Identity & Stream Envelope Hardening (HANDOFF-095)
+- **Active Branch**: `feature/confirmation-monitor`
+- **Parent Commit**: `94186eeda5000e7ae85cdada08a5d592b0515ac8` (HANDOFF-094)
+- **Defects Addressed in HANDOFF-095 (Review Directives 1–6)**:
+  1. *Permit REARMED_PENDING in State Gate*: Restored both `PENDING_ACTIVATION` and `REARMED_PENDING` in the activation matcher state gate (`confirmation_pair_matcher.py`), recognizing that Milestone 30 permits both as active activation states. Verified with executed rearm lifecycle integration against `ActivationEngine` (Gen 1 touch -> commit cancel -> depart -> retouch Gen 2 -> stale evidence rejected -> fresh evidence matches).
+  2. *Setup-Stable Candidate Identity Independent of Pattern Arrival*: Candidate ID is derived strictly from setup key: `f"CAND[{len(setup_key)}:{setup_key}]"`, invariant to whether CHOCH or ISS arrives first or which pattern is present. Coalesces identical duplicate activations before pairing and rejects conflicting duplicate activations fail-closed as `CONFLICTING_IDENTITY`.
+  3. *Symmetric Candle Stream Envelope Binding*: Both CHOCH and ISS completed detector evidence require an authoritative confirming candle and `ValidatedCandleStreamEnvelope` binding candle, symbol, feed_id, timeframe, price_basis, confirmation_config_id, and confirmation_candle_id. Neither may bypass candle verification using bare float close prices. Contradictory envelope parameters reject fail-closed.
+  4. *Guarded Activation Touch Provenance*: Validates `activation.first_touch_time is not None` and non-empty `activation.trigger_observation_id` before performing time comparisons. Emits `MISSING_TOUCH_EVIDENCE` without throwing `TypeError`.
+  5. *Explicit Source Resolution Authority & Provenance Preservation*: `MatchingContext` carries explicit source resolution authority via `source_resolution_status: Mapping[str, bool]` for every evaluated member. Evaluated activations under missing resolution authority fail closed with `UNKNOWN_SOURCE_RESOLUTION_AUTHORITY`. Synthetic evidence preserves `SYNTHETIC_TYPED` provenance through consolidation into `CandidateSetupRecord`.
+  6. *Full Input Permutation Invariance*: Added exhaustive permutation tests across both activations and evidences with duplicate and conflicting records, confirming identical deterministic outputs regardless of arrival order.
+- **Verification Summary**:
+  - Focused confirmation matcher test suite: **54/54 passed in 0.65s** (`pytest tests/test_confirmation_matcher.py -v`).
+  - Full offline repository test suite: **629/629 passed in 7.78s** (`pytest tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py --ignore=tests/test_activation_browser_controlled.py --ignore=tests/activation_browser_runner.py --ignore=tests/activation_browser_harness.py --ignore=tests/test_browser_race_controlled.py --ignore=tests/test_choch_browser_verification.py --ignore=tests/browser_check.py`).
+- **Safety Boundary Maintained**:
+  - Pure offline calculation layer only.
+  - Strategy engines (`msm_engine.py`, `choch_detector.py`, `iss_engine.py`, `tjl_coordinator.py`, `activation_engine.py`, `activation_adapter.py`) remain 100% untouched (0 diff against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`).
+  - Zero live MT5 trading, zero UI order execution, zero arbitration, zero usage writes, zero automated trading.
+  - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.

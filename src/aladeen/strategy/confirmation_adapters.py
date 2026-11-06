@@ -10,7 +10,7 @@ Scope & Design Boundary:
   * Structural dependency references are captured as explicit, auditable provenance references without placeholders.
 - Authoritative candle-stream and configuration validation:
   * For completed detector evidence, validating candle identity, index, open_time, close_time, duration,
-    and exact completion close price against authoritative candle stream.
+    and exact completion close price against authoritative candle stream for both CHOCH and ISS.
   * Preserves unknown completion time as close_timestamp=None and is_completed=False without substitutions.
   * Zero wall-clock dependence: zero datetime.now() calls.
 - Strictly read-only calculation logic. Zero order execution, zero network access.
@@ -18,6 +18,7 @@ Scope & Design Boundary:
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, List, Optional, Sequence, Tuple
 
@@ -34,6 +35,34 @@ TIMEFRAME_DURATION_MAP = {
 }
 
 
+@dataclass(frozen=True)
+class ValidatedCandleStreamEnvelope:
+    """Explicit immutable validated candle-stream and configuration binding."""
+    candle: StrategyCandle
+    symbol: str
+    feed_id: str
+    timeframe: str
+    price_basis: PriceBasis
+    confirmation_config_id: str
+    confirmation_candle_id: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.candle, StrategyCandle):
+            raise TypeError("candle must be StrategyCandle instance")
+        if not isinstance(self.symbol, str) or not self.symbol.strip():
+            raise ValueError("symbol must be non-empty string")
+        if not isinstance(self.feed_id, str) or not self.feed_id.strip():
+            raise ValueError("feed_id must be non-empty string")
+        if not isinstance(self.timeframe, str) or not self.timeframe.strip():
+            raise ValueError("timeframe must be non-empty string")
+        if not isinstance(self.price_basis, PriceBasis):
+            raise TypeError("price_basis must be PriceBasis enum")
+        if not isinstance(self.confirmation_config_id, str) or not self.confirmation_config_id.strip():
+            raise ValueError("confirmation_config_id must be non-empty string")
+        if not isinstance(self.confirmation_candle_id, str) or not self.confirmation_candle_id.strip():
+            raise ValueError("confirmation_candle_id must be non-empty string")
+
+
 def adapt_confirmed_choch_to_evidence(
     choch: ConfirmedChoch,
     confirmation_config_id: str,
@@ -45,6 +74,7 @@ def adapt_confirmed_choch_to_evidence(
     close_price: Optional[float] = None,
     price_basis: PriceBasis = PriceBasis.BID,
     confirming_candle: Optional[StrategyCandle] = None,
+    envelope: Optional[ValidatedCandleStreamEnvelope] = None,
     sequence_ref: Optional[int] = None,
     is_isolated_tracking: bool = False,
     has_unresolved_dependencies: bool = False,
@@ -62,7 +92,7 @@ def adapt_confirmed_choch_to_evidence(
     - Validates required structural dependencies (event_id, broken_level, point_3, c1/c2 indices).
     - Requires authoritative confirming_candle for completed detector-confirmed evidence.
     - Validates candle index, c2 open time, confirmation close time, and timeframe duration.
-    - Rejects conflicting caller close prices fail-closed.
+    - Rejects conflicting caller close prices or envelope contradictions fail-closed.
     """
     if choch.choch_type == ChochType.BULLISH_CHOCH:
         mapped_direction = Direction.UPWARD
@@ -80,6 +110,22 @@ def adapt_confirmed_choch_to_evidence(
         raise ValueError("ConfirmedChoch missing valid point_3 structural dependency")
     if choch.c1_candle_index is None or choch.c1_candle_index < 0 or choch.c2_candle_index is None or choch.c2_candle_index < 0:
         raise ValueError("ConfirmedChoch missing valid c1/c2 candle indices")
+
+    # If stream envelope is provided, validate explicit authority binding
+    if envelope is not None:
+        if envelope.symbol != symbol:
+            raise ValueError(f"Envelope symbol ({envelope.symbol}) contradicts parameter symbol ({symbol})")
+        if envelope.feed_id != feed_id:
+            raise ValueError(f"Envelope feed_id ({envelope.feed_id}) contradicts parameter feed_id ({feed_id})")
+        if envelope.timeframe != confirmation_timeframe:
+            raise ValueError(f"Envelope timeframe ({envelope.timeframe}) contradicts parameter timeframe ({confirmation_timeframe})")
+        if envelope.price_basis != price_basis:
+            raise ValueError(f"Envelope price_basis ({envelope.price_basis.value}) contradicts parameter basis ({price_basis.value})")
+        if envelope.confirmation_config_id != confirmation_config_id:
+            raise ValueError(f"Envelope config ({envelope.confirmation_config_id}) contradicts parameter config ({confirmation_config_id})")
+        if envelope.confirmation_candle_id != confirmation_candle_id:
+            raise ValueError(f"Envelope candle ID ({envelope.confirmation_candle_id}) contradicts parameter candle ID ({confirmation_candle_id})")
+        confirming_candle = envelope.candle
 
     is_completed = True
     close_time = choch.confirmation_time
@@ -179,6 +225,7 @@ def adapt_confirmed_iss_to_evidence(
     close_price: Optional[float] = None,
     price_basis: PriceBasis = PriceBasis.BID,
     confirming_candle: Optional[StrategyCandle] = None,
+    envelope: Optional[ValidatedCandleStreamEnvelope] = None,
     sequence_ref: Optional[int] = None,
     is_isolated_tracking: bool = False,
     has_unresolved_dependencies: bool = False,
@@ -194,6 +241,7 @@ def adapt_confirmed_iss_to_evidence(
 
     Authoritative Candle & Structural Provenance:
     - Validates required structural dependencies (candidate_id, points, boundary, zones).
+    - Requires authoritative confirming_candle for completed detector-confirmed evidence (same standard as CHOCH).
     - Rejects disagreement between candle close and iss.completion_close_price fail-closed.
     - Validates confirmation time, candle index, and timeframe duration.
     """
@@ -213,8 +261,24 @@ def adapt_confirmed_iss_to_evidence(
         raise ValueError("ConfirmedISSEvent missing valid completion_close_price")
     if iss.captured_boundary is None or iss.captured_boundary.min_price >= iss.captured_boundary.max_price:
         raise ValueError("ConfirmedISSEvent missing valid captured_boundary")
-    if not iss.internal_points:
-        raise ValueError("ConfirmedISSEvent missing internal_points structural dependencies")
+    if not iss.internal_points or len(iss.internal_points) != 5:
+        raise ValueError("ConfirmedISSEvent missing valid 5 internal_points structural dependencies")
+
+    # If stream envelope is provided, validate explicit authority binding
+    if envelope is not None:
+        if envelope.symbol != symbol:
+            raise ValueError(f"Envelope symbol ({envelope.symbol}) contradicts parameter symbol ({symbol})")
+        if envelope.feed_id != feed_id:
+            raise ValueError(f"Envelope feed_id ({envelope.feed_id}) contradicts parameter feed_id ({feed_id})")
+        if envelope.timeframe != confirmation_timeframe:
+            raise ValueError(f"Envelope timeframe ({envelope.timeframe}) contradicts parameter timeframe ({confirmation_timeframe})")
+        if envelope.price_basis != price_basis:
+            raise ValueError(f"Envelope price_basis ({envelope.price_basis.value}) contradicts parameter basis ({price_basis.value})")
+        if envelope.confirmation_config_id != confirmation_config_id:
+            raise ValueError(f"Envelope config ({envelope.confirmation_config_id}) contradicts parameter config ({confirmation_config_id})")
+        if envelope.confirmation_candle_id != confirmation_candle_id:
+            raise ValueError(f"Envelope candle ID ({envelope.confirmation_candle_id}) contradicts parameter candle ID ({confirmation_candle_id})")
+        confirming_candle = envelope.candle
 
     is_completed = True
     close_time = iss.confirmation_time
@@ -251,6 +315,9 @@ def adapt_confirmed_iss_to_evidence(
         if close_time is None and not confirming_candle.is_forming and c_close is not None:
             close_time = c_close
     else:
+        # ISS completed detector evidence strictly requires an authoritative confirming candle
+        if provenance_type == EvidenceProvenanceType.DETECTOR_CONFIRMED and close_time is not None:
+            raise ValueError("Completed detector confirmation requires authoritative confirming_candle")
         eff_close_price = iss.completion_close_price
 
     if close_price is not None and close_price != eff_close_price:

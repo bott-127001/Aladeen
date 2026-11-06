@@ -4,16 +4,16 @@ Scope & Design Boundary:
 -------------------------
 - Pure mathematical and domain matching between a single ActivationRecord and ConfirmationEvidenceRecord.
 - Strictly read-only calculation logic.
-- Evaluates 11 strict gating stages:
-  1. Authoritative matching authority & source dependency resolution.
+- Evaluates strict gating stages:
+  1. Authoritative matching context & explicit source resolution authority.
   2. Member eligibility timing and physical level metadata consistency.
   3. Association target gating (explicit activation_id / member_key).
   4. Context gating (feed, symbol, basis, config, sequence domain).
-  5. Provenance & structural dependency validation.
-  6. Activation state gating (PENDING_ACTIVATION).
+  5. Provenance & structural dependency validation (synthetic provenance explicitly labeled).
+  6. Activation state gating (permits PENDING_ACTIVATION and REARMED_PENDING).
   7. Direction mapping gating (UPWARD -> BUY, DOWNWARD -> SELL).
   8. Timeframe mapping gating (D1 -> H1, H4 -> M5, H1 -> M1).
-  9. Causal ordering & evaluation boundary gating.
+  9. Causal ordering & evaluation boundary gating (never compares None touch times).
   10. Coverage gating (COMPLETE).
   11. Usage gating (UNUSED).
 - Zero wall-clock dependence: evaluation derives strictly from MatchingContext.evaluation_time.
@@ -66,7 +66,8 @@ ROLE_RANK_MAP: Mapping[str, int] = {
 class MatchingContext:
     """Authoritative evaluation context for confirmation matching operations.
 
-    Requires explicit authoritative bounds, domain binding, member mapping, and evaluation time.
+    Requires explicit authoritative bounds, domain binding, member mapping, evaluation time,
+    and explicit source resolution status for every evaluated member.
     """
     domain_session_id: str
     revision_id: str
@@ -75,10 +76,9 @@ class MatchingContext:
     matching_sequence_domain: SequenceDomain
     evaluation_time: datetime
     current_members: Mapping[str, SourceMemberReference]
+    source_resolution_status: Mapping[str, bool]
     coverage_status: CoverageStatus = CoverageStatus.COMPLETE
     touch_sequence_evidence: Optional[Mapping[str, TouchSequenceEvidence]] = None
-    source_unresolved_members: FrozenSet[str] = field(default_factory=frozenset)
-    source_unresolved_sets: FrozenSet[str] = field(default_factory=frozenset)
 
     def __post_init__(self) -> None:
         if not isinstance(self.domain_session_id, str) or not self.domain_session_id.strip():
@@ -95,12 +95,10 @@ class MatchingContext:
         object.__setattr__(self, "evaluation_time", norm_time)
         if not isinstance(self.current_members, Mapping):
             raise TypeError("current_members must be a Mapping of member_key -> SourceMemberReference")
+        if not isinstance(self.source_resolution_status, Mapping):
+            raise TypeError("source_resolution_status must be a Mapping of member_key -> bool")
         if not isinstance(self.coverage_status, CoverageStatus):
             raise TypeError("coverage_status must be CoverageStatus enum")
-        if not isinstance(self.source_unresolved_members, frozenset):
-            object.__setattr__(self, "source_unresolved_members", frozenset(self.source_unresolved_members))
-        if not isinstance(self.source_unresolved_sets, frozenset):
-            object.__setattr__(self, "source_unresolved_sets", frozenset(self.source_unresolved_sets))
 
 
 class ConfirmationPairMatcher:
@@ -124,7 +122,19 @@ class ConfirmationPairMatcher:
         rejection_reasons: List[ConfirmationRejectionReason] = []
         diagnostic_messages: List[str] = []
 
-        # 1. Authoritative Membership, Source Unresolved Status & Physical Identity
+        # 0. Activation Touch Provenance Validation (never compare None touch times)
+        has_valid_touch = True
+        if activation.first_touch_time is None:
+            has_valid_touch = False
+            rejection_reasons.append(ConfirmationRejectionReason.MISSING_TOUCH_EVIDENCE)
+            diagnostic_messages.append("Activation lacks valid first_touch_time")
+
+        if not activation.trigger_observation_id or not activation.trigger_observation_id.strip():
+            has_valid_touch = False
+            rejection_reasons.append(ConfirmationRejectionReason.MISSING_TOUCH_EVIDENCE)
+            diagnostic_messages.append("Activation lacks valid trigger_observation_id")
+
+        # 1. Authoritative Membership, Explicit Source Resolution & Physical Identity
         current_member: Optional[SourceMemberReference] = None
         if context.current_members is None:
             rejection_reasons.append(ConfirmationRejectionReason.MISSING_MATCHING_AUTHORITY)
@@ -137,27 +147,30 @@ class ConfirmationPairMatcher:
                     f"Member {activation.member_key} is not registered in current eligible members"
                 )
             else:
-                # Source calculation status check (fail-closed locally)
-                if (
-                    activation.member_key in context.source_unresolved_members
-                    or activation.set_id in context.source_unresolved_sets
-                ):
+                # Explicit source resolution authority check (fail closed if unknown or unresolved)
+                if activation.member_key not in context.source_resolution_status:
+                    rejection_reasons.append(ConfirmationRejectionReason.UNKNOWN_SOURCE_RESOLUTION_AUTHORITY)
+                    diagnostic_messages.append(
+                        f"Member {activation.member_key} lacks explicit source_resolution_status in context"
+                    )
+                elif not context.source_resolution_status[activation.member_key]:
                     rejection_reasons.append(ConfirmationRejectionReason.BLOCKED_UNRESOLVED_SOURCE_DEPENDENCY)
                     diagnostic_messages.append(
-                        f"Source calculation for member {activation.member_key} is unresolved/frozen"
+                        f"Source calculation for member {activation.member_key} is marked unresolved"
                     )
 
-                # Source availability check
+                # Source availability check (guarded by touch existence)
                 if current_member.eligibility_available_time is None:
                     rejection_reasons.append(ConfirmationRejectionReason.UNKNOWN_ELIGIBILITY_AVAILABLE_TIME)
                     diagnostic_messages.append(
                         f"Member {activation.member_key} has unknown eligibility_available_time"
                     )
-                elif activation.first_touch_time < current_member.eligibility_available_time:
-                    rejection_reasons.append(ConfirmationRejectionReason.TOUCH_BEFORE_ELIGIBILITY)
-                    diagnostic_messages.append(
-                        f"Activation first touch {activation.first_touch_time.isoformat()} occurred before member eligibility {current_member.eligibility_available_time.isoformat()}"
-                    )
+                elif has_valid_touch and activation.first_touch_time is not None:
+                    if activation.first_touch_time < current_member.eligibility_available_time:
+                        rejection_reasons.append(ConfirmationRejectionReason.TOUCH_BEFORE_ELIGIBILITY)
+                        diagnostic_messages.append(
+                            f"Activation touch {activation.first_touch_time.isoformat()} occurred before member eligibility {current_member.eligibility_available_time.isoformat()}"
+                        )
 
                 # Consistency check between activation and member
                 if (
@@ -248,11 +261,11 @@ class ConfirmationPairMatcher:
             rejection_reasons.append(ConfirmationRejectionReason.MISSING_STRUCTURAL_PROVENANCE)
             diagnostic_messages.append("Evidence missing structural dependency references")
 
-        # 5. Activation State Gating (Milestone 30 §6.1)
-        if activation.state != ActivationState.PENDING_ACTIVATION:
+        # 5. Activation State Gating (permits PENDING_ACTIVATION and REARMED_PENDING)
+        if activation.state not in (ActivationState.PENDING_ACTIVATION, ActivationState.REARMED_PENDING):
             rejection_reasons.append(ConfirmationRejectionReason.INELIGIBLE_ACTIVATION_STATE)
             diagnostic_messages.append(
-                f"Activation state is {activation.state.value}, expected PENDING_ACTIVATION"
+                f"Activation state is {activation.state.value}, expected PENDING_ACTIVATION or REARMED_PENDING"
             )
 
         # 6. Direction Mapping Gating (Milestone 30 §6.1)
@@ -290,34 +303,35 @@ class ConfirmationPairMatcher:
         if evidence.close_timestamp is None:
             rejection_reasons.append(ConfirmationRejectionReason.INCOMPLETE_EVIDENCE)
             diagnostic_messages.append("Confirmation evidence lacks close_timestamp (incomplete)")
-        elif evidence.close_timestamp < activation.first_touch_time:
-            rejection_reasons.append(ConfirmationRejectionReason.PRE_ACTIVATION_CONFIRMATION)
-            diagnostic_messages.append(
-                f"Confirmation close {evidence.close_timestamp.isoformat()} strictly before activation touch {activation.first_touch_time.isoformat()}"
-            )
-        elif evidence.close_timestamp == activation.first_touch_time:
-            # Timestamp tie: resolve via sequence ordering if available
-            touch_seq: Optional[TouchSequenceEvidence] = None
-            if context.touch_sequence_evidence is not None:
-                touch_seq = context.touch_sequence_evidence.get(activation.activation_id)
-
-            if touch_seq is None or evidence.sequence_ref is None:
-                rejection_reasons.append(ConfirmationRejectionReason.UNKNOWN_ORDER)
+        elif has_valid_touch and activation.first_touch_time is not None:
+            if evidence.close_timestamp < activation.first_touch_time:
+                rejection_reasons.append(ConfirmationRejectionReason.PRE_ACTIVATION_CONFIRMATION)
                 diagnostic_messages.append(
-                    "Timestamp tie at touch time without complete sequence reference ordering"
+                    f"Confirmation close {evidence.close_timestamp.isoformat()} strictly before activation touch {activation.first_touch_time.isoformat()}"
                 )
-            else:
-                if (
-                    touch_seq.sequence_domain != context.matching_sequence_domain
-                    or evidence.sequence_domain != context.matching_sequence_domain
-                ):
-                    rejection_reasons.append(ConfirmationRejectionReason.CROSS_DOMAIN_ORDERING_REJECTED)
-                    diagnostic_messages.append("Sequence comparison rejected: sequence domains do not match context")
-                elif evidence.sequence_ref <= touch_seq.sequence_ref:
-                    rejection_reasons.append(ConfirmationRejectionReason.PRE_ACTIVATION_CONFIRMATION)
+            elif evidence.close_timestamp == activation.first_touch_time:
+                # Timestamp tie: resolve via sequence ordering if available
+                touch_seq: Optional[TouchSequenceEvidence] = None
+                if context.touch_sequence_evidence is not None:
+                    touch_seq = context.touch_sequence_evidence.get(activation.activation_id)
+
+                if touch_seq is None or evidence.sequence_ref is None:
+                    rejection_reasons.append(ConfirmationRejectionReason.UNKNOWN_ORDER)
                     diagnostic_messages.append(
-                        f"Confirmation sequence {evidence.sequence_ref} <= touch sequence {touch_seq.sequence_ref}"
+                        "Timestamp tie at touch time without complete sequence reference ordering"
                     )
+                else:
+                    if (
+                        touch_seq.sequence_domain != context.matching_sequence_domain
+                        or evidence.sequence_domain != context.matching_sequence_domain
+                    ):
+                        rejection_reasons.append(ConfirmationRejectionReason.CROSS_DOMAIN_ORDERING_REJECTED)
+                        diagnostic_messages.append("Sequence comparison rejected: sequence domains do not match context")
+                    elif evidence.sequence_ref <= touch_seq.sequence_ref:
+                        rejection_reasons.append(ConfirmationRejectionReason.PRE_ACTIVATION_CONFIRMATION)
+                        diagnostic_messages.append(
+                            f"Confirmation sequence {evidence.sequence_ref} <= touch sequence {touch_seq.sequence_ref}"
+                        )
 
         # 9. Coverage Gating (Milestone 30 §6.1)
         if context.coverage_status != CoverageStatus.COMPLETE:
@@ -339,6 +353,7 @@ class ConfirmationPairMatcher:
         if (
             ConfirmationRejectionReason.BLOCKED_UNRESOLVED_CONFIRMATION_GAP in rejection_reasons
             or ConfirmationRejectionReason.BLOCKED_UNRESOLVED_SOURCE_DEPENDENCY in rejection_reasons
+            or ConfirmationRejectionReason.UNKNOWN_SOURCE_RESOLUTION_AUTHORITY in rejection_reasons
         ):
             status = ConfirmationMatchStatus.BLOCKED
         elif (
@@ -372,7 +387,8 @@ class ConfirmationPairMatcher:
                 confirmation_candle_id=evidence.confirmation_candle_id,
                 confirmation_close_iso=evidence.close_timestamp.isoformat(),
             )
-            candidate_id = f"CAND[{len(setup_key)}:{setup_key}][{len(evidence.pattern_type)}:{evidence.pattern_type}]"
+            # Setup-stable candidate identifier independent of pattern arrival order
+            candidate_id = f"CAND[{len(setup_key)}:{setup_key}]"
             timeframe_rank = TIMEFRAME_RANK_MAP.get(evidence.confirmation_timeframe, 3)
             role_rank = ROLE_RANK_MAP.get(activation.role, 2)
 
@@ -397,6 +413,7 @@ class ConfirmationPairMatcher:
                 is_consolidated=False,
                 timeframe_rank=timeframe_rank,
                 role_rank=role_rank,
+                provenance_type=evidence.provenance_type,
             )
 
         diag = "; ".join(diagnostic_messages) if diagnostic_messages else None
