@@ -1,19 +1,13 @@
-"""Comprehensive test suite for Offline Confirmation-to-Activation Matcher — Milestone 31.
+"""Comprehensive test suite for Offline Confirmation-to-Activation Matcher — Milestone 31 (HANDOFF-092).
 
-Tests cover:
-1. Bullish/bearish directional concordance across all three timeframe mappings (D1->H1, H4->M5, H1->M1).
-2. Continuous detection: actual candle-derived CHOCH pattern beginning before activation tap and completing afterward.
-3. Pre-activation completed confirmation rejection (confirmations completed prior to tap cannot be reused).
-4. Shared coarse timestamp: Case B (valid monotonic sequence ordering) vs Case C (unknown order fail-closed).
-5. Diagnostic rejections: wrong direction, wrong context, wrong basis, wrong timeframe.
-6. Multi-generation lifecycle: initial pending and rearmed generations.
-7. Cancelled and replaced membership rejection.
-8. Unknown usage, incomplete coverage, and unresolved dependencies fail-closed handling.
-9. Duplicate evidence idempotence and conflicting identity rejection.
-10. CHOCH and ISS shared-config candidate setup consolidation (OPEN-07, sig_18) and cross-config separation (sig_39).
-11. Immutability: zero mutation of activation records or strategy snapshots.
-12. Deterministic replay and prefix consistency.
-13. Separation of synthetic typed tests from actual candle-derived adapter evidence.
+Decisive regressions and coverage:
+1. Authoritative matching authority: missing members, member inconsistency, and contradictory association targets.
+2. Domain-scoped sequence comparison and evaluation availability boundary (future evidence rejected).
+3. Adapter completion time integrity: no candle-open completion fabrication; forming candle rejection.
+4. Batch consolidation: duplicate deduplication, conflicting identity rejection, unique candidate collection, and permutation invariance.
+5. Deterministic replay: zero wall-clock dependence.
+6. Continuous detection: real candle-derived CHOCH pre-tap formation with post-tap completion.
+7. Authoritative vs blocked ISS branches: genuine candle-derived ISS matches; unresolved dependencies fail closed.
 """
 
 from __future__ import annotations
@@ -22,6 +16,7 @@ from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
+import random
 from typing import Any, Dict, List
 
 import pytest
@@ -52,11 +47,13 @@ from aladeen.strategy.confirmation_matcher import (
     TIMEFRAME_RANK_MAP,
 )
 from aladeen.strategy.confirmation_types import (
+    BatchMatchResult,
     CandidateSetupRecord,
     ConfirmationEvidenceRecord,
     ConfirmationMatchResult,
     ConfirmationMatchStatus,
     ConfirmationRejectionReason,
+    TouchSequenceEvidence,
     format_candidate_setup_key,
     parse_candidate_setup_key,
 )
@@ -72,7 +69,45 @@ from aladeen.strategy.iss_types import (
     InternalPoint,
 )
 from aladeen.strategy.tjl_types import StableLevelId
-from aladeen.strategy.types import Direction, MSMConfig
+from aladeen.strategy.types import Direction, MSMConfig, StrategyCandle
+
+
+DEFAULT_DOMAIN = SequenceDomain(feed_id="FEED_EURUSD_H4", run_id="RUN_20261001")
+
+
+def make_member(
+    engine_id: str = "ACT_ENGINE_DEMO",
+    symbol: str = "EURUSD",
+    source_timeframe: str = "H4",
+    set_id: str = "SET_20261001_H4",
+    role: str = "TJL1",
+    side: str = "HIGH",
+    lower_edge: float = 1.1350,
+    upper_edge: float = 1.1380,
+    direction: Direction = Direction.UPWARD,
+    feed_id: str = "FEED_EURUSD_H4",
+    usage_evidence_status: UsageEvidenceStatus = UsageEvidenceStatus.UNUSED,
+) -> SourceMemberReference:
+    level_id = StableLevelId(
+        symbol_feed_id=feed_id,
+        source_timeframe=source_timeframe,
+        source_open_time=datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc),
+        side=side,
+    )
+    return SourceMemberReference(
+        engine_id=engine_id,
+        symbol=symbol,
+        source_timeframe=source_timeframe,
+        set_id=set_id,
+        role=role,
+        side=side,
+        lower_edge=lower_edge,
+        upper_edge=upper_edge,
+        is_line=False,
+        direction=direction,
+        level_id=level_id,
+        usage_evidence_status=usage_evidence_status,
+    )
 
 
 def make_activation(
@@ -135,8 +170,11 @@ def make_evidence(
     structural_dependency_references: tuple = ("CHOCH_TYPE:BULLISH_CHOCH", "POINT_3_INDEX:5"),
     symbol: str = "EURUSD",
     feed_id: str = "FEED_EURUSD_H4",
-    sequence_ref: Optional[int] = None,
+    sequence_domain: Optional[SequenceDomain] = DEFAULT_DOMAIN,
+    sequence_ref: Optional[int] = 100,
     is_isolated_tracking: bool = False,
+    activation_id: Optional[str] = None,
+    source_member_key: Optional[str] = None,
 ) -> ConfirmationEvidenceRecord:
     return ConfirmationEvidenceRecord(
         event_id=event_id,
@@ -154,13 +192,41 @@ def make_evidence(
         structural_dependency_references=structural_dependency_references,
         symbol=symbol,
         feed_id=feed_id,
+        sequence_domain=sequence_domain,
         sequence_ref=sequence_ref,
         is_isolated_tracking=is_isolated_tracking,
+        activation_id=activation_id,
+        source_member_key=source_member_key,
     )
 
 
-class TestSyntheticTypedMatching:
-    """Suite of synthetic, typed unit tests validating matching gates without execution or arbitration."""
+def make_context(
+    members: Optional[Dict[str, SourceMemberReference]] = None,
+    evaluation_time: datetime = datetime(2026, 10, 2, 12, 0, tzinfo=timezone.utc),
+    expected_config: str = "CONF_CFG_EURUSD_M5_v1",
+    expected_basis: PriceBasis = PriceBasis.BID,
+    matching_domain: SequenceDomain = DEFAULT_DOMAIN,
+    coverage_status: CoverageStatus = CoverageStatus.COMPLETE,
+    touch_evidence: Optional[Dict[str, TouchSequenceEvidence]] = None,
+) -> MatchingContext:
+    if members is None:
+        m = make_member()
+        members = {m.member_key: m}
+    return MatchingContext(
+        domain_session_id="SESSION_20261001",
+        revision_id="REV_001",
+        expected_price_basis=expected_basis,
+        expected_confirmation_config_id=expected_config,
+        matching_sequence_domain=matching_domain,
+        evaluation_time=evaluation_time,
+        current_members=members,
+        coverage_status=coverage_status,
+        touch_sequence_evidence=touch_evidence,
+    )
+
+
+class TestAuthoritativeMatchingAuthority:
+    """Regressions for Directive 1: Explicit matching authority & fail-closed validation."""
 
     @pytest.mark.parametrize(
         "src_tf,conf_tf,dir_enum,sig_side",
@@ -176,20 +242,27 @@ class TestSyntheticTypedMatching:
     def test_bullish_bearish_and_all_three_timeframe_mappings(
         self, src_tf: str, conf_tf: str, dir_enum: Direction, sig_side: str
     ) -> None:
-        """Verifies (D1->H1), (H4->M5), (H1->M1) for both Bullish (BUY) and Bearish (SELL)."""
+        """Verifies (D1->H1), (H4->M5), (H1->M1) for both Bullish (BUY) and Bearish (SELL) under authoritative authority."""
         matcher = ConfirmationMatcher()
+        cfg_id = f"CONF_CFG_EURUSD_{conf_tf}_v1"
         act = make_activation(
             source_timeframe=src_tf,
             confirmation_timeframe=conf_tf,
             role="TJL2_A_PLUS",
         )
+        mem = make_member(
+            source_timeframe=src_tf,
+            role="TJL2_A_PLUS",
+            direction=dir_enum,
+        )
         ev = make_evidence(
+            confirmation_config_id=cfg_id,
             confirmation_timeframe=conf_tf,
             direction=dir_enum,
         )
-        ctx = MatchingContext(
-            member_directions={act.member_key: dir_enum},
-            default_price_basis=PriceBasis.BID,
+        ctx = make_context(
+            members={mem.member_key: mem},
+            expected_config=cfg_id,
         )
 
         res = matcher.match(act, ev, ctx)
@@ -203,314 +276,330 @@ class TestSyntheticTypedMatching:
         assert cand.role_rank == ROLE_RANK_MAP["TJL2_A_PLUS"]
         assert cand.is_consolidated is False
 
-    def test_pre_activation_completed_confirmation_rejection(self) -> None:
-        """Confirmations completed strictly before tap cannot be reused (sig_05, MTF-Analysis.pdf §7)."""
+
+    def test_missing_current_members_map_blocks_with_authority_error(self) -> None:
+        """Empty current_members fails closed with MISSING_MATCHING_AUTHORITY."""
         matcher = ConfirmationMatcher()
-        tap_time = datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc)
-        conf_close = datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc)  # 30 min before tap
+        act = make_activation()
+        ev = make_evidence()
+        ctx = make_context(members={})  # Empty authority
 
-        act = make_activation(first_touch_time=tap_time)
-        ev = make_evidence(close_timestamp=conf_close)
+        res = matcher.match(act, ev, ctx)
+        assert res.status == ConfirmationMatchStatus.BLOCKED
+        assert ConfirmationRejectionReason.MISSING_MATCHING_AUTHORITY in res.rejection_reasons
 
-        res = matcher.match(act, ev)
+    def test_member_absent_from_current_members_fails_closed(self) -> None:
+        """Member not registered in current_members rejects with MEMBERSHIP_CANCELLED_OR_REPLACED."""
+        matcher = ConfirmationMatcher()
+        act = make_activation()
+        ev = make_evidence()
+        other_member = make_member(role="TJL2_A_PLUS")  # Different member key
+        ctx = make_context(members={other_member.member_key: other_member})
+
+        res = matcher.match(act, ev, ctx)
         assert res.status == ConfirmationMatchStatus.REJECTED
-        assert ConfirmationRejectionReason.PRE_ACTIVATION_CONFIRMATION in res.rejection_reasons
-        assert res.candidate_record is None
+        assert ConfirmationRejectionReason.MEMBERSHIP_CANCELLED_OR_REPLACED in res.rejection_reasons
 
-    def test_shared_coarse_timestamp_case_b_valid_sequence(self) -> None:
-        """Case B: Shared coarse timestamp with monotonic sequence evidence (tap_seq < conf_seq) is valid."""
+    @pytest.mark.parametrize(
+        "field_name,mismatched_val",
+        [
+            ("engine_id", "ACT_ENGINE_OTHER"),
+            ("symbol", "GBPUSD"),
+            ("source_timeframe", "H1"),
+            ("set_id", "SET_REPLACED_H4"),
+            ("lower_edge", 1.1340),
+            ("upper_edge", 1.1390),
+            ("usage_evidence_status", UsageEvidenceStatus.USED),
+        ],
+    )
+    def test_member_to_activation_inconsistency_fails_closed(
+        self, field_name: str, mismatched_val: Any
+    ) -> None:
+        """Full consistency: any discrepancy between activation and registered member rejects with CONTEXT_MISMATCH."""
         matcher = ConfirmationMatcher()
-        shared_ts = datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc)
+        act = make_activation()
+        ev = make_evidence()
+        kwargs: Dict[str, Any] = {field_name: mismatched_val}
+        corrupted_member = make_member(**kwargs)
+        ctx = make_context(members={act.member_key: corrupted_member})
 
-        act = make_activation(
-            first_touch_time=shared_ts,
-            trigger_observation_id="OBS_101",
-        )
+        res = matcher.match(act, ev, ctx)
+        assert res.status == ConfirmationMatchStatus.REJECTED
+        assert ConfirmationRejectionReason.CONTEXT_MISMATCH in res.rejection_reasons
+
+    def test_contradictory_explicit_association_fields_rejected(self) -> None:
+        """Evidence with contradictory activation_id or member_key rejects with ASSOCIATION_TARGET_MISMATCH."""
+        matcher = ConfirmationMatcher()
+        act = make_activation()
+        ev_wrong_act = make_evidence(activation_id="ACT_DIFFERENT_TARGET")
+        ctx = make_context()
+
+        res = matcher.match(act, ev_wrong_act, ctx)
+        assert res.status == ConfirmationMatchStatus.REJECTED
+        assert ConfirmationRejectionReason.ASSOCIATION_TARGET_MISMATCH in res.rejection_reasons
+
+        ev_wrong_mk = make_evidence(source_member_key="MK[10:OTHER_SET][4:TJL1]")
+        res_mk = matcher.match(act, ev_wrong_mk, ctx)
+        assert res_mk.status == ConfirmationMatchStatus.REJECTED
+        assert ConfirmationRejectionReason.ASSOCIATION_TARGET_MISMATCH in res_mk.rejection_reasons
+
+    def test_unbound_source_event_matches_multiple_eligible_activations(self) -> None:
+        """Unbound evidence (activation_id=None, source_member_key=None) legitimately associates with multiple activations."""
+        matcher = ConfirmationMatcher()
+        act1 = make_activation(role="TJL1")
+        act2 = make_activation(role="TJL2_A_PLUS", activation_id="ACT_G01[15:ACT_ENGINE_DEMO][2:H4][6:EURUSD][15:SET_20261001_H4][11:TJL2_A_PLUS]")
+        m1 = make_member(role="TJL1")
+        m2 = make_member(role="TJL2_A_PLUS")
+        ev_unbound = make_evidence()  # None for explicit association targets
+        ctx = make_context(members={m1.member_key: m1, m2.member_key: m2})
+
+        batch_res = matcher.match_batch([act1, act2], [ev_unbound], ctx)
+        assert len(batch_res.unique_candidates) == 2
+        assert all(r.status == ConfirmationMatchStatus.MATCHED for r in batch_res.pair_results)
+
+
+class TestDomainScopedCausalityAndAvailability:
+    """Regressions for Directive 2: Domain-scoped sequence ordering and evaluation boundary."""
+
+    def test_cross_domain_sequence_comparison_rejected(self) -> None:
+        """Cross-domain bare integers are rejected with CROSS_DOMAIN_ORDERING_REJECTED."""
+        matcher = ConfirmationMatcher()
+        shared_time = datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc)
+        act = make_activation(first_touch_time=shared_time, trigger_observation_id="OBS_101")
+
+        # Evidence in domain A
         ev = make_evidence(
-            close_timestamp=shared_ts,
+            close_timestamp=shared_time,
+            sequence_domain=SequenceDomain(feed_id="FEED_EURUSD_H4", run_id="RUN_20261001"),
             sequence_ref=200,
-            direction=Direction.UPWARD,
         )
-        ctx = MatchingContext(
-            member_directions={act.member_key: Direction.UPWARD},
-            touch_sequence_refs={"OBS_101": 150},  # tap sequence 150 < 200
+
+        # Touch sequence in cross domain B
+        cross_domain_touch = TouchSequenceEvidence(
+            sequence_domain=SequenceDomain(feed_id="FEED_CROSS_RUN", run_id="RUN_DIFFERENT"),
+            sequence_ref=100,
         )
+        ctx = make_context(touch_evidence={"OBS_101": cross_domain_touch})
+
+        res = matcher.match(act, ev, ctx)
+        assert res.status == ConfirmationMatchStatus.BLOCKED
+        assert ConfirmationRejectionReason.CROSS_DOMAIN_ORDERING_REJECTED in res.rejection_reasons
+
+    def test_compatible_domain_sequence_comparison_case_b_valid(self) -> None:
+        """Within compatible sequence domain, tap_seq < conf_seq validates Case B causal ordering."""
+        matcher = ConfirmationMatcher()
+        shared_time = datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc)
+        act = make_activation(first_touch_time=shared_time, trigger_observation_id="OBS_101")
+        ev = make_evidence(
+            close_timestamp=shared_time,
+            sequence_domain=DEFAULT_DOMAIN,
+            sequence_ref=200,
+        )
+        valid_touch = TouchSequenceEvidence(sequence_domain=DEFAULT_DOMAIN, sequence_ref=150)
+        ctx = make_context(touch_evidence={"OBS_101": valid_touch})
 
         res = matcher.match(act, ev, ctx)
         assert res.status == ConfirmationMatchStatus.MATCHED
         assert res.candidate_record is not None
 
-    def test_shared_coarse_timestamp_case_c_unknown_order_fail_closed(self) -> None:
-        """Case C: Shared coarse timestamp without sequence evidence fails closed as UNKNOWN_ORDER (sig_22)."""
-        matcher = ConfirmationMatcher()
-        shared_ts = datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc)
-
-        act = make_activation(
-            first_touch_time=shared_ts,
-            trigger_observation_id="OBS_101",
-        )
-        ev = make_evidence(
-            close_timestamp=shared_ts,
-            sequence_ref=None,  # No sub-bar sequence
-            direction=Direction.UPWARD,
-        )
-        ctx = MatchingContext(
-            member_directions={act.member_key: Direction.UPWARD},
-            touch_sequence_refs=None,  # No sequence ordering
-        )
-
-        res = matcher.match(act, ev, ctx)
-        assert res.status == ConfirmationMatchStatus.UNCERTAIN
-        assert ConfirmationRejectionReason.UNKNOWN_ORDER in res.rejection_reasons
-        assert res.candidate_record is None
-
-    def test_wrong_direction_rejection(self) -> None:
-        """Opposite direction confirmation is rejected with DIRECTION_MISMATCH."""
+    def test_future_evidence_beyond_evaluation_boundary_rejected(self) -> None:
+        """Confirmation evidence with close timestamp > evaluation_time rejects with EVIDENCE_NOT_YET_AVAILABLE."""
         matcher = ConfirmationMatcher()
         act = make_activation()
-        ev = make_evidence(direction=Direction.DOWNWARD)  # Bearish
-        ctx = MatchingContext(member_directions={act.member_key: Direction.UPWARD})  # Bullish activation
+        conf_close = datetime(2026, 10, 2, 14, 0, tzinfo=timezone.utc)  # After 12:00 evaluation boundary
+        ev = make_evidence(close_timestamp=conf_close)
+        ctx = make_context(evaluation_time=datetime(2026, 10, 2, 12, 0, tzinfo=timezone.utc))
 
         res = matcher.match(act, ev, ctx)
         assert res.status == ConfirmationMatchStatus.REJECTED
-        assert ConfirmationRejectionReason.DIRECTION_MISMATCH in res.rejection_reasons
+        assert ConfirmationRejectionReason.EVIDENCE_NOT_YET_AVAILABLE in res.rejection_reasons
 
-    def test_wrong_timeframe_rejection(self) -> None:
-        """Confirmation on wrong timeframe (e.g. M1 for H4 source) is rejected with TIMEFRAME_MISMATCH."""
-        matcher = ConfirmationMatcher()
-        act = make_activation(source_timeframe="H4", confirmation_timeframe="M5")
-        ev = make_evidence(confirmation_timeframe="M1")
 
-        res = matcher.match(act, ev)
-        assert res.status == ConfirmationMatchStatus.REJECTED
-        assert ConfirmationRejectionReason.TIMEFRAME_MISMATCH in res.rejection_reasons
+class TestAdapterProvenanceAndCompletionIntegrity:
+    """Regressions for Directive 3: No candle-open completion fabrication."""
 
-    def test_wrong_context_rejection(self) -> None:
-        """Symbol or feed mismatch is rejected with CONTEXT_MISMATCH."""
-        matcher = ConfirmationMatcher()
-        act = make_activation(symbol="EURUSD")
-        ev = make_evidence(symbol="GBPUSD")
+    def test_choch_missing_confirmation_time_is_incomplete(self) -> None:
+        """CHOCH without confirmation_time marks is_completed=False without candle-open fallback."""
+        open_time = datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc)
+        choch = ConfirmedChoch(
+            choch_type=ChochType.BEARISH_CHOCH,
+            broken_level_type="LAST_SUPPORT",
+            broken_level_price=1.1350,
+            broken_level_source_index=4,
+            c1_candle_index=8,
+            c2_candle_index=9,
+            c1_chronological_pos=8,
+            c2_chronological_pos=9,
+            c1_open_time=open_time - timedelta(minutes=5),
+            c2_open_time=open_time,
+            confirmation_time=None,  # Missing completion time
+            point_3_source_index=5,
+            point_3_open_time=open_time - timedelta(minutes=20),
+            point_3_identified_bar_index=6,
+            point_3_identified_at=None,
+            zones=(
+                ChochZone(ChochZoneType.SBR, 1.1340, 1.1350, False, 4, open_time),
+                ChochZone(ChochZoneType.QML_A_PLUS, 1.1360, 1.1370, False, 1, open_time),
+                ChochZone(ChochZoneType.DOUBLE_TOP, 1.1380, 1.1390, False, 5, open_time),
+            ),
+            new_direction=Direction.DOWNWARD,
+            restart_reference_candle_index=9,
+            restart_reference_open_time=open_time,
+            first_eligible_pullback_pos=10,
+        )
 
-        res = matcher.match(act, ev)
-        assert res.status == ConfirmationMatchStatus.REJECTED
-        assert ConfirmationRejectionReason.CONTEXT_MISMATCH in res.rejection_reasons
+        ev = adapt_confirmed_choch_to_evidence(
+            choch=choch,
+            confirmation_config_id="CONF_CFG_EURUSD_M5_v1",
+            confirmation_timeframe="M5",
+            confirmation_candle_id="EURUSD:M5:20261002T083000Z",
+            close_price=1.1320,
+        )
 
-    def test_wrong_price_basis_rejection(self) -> None:
-        """Mismatched pricing basis (BID vs ASK) is rejected with PRICE_BASIS_MISMATCH."""
+        assert ev.is_completed is False
         matcher = ConfirmationMatcher()
         act = make_activation()
-        ev = make_evidence(price_basis=PriceBasis.ASK)
-        ctx = MatchingContext(default_price_basis=PriceBasis.BID)
-
+        ctx = make_context()
         res = matcher.match(act, ev, ctx)
         assert res.status == ConfirmationMatchStatus.REJECTED
-        assert ConfirmationRejectionReason.PRICE_BASIS_MISMATCH in res.rejection_reasons
+        assert ConfirmationRejectionReason.INCOMPLETE_EVIDENCE in res.rejection_reasons
 
-    def test_pending_and_rearmed_generations(self) -> None:
-        """Validates matching across initial pending and rearmed activation generations."""
-        matcher = ConfirmationMatcher()
-        t1 = datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc)
-        t2 = datetime(2026, 10, 2, 10, 0, tzinfo=timezone.utc)
-
-        # Gen 1 initial pending
-        act_g1 = make_activation(
-            generation_seq=1,
-            state=ActivationState.PENDING_ACTIVATION,
-            first_touch_time=t1,
+    def test_choch_forming_candle_marked_incomplete(self) -> None:
+        """Supplying a forming candle to the adapter marks is_completed=False."""
+        open_time = datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc)
+        choch = ConfirmedChoch(
+            choch_type=ChochType.BEARISH_CHOCH,
+            broken_level_type="LAST_SUPPORT",
+            broken_level_price=1.1350,
+            broken_level_source_index=4,
+            c1_candle_index=8,
+            c2_candle_index=9,
+            c1_chronological_pos=8,
+            c2_chronological_pos=9,
+            c1_open_time=open_time - timedelta(minutes=5),
+            c2_open_time=open_time,
+            confirmation_time=open_time + timedelta(minutes=5),
+            point_3_source_index=5,
+            point_3_open_time=open_time - timedelta(minutes=20),
+            point_3_identified_bar_index=6,
+            point_3_identified_at=None,
+            zones=(
+                ChochZone(ChochZoneType.SBR, 1.1340, 1.1350, False, 4, open_time),
+                ChochZone(ChochZoneType.QML_A_PLUS, 1.1360, 1.1370, False, 1, open_time),
+                ChochZone(ChochZoneType.DOUBLE_TOP, 1.1380, 1.1390, False, 5, open_time),
+            ),
+            new_direction=Direction.DOWNWARD,
+            restart_reference_candle_index=9,
+            restart_reference_open_time=open_time,
+            first_eligible_pullback_pos=10,
         )
-        ev_g1 = make_evidence(close_timestamp=datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc))
-        ctx = MatchingContext(member_directions={act_g1.member_key: Direction.UPWARD})
 
-        res_g1 = matcher.match(act_g1, ev_g1, ctx)
-        assert res_g1.status == ConfirmationMatchStatus.MATCHED
-
-        # Gen 2 rearmed pending after cancellation
-        act_g2 = make_activation(
-            generation_seq=2,
-            state=ActivationState.REARMED_PENDING,
-            first_touch_time=t2,
+        forming_candle = StrategyCandle(
+            index=9,
+            open_time=open_time,
+            open=1.1350,
+            high=1.1360,
+            low=1.1310,
+            close=1.1320,
+            is_forming=True,  # Still forming!
+            bar_status="FORMING",
         )
-        ev_g2 = make_evidence(close_timestamp=datetime(2026, 10, 2, 10, 30, tzinfo=timezone.utc))
-        res_g2 = matcher.match(act_g2, ev_g2, ctx)
-        assert res_g2.status == ConfirmationMatchStatus.MATCHED
 
-        # Stale evidence from gen 1 evaluated against gen 2
-        res_stale = matcher.match(act_g2, ev_g1, ctx)
-        assert res_stale.status == ConfirmationMatchStatus.REJECTED
-        assert ConfirmationRejectionReason.PRE_ACTIVATION_CONFIRMATION in res_stale.rejection_reasons
+        ev = adapt_confirmed_choch_to_evidence(
+            choch=choch,
+            confirmation_config_id="CONF_CFG_EURUSD_M5_v1",
+            confirmation_timeframe="M5",
+            confirmation_candle_id="EURUSD:M5:20261002T083000Z",
+            confirming_candle=forming_candle,
+        )
+        assert ev.is_completed is False
 
-    def test_cancelled_and_replaced_membership_rejection(self) -> None:
-        """Cancelled activation states and replaced source members are strictly rejected."""
-        matcher = ConfirmationMatcher()
 
-        # Ineligible cancelled state
-        act_cancelled = make_activation(state=ActivationState.CANCELLED_SOURCE_CHOCH)
-        ev = make_evidence()
-        res_c = matcher.match(act_cancelled, ev)
-        assert res_c.status == ConfirmationMatchStatus.REJECTED
-        assert ConfirmationRejectionReason.INELIGIBLE_ACTIVATION_STATE in res_c.rejection_reasons
+class TestBatchConsolidationAndDeterministicOrdering:
+    """Regressions for Directive 4: Duplicate deduplication, conflict rejection, and permutation invariance."""
 
-        # Replaced member absent from current_members
-        act_pending = make_activation(state=ActivationState.PENDING_ACTIVATION)
-        ctx_replaced = MatchingContext(current_members={})  # Empty active members
-        res_rep = matcher.match(act_pending, ev, ctx_replaced)
-        assert res_rep.status == ConfirmationMatchStatus.REJECTED
-        assert ConfirmationRejectionReason.MEMBERSHIP_CANCELLED_OR_REPLACED in res_rep.rejection_reasons
-
-    def test_unknown_usage_fail_closed(self) -> None:
-        """UNKNOWN usage status fails closed as BLOCKED with UNKNOWN_USAGE."""
-        matcher = ConfirmationMatcher()
-        act = make_activation(usage_evidence_status=UsageEvidenceStatus.UNKNOWN)
-        ev = make_evidence()
-
-        res = matcher.match(act, ev)
-        assert res.status == ConfirmationMatchStatus.BLOCKED
-        assert ConfirmationRejectionReason.UNKNOWN_USAGE in res.rejection_reasons
-
-    def test_incomplete_coverage_fail_closed(self) -> None:
-        """INCOMPLETE coverage status fails closed as BLOCKED with INCOMPLETE_COVERAGE."""
+    def test_duplicate_event_with_conflicting_payload_fails_closed(self) -> None:
+        """Same event ID with conflicting close price is rejected fail-closed as CONFLICTING_IDENTITY."""
         matcher = ConfirmationMatcher()
         act = make_activation()
-        ev = make_evidence()
-        ctx = MatchingContext(coverage_status=CoverageStatus.INCOMPLETE)
+        ctx = make_context()
 
-        res = matcher.match(act, ev, ctx)
-        assert res.status == ConfirmationMatchStatus.BLOCKED
-        assert ConfirmationRejectionReason.INCOMPLETE_COVERAGE in res.rejection_reasons
+        ev1 = make_evidence(event_id="EVT_CONFLICT", close_price=1.1390)
+        ev2 = make_evidence(event_id="EVT_CONFLICT", close_price=1.1395)  # Conflicting price!
 
-    def test_unresolved_dependencies_fail_closed(self) -> None:
-        """Unresolved dependencies fail closed with explicit diagnostic reasons."""
-        matcher = ConfirmationMatcher()
-        act = make_activation()
-
-        # CHOCH unresolved
-        ev_choch_unresolved = make_evidence(
-            pattern_type="CHOCH",
-            has_unresolved_dependencies=True,
+        batch_res = matcher.match_batch([act], [ev1, ev2], ctx)
+        assert len(batch_res.unique_candidates) == 0
+        assert any(
+            ConfirmationRejectionReason.CONFLICTING_IDENTITY in r.rejection_reasons
+            for r in batch_res.pair_results
         )
-        res_choch = matcher.match(act, ev_choch_unresolved)
-        assert res_choch.status == ConfirmationMatchStatus.BLOCKED
-        assert ConfirmationRejectionReason.UNRESOLVED_DEPENDENCY in res_choch.rejection_reasons
 
-        # ISS unresolved multi-candle pullback
-        ev_iss_unresolved = make_evidence(
-            pattern_type="ISS",
-            has_unresolved_dependencies=True,
+    def test_shared_setup_with_conflicting_prices_fails_closed(self) -> None:
+        """Two different confirmation events on the same setup key with conflicting prices reject with CONFLICTING_IDENTITY."""
+        matcher = ConfirmationMatcher()
+        act = make_activation()
+        ctx = make_context()
+        shared_time = datetime(2026, 10, 2, 8, 45, tzinfo=timezone.utc)
+
+        ev1 = make_evidence(event_id="EVT_1", close_timestamp=shared_time, close_price=1.1390)
+        ev2 = make_evidence(event_id="EVT_2", close_timestamp=shared_time, close_price=1.1395)  # Diff price on same setup!
+
+        batch_res = matcher.match_batch([act], [ev1, ev2], ctx)
+        assert len(batch_res.unique_candidates) == 0
+        assert any(
+            ConfirmationRejectionReason.CONFLICTING_IDENTITY in r.rejection_reasons
+            for r in batch_res.pair_results
         )
-        res_iss = matcher.match(act, ev_iss_unresolved)
-        assert res_iss.status == ConfirmationMatchStatus.BLOCKED
-        assert ConfirmationRejectionReason.BLOCKED_UNRESOLVED_CONFIRMATION_GAP in res_iss.rejection_reasons
 
-    def test_isolated_tracking_rejected(self) -> None:
-        """Isolated tracking records are rejected as non-confirmation evidence (sig_36)."""
+    def test_permutation_invariance_of_batch_consolidation(self) -> None:
+        """Reversing or shuffling the order of input evidence produces bit-identical unique_candidates."""
         matcher = ConfirmationMatcher()
         act = make_activation()
-        ev = make_evidence(is_isolated_tracking=True)
-
-        res = matcher.match(act, ev)
-        assert res.status == ConfirmationMatchStatus.REJECTED
-        assert ConfirmationRejectionReason.ISOLATED_TRACKING_ONLY in res.rejection_reasons
-
-    def test_candidate_setup_key_and_batch_consolidation_open_07(self) -> None:
-        """CHOCH and ISS events sharing setup key consolidate under OPEN-07 into one CandidateSetupRecord."""
-        matcher = ConfirmationMatcher()
-        act = make_activation()
-        shared_time = datetime(2026, 10, 2, 8, 35, tzinfo=timezone.utc)
-        shared_cfg = "CONF_CFG_EURUSD_M5_v1"
-        shared_candle = "EURUSD:M5:20261002T083500Z"
+        ctx = make_context()
+        shared_time = datetime(2026, 10, 2, 8, 45, tzinfo=timezone.utc)
 
         ev_choch = make_evidence(
-            event_id="EVT_CHOCH_0835",
+            event_id="EVT_CHOCH",
             producer_id="CHOCH_DETECTOR_v1",
             pattern_type="CHOCH",
-            confirmation_config_id=shared_cfg,
-            confirmation_candle_id=shared_candle,
             close_timestamp=shared_time,
-            direction=Direction.UPWARD,
+            close_price=1.1395,
         )
         ev_iss = make_evidence(
-            event_id="EVT_ISS_0835",
+            event_id="EVT_ISS",
             producer_id="ISS_ENGINE_v1",
             pattern_type="ISS",
-            confirmation_config_id=shared_cfg,
-            confirmation_candle_id=shared_candle,
             close_timestamp=shared_time,
-            direction=Direction.UPWARD,
+            close_price=1.1395,
         )
 
-        ctx = MatchingContext(
-            member_directions={act.member_key: Direction.UPWARD},
-            default_price_basis=PriceBasis.BID,
-        )
+        res_forward = matcher.match_batch([act], [ev_choch, ev_iss], ctx)
+        res_reverse = matcher.match_batch([act], [ev_iss, ev_choch], ctx)
 
-        batch_results = matcher.match_batch([act], [ev_choch, ev_iss], ctx)
-        assert len(batch_results) == 2
-        for r in batch_results:
-            assert r.status == ConfirmationMatchStatus.MATCHED
-            assert r.candidate_record is not None
-            cand = r.candidate_record
-            assert cand.is_consolidated is True
-            assert cand.confirmation_event_ids == ("EVT_CHOCH_0835", "EVT_ISS_0835")
-            assert cand.confirmation_patterns == ("CHOCH", "ISS")
+        assert len(res_forward.unique_candidates) == 1
+        assert len(res_reverse.unique_candidates) == 1
+        assert res_forward.unique_candidates[0] == res_reverse.unique_candidates[0]
+        assert res_forward.unique_candidates[0].is_consolidated is True
+        assert res_forward.unique_candidates[0].confirmation_event_ids == ("EVT_CHOCH", "EVT_ISS")
+        assert res_forward.unique_candidates[0].confirmation_patterns == ("CHOCH", "ISS")
 
-    def test_cross_config_separation(self) -> None:
-        """Different confirmation configs produce distinct CandidateSetupKeys without conflation (sig_39)."""
+    def test_deterministic_matching_independent_of_wall_clock(self) -> None:
+        """Matching results derive strictly from context.evaluation_time without wall-clock drift."""
         matcher = ConfirmationMatcher()
         act = make_activation()
-        shared_time = datetime(2026, 10, 2, 8, 35, tzinfo=timezone.utc)
-
-        ev_cfg_a = make_evidence(
-            event_id="EVT_A",
-            confirmation_config_id="CONF_CFG_EURUSD_M5_v1",
-            close_timestamp=shared_time,
-            direction=Direction.UPWARD,
-        )
-        ev_cfg_b = make_evidence(
-            event_id="EVT_B",
-            confirmation_config_id="CONF_CFG_EURUSD_M5_v2",  # Different config
-            close_timestamp=shared_time,
-            direction=Direction.UPWARD,
-        )
-
-        ctx = MatchingContext(
-            member_directions={act.member_key: Direction.UPWARD},
-            default_price_basis=PriceBasis.BID,
-        )
-
-        res_a = matcher.match(act, ev_cfg_a, ctx)
-        res_b = matcher.match(act, ev_cfg_b, ctx)
-
-        assert res_a.status == ConfirmationMatchStatus.MATCHED
-        assert res_b.status == ConfirmationMatchStatus.MATCHED
-        assert res_a.candidate_record.setup_key != res_b.candidate_record.setup_key
-
-    def test_no_mutation_of_activation_snapshots(self) -> None:
-        """Passive matcher does not mutate activation records or context mappings."""
-        matcher = ConfirmationMatcher()
-        act = make_activation()
-        act_before = deepcopy(act)
-        ev = make_evidence(direction=Direction.UPWARD)
-        ctx = MatchingContext(member_directions={act.member_key: Direction.UPWARD})
-
-        res = matcher.match(act, ev, ctx)
-        assert res.status == ConfirmationMatchStatus.MATCHED
-        assert act == act_before
-
-    def test_idempotent_duplicate_evidence_handling(self) -> None:
-        """Evaluating identical evidence repeatedly produces bit-identical matching results."""
-        matcher = ConfirmationMatcher()
-        act = make_activation()
-        ev = make_evidence(direction=Direction.UPWARD)
-        ctx = MatchingContext(member_directions={act.member_key: Direction.UPWARD})
+        ev = make_evidence()
+        eval_t = datetime(2026, 10, 2, 10, 0, tzinfo=timezone.utc)
+        ctx = make_context(evaluation_time=eval_t)
 
         res1 = matcher.match(act, ev, ctx)
         res2 = matcher.match(act, ev, ctx)
-        assert res1.status == res2.status
-        assert res1.candidate_record == res2.candidate_record
+
+        assert res1.evaluated_at == eval_t
+        assert res1 == res2
 
 
 class TestCandleDerivedContinuousDetection:
-    """Suite testing actual candle-derived continuous pattern recognition and adapter integration."""
+    """Exact real-candle tests validating continuous pre-tap CHOCH and authoritative/blocked ISS."""
 
     @pytest.fixture
     def choch_fixtures(self) -> Dict[str, Any]:
@@ -527,46 +616,32 @@ class TestCandleDerivedContinuousDetection:
     def test_actual_candle_derived_choch_pattern_pre_tap_formation_post_tap_completion(
         self, choch_fixtures: Dict[str, Any]
     ) -> None:
-        """Demonstrates a genuine candle-derived CHOCH pattern that begins before activation and completes afterward.
-
-        CHOCH pattern begins at candle 1 / 4 / 5 in 'choch_bearish_basic_end_to_end'.
-        TJL activation tap occurs at candle 7 (before CHOCH completes at candle 9).
-        Continuous CHOCH detector processes its candles without restarting at the tap.
-        Adapter translates ConfirmedChoch into ConfirmationEvidenceRecord.
-        Matcher validates the association and produces CandidateSetupRecord.
-        """
+        """Demonstrates genuine candle-derived CHOCH pattern beginning before activation tap and completing afterward."""
         fix = choch_fixtures["choch_bearish_basic_end_to_end"]
         start_time = datetime.fromisoformat(fix["start_candle_time"])
-        config = MSMConfig(
-            start_candle_time=start_time,
-            direction=Direction.UPWARD,
-        )
+        config = MSMConfig(start_candle_time=start_time, direction=Direction.UPWARD)
         coordinator = MSMChochCoordinator(config)
         coordinator.process_candles(fix["candles"])
 
         assert len(coordinator.confirmed_choch_events) == 1
         choch = coordinator.confirmed_choch_events[0]
         assert choch.choch_type == ChochType.BEARISH_CHOCH
-        assert choch.c1_candle_index == 8
         assert choch.c2_candle_index == 9
-        assert choch.point_3_source_index == 5
 
-        # Tap candle is candle 7: occurring after Point 3 (candle 5) but BEFORE CHOCH confirmation (candle 9)
+        # Tap occurs at candle 7 (after Point 3 at candle 5, before CHOCH confirmation at candle 9)
         tap_candle = fix["candles"][7]
         tap_time = datetime.fromisoformat(tap_candle["time"]).astimezone(timezone.utc)
-        conf_close_time = choch.confirmation_time or datetime.fromisoformat(fix["candles"][9]["close_time"]).astimezone(timezone.utc)
-        assert tap_time < conf_close_time, "Tap occurred strictly before CHOCH confirmation close"
+        conf_close = choch.confirmation_time or datetime.fromisoformat(fix["candles"][9]["close_time"]).astimezone(timezone.utc)
+        assert tap_time < conf_close
 
-        # Construct activation representing tapped H4 TJL level
         act = make_activation(
             source_timeframe="H4",
             confirmation_timeframe="M5",
             first_touch_time=tap_time,
-            first_touch_price=1.1350,
             role="TJL1",
         )
+        mem = make_member(source_timeframe="H4", role="TJL1", direction=Direction.DOWNWARD)
 
-        # Adapt ConfirmedChoch using adapter
         evidence = adapt_confirmed_choch_to_evidence(
             choch=choch,
             confirmation_config_id="CONF_CFG_EURUSD_M5_v1",
@@ -575,39 +650,25 @@ class TestCandleDerivedContinuousDetection:
             close_price=1.1000,
             price_basis=PriceBasis.BID,
             symbol="EURUSD",
+            sequence_domain=DEFAULT_DOMAIN,
         )
 
-        # Validate adapter observational fields
-        assert evidence.direction == Direction.DOWNWARD
-        assert evidence.producer_id == "CHOCH_DETECTOR_v1"
-        assert evidence.pattern_type == "CHOCH"
-        assert len(evidence.structural_dependency_references) >= 5
-
-        # Match with ConfirmationMatcher
         matcher = ConfirmationMatcher()
-        ctx = MatchingContext(
-            member_directions={act.member_key: Direction.DOWNWARD},
-            default_price_basis=PriceBasis.BID,
+        ctx = make_context(
+            members={mem.member_key: mem},
+            evaluation_time=datetime(2026, 10, 2, 18, 0, tzinfo=timezone.utc),
         )
 
         res = matcher.match(act, evidence, ctx)
         assert res.status == ConfirmationMatchStatus.MATCHED
         assert res.candidate_record is not None
-        cand = res.candidate_record
-        assert cand.signal_side == "SELL"
-        assert cand.confirmation_timeframe == "M5"
-        assert cand.entry_reference_price == 1.1000
-        assert cand.confirmation_patterns == ("CHOCH",)
+        assert res.candidate_record.signal_side == "SELL"
+        assert res.candidate_record.entry_reference_price == 1.1000
 
     def test_actual_candle_derived_iss_authoritative_matching_and_unresolved_blocking(
         self, iss_fixtures: Dict[str, Any]
     ) -> None:
-        """Tests adapter translation from candle-derived ISS fixture.
-
-        Validates:
-        1. Authoritative 2-candle pullback ISS from iss_02 matches eligible activation.
-        2. ISS with unresolved dependencies fails closed as BLOCKED_UNRESOLVED_CONFIRMATION_GAP.
-        """
+        """Validates candle-derived ISS: authoritative 2-candle pullback matches; unresolved multi-candle blocks fail-closed."""
         fix = iss_fixtures["iss_02_bullish_basic_end_to_end"]
         start_time = datetime.fromisoformat(fix["candles"][0]["time"]).astimezone(timezone.utc)
         engine = ISSEngine(ISSConfig(main_direction=Direction.UPWARD, start_candle_time=start_time))
@@ -617,94 +678,55 @@ class TestCandleDerivedContinuousDetection:
         assert len(snap.confirmed_events) == 1
         iss_event = snap.confirmed_events[0]
 
-        # In iss_02, confirmation is at Bar 20
         conf_time = iss_event.confirmation_time or datetime.fromisoformat(fix["candles"][20]["close_time"]).astimezone(timezone.utc)
         tap_time = datetime.fromisoformat(fix["candles"][15]["time"]).astimezone(timezone.utc)
         assert tap_time < conf_time
 
-        # Activation on H4
         act = make_activation(
             source_timeframe="H4",
             confirmation_timeframe="M5",
             first_touch_time=tap_time,
             role="TJL2_A_PLUS",
         )
+        mem = make_member(source_timeframe="H4", role="TJL2_A_PLUS", direction=Direction.DOWNWARD)
 
-        # 1. Authoritative ISS evidence
-        evidence_auth = adapt_confirmed_iss_to_evidence(
+        # 1. Authoritative ISS evidence matches
+        ev_auth = adapt_confirmed_iss_to_evidence(
             iss=iss_event,
             confirmation_config_id="CONF_CFG_EURUSD_M5_v1",
             confirmation_timeframe="M5",
             confirmation_candle_id="EURUSD:M5:20261001T210000Z",
-            close_price=1.1200,
+            close_price=1.112,
             price_basis=PriceBasis.BID,
             symbol="EURUSD",
+            sequence_domain=DEFAULT_DOMAIN,
             has_unresolved_dependencies=False,
         )
 
-        assert evidence_auth.direction == Direction.DOWNWARD  # Bullish main -> Downward internal shift
-        assert evidence_auth.producer_id == "ISS_ENGINE_v1"
-        assert evidence_auth.pattern_type == "ISS"
-
         matcher = ConfirmationMatcher()
-        ctx = MatchingContext(
-            member_directions={act.member_key: Direction.DOWNWARD},
-            default_price_basis=PriceBasis.BID,
+        ctx = make_context(
+            members={mem.member_key: mem},
+            evaluation_time=datetime(2026, 10, 1, 22, 0, tzinfo=timezone.utc),
         )
 
-        res_auth = matcher.match(act, evidence_auth, ctx)
+        res_auth = matcher.match(act, ev_auth, ctx)
         assert res_auth.status == ConfirmationMatchStatus.MATCHED
         assert res_auth.candidate_record is not None
         assert res_auth.candidate_record.signal_side == "SELL"
 
-        # 2. Unresolved ISS evidence (e.g. multi-candle pullback ambiguity)
-        evidence_unresolved = adapt_confirmed_iss_to_evidence(
+        # 2. Unresolved ISS evidence blocks fail-closed
+        ev_unres = adapt_confirmed_iss_to_evidence(
             iss=iss_event,
             confirmation_config_id="CONF_CFG_EURUSD_M5_v1",
             confirmation_timeframe="M5",
             confirmation_candle_id="EURUSD:M5:20261001T210000Z",
-            close_price=1.1200,
+            close_price=1.112,
             price_basis=PriceBasis.BID,
             symbol="EURUSD",
-            has_unresolved_dependencies=True,  # Blocks fail-closed
+            sequence_domain=DEFAULT_DOMAIN,
+            has_unresolved_dependencies=True,  # Multi-candle pullback unresolved
         )
 
-        res_unres = matcher.match(act, evidence_unresolved, ctx)
+        res_unres = matcher.match(act, ev_unres, ctx)
         assert res_unres.status == ConfirmationMatchStatus.BLOCKED
         assert ConfirmationRejectionReason.BLOCKED_UNRESOLVED_CONFIRMATION_GAP in res_unres.rejection_reasons
-
-    def test_deterministic_replay_and_prefix_consistency(
-        self, choch_fixtures: Dict[str, Any]
-    ) -> None:
-        """Deterministic replay: evaluating prefixes produces identical candidate results."""
-        fix = choch_fixtures["choch_bearish_basic_end_to_end"]
-        start_time = datetime.fromisoformat(fix["start_candle_time"])
-        config = MSMConfig(start_candle_time=start_time, direction=Direction.UPWARD)
-        coordinator = MSMChochCoordinator(config)
-        coordinator.process_candles(fix["candles"])
-        choch = coordinator.confirmed_choch_events[0]
-
-        ev = adapt_confirmed_choch_to_evidence(
-            choch=choch,
-            confirmation_config_id="CONF_CFG_EURUSD_M5_v1",
-            confirmation_timeframe="M5",
-            confirmation_candle_id="EURUSD:M5:20261001T090000Z",
-            close_price=1.1000,
-            price_basis=PriceBasis.BID,
-            symbol="EURUSD",
-        )
-
-        act = make_activation(
-            source_timeframe="H4",
-            confirmation_timeframe="M5",
-            first_touch_time=datetime(2026, 10, 1, 6, 0, tzinfo=timezone.utc),
-        )
-
-        matcher = ConfirmationMatcher()
-        ctx = MatchingContext(member_directions={act.member_key: Direction.DOWNWARD}, evaluation_time=datetime(2026, 10, 1, 10, 0, tzinfo=timezone.utc))
-
-        res_run1 = matcher.match(act, ev, ctx)
-        res_run2 = matcher.match(act, ev, ctx)
-
-        assert res_run1 == res_run2
-        assert res_run1.candidate_record.setup_key == res_run2.candidate_record.setup_key

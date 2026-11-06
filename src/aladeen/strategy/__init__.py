@@ -107,11 +107,13 @@ from .activation_adapter import (
     sync_tjl_snapshot_to_activation_engine,
 )
 from .confirmation_types import (
+    BatchMatchResult,
     CandidateSetupRecord,
     ConfirmationEvidenceRecord,
     ConfirmationMatchResult,
     ConfirmationMatchStatus,
     ConfirmationRejectionReason,
+    TouchSequenceEvidence,
     format_candidate_setup_key,
     parse_candidate_setup_key,
 )
@@ -216,11 +218,13 @@ __all__ = [
     "reset_activation_session_registry",
     "get_default_activation_coordinator",
     "reset_activation_coordinator",
+    "BatchMatchResult",
     "CandidateSetupRecord",
     "ConfirmationEvidenceRecord",
     "ConfirmationMatchResult",
     "ConfirmationMatchStatus",
     "ConfirmationRejectionReason",
+    "TouchSequenceEvidence",
     "format_candidate_setup_key",
     "parse_candidate_setup_key",
     "adapt_confirmed_choch_to_evidence",

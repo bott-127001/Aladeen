@@ -8,6 +8,10 @@ Scope & Design Boundary:
   * Direction is explicitly mapped from detector structural domain rules (e.g. Bullish CHOCH -> UPWARD,
     Bearish Main ISS -> UPWARD internal shift). Direction is NEVER inferred from producer names or IDs.
   * Structural dependency references are captured as explicit, auditable provenance references.
+- Provenance integrity:
+  * Completion requires authoritative candle-close confirmation time (no candle-open completion fabrication).
+  * Incomplete or unknown-time events preserve is_completed=False and fail closed.
+  * Close price provenance is anchored strictly to candle-close prints without unverified overrides.
 - Strictly read-only calculation logic. Zero order execution, zero network access.
 """
 
@@ -20,7 +24,7 @@ from .activation_types import PriceBasis, SequenceDomain
 from .choch_types import ChochType, ConfirmedChoch
 from .confirmation_types import ConfirmationEvidenceRecord
 from .iss_types import ConfirmedISSEvent
-from .types import Direction, validate_and_normalize_timestamp
+from .types import Direction, StrategyCandle, validate_and_normalize_timestamp
 
 
 def adapt_confirmed_choch_to_evidence(
@@ -28,8 +32,9 @@ def adapt_confirmed_choch_to_evidence(
     confirmation_config_id: str,
     confirmation_timeframe: str,
     confirmation_candle_id: str,
-    close_price: float,
+    close_price: Optional[float] = None,
     price_basis: PriceBasis = PriceBasis.BID,
+    confirming_candle: Optional[StrategyCandle] = None,
     symbol: Optional[str] = None,
     feed_id: Optional[str] = None,
     sequence_domain: Optional[SequenceDomain] = None,
@@ -44,6 +49,12 @@ def adapt_confirmed_choch_to_evidence(
     Direction Mapping Contract:
     - ChochType.BULLISH_CHOCH -> Direction.UPWARD (Intended for BUY trade side)
     - ChochType.BEARISH_CHOCH -> Direction.DOWNWARD (Intended for SELL trade side)
+
+    Completion Provenance:
+    - Requires authoritative confirmation_time. If confirmation_time is missing,
+      is_completed is marked False (no fabrication from candle open time).
+    - If confirming_candle is provided, validates that candle index matches c2_candle_index,
+      that the candle is not forming, and anchors close_price directly to candle close.
     """
     if choch.choch_type == ChochType.BULLISH_CHOCH:
         mapped_direction = Direction.UPWARD
@@ -52,8 +63,27 @@ def adapt_confirmed_choch_to_evidence(
     else:
         raise ValueError(f"Unknown ChochType: {choch.choch_type!r}")
 
+    is_completed = True
     close_time = choch.confirmation_time
+
+    if confirming_candle is not None:
+        if confirming_candle.index != choch.c2_candle_index:
+            raise ValueError(
+                f"Confirming candle index {confirming_candle.index} does not match CHOCH c2_candle_index {choch.c2_candle_index}"
+            )
+        if confirming_candle.is_forming or confirming_candle.bar_status != "CONFIRMED_COMPLETED":
+            is_completed = False
+        eff_close_price = confirming_candle.close
+        if close_time is None and not confirming_candle.is_forming:
+            close_time = getattr(confirming_candle, "close_time", None)
+    else:
+        if close_price is None:
+            raise ValueError("Must provide either confirming_candle or close_price")
+        eff_close_price = close_price
+
     if close_time is None:
+        # Unknown completion time: preserve as incomplete / unverified; do NOT fabricate from open time!
+        is_completed = False
         close_time = choch.c2_open_time
 
     # Capture explicit structural provenance references
@@ -75,11 +105,11 @@ def adapt_confirmed_choch_to_evidence(
         confirmation_timeframe=confirmation_timeframe,
         confirmation_candle_id=confirmation_candle_id,
         close_timestamp=close_time,
-        close_price=close_price,
+        close_price=eff_close_price,
         price_basis=price_basis,
         direction=mapped_direction,
         price_provenance="CONFIRMATION_CANDLE_CLOSE",
-        is_completed=True,
+        is_completed=is_completed,
         has_unresolved_dependencies=has_unresolved_dependencies,
         structural_dependency_references=tuple(structural_refs),
         symbol=symbol,
@@ -99,6 +129,7 @@ def adapt_confirmed_iss_to_evidence(
     confirmation_candle_id: str,
     close_price: Optional[float] = None,
     price_basis: PriceBasis = PriceBasis.BID,
+    confirming_candle: Optional[StrategyCandle] = None,
     symbol: Optional[str] = None,
     feed_id: Optional[str] = None,
     sequence_domain: Optional[SequenceDomain] = None,
@@ -116,6 +147,10 @@ def adapt_confirmed_iss_to_evidence(
       -> Direction.UPWARD (Bullish ISS, intended for BUY trade side).
     - Bullish Main Structure (Direction.UPWARD) -> Internal DOWNWARD marking (CH1, CL1, CH2, CL2, Tentative Low)
       -> Direction.DOWNWARD (Bearish ISS, intended for SELL trade side).
+
+    Completion Provenance:
+    - Anchors close price strictly to iss.completion_close_price or confirming_candle.close.
+    - If caller-supplied close_price conflicts with verified candle completion price, raises ValueError.
     """
     if iss.main_direction == Direction.DOWNWARD:
         mapped_direction = Direction.UPWARD
@@ -124,11 +159,30 @@ def adapt_confirmed_iss_to_evidence(
     else:
         raise ValueError(f"Unknown ISS main_direction: {iss.main_direction!r}")
 
-    eff_close_price = close_price if close_price is not None else iss.completion_close_price
-
+    is_completed = True
     close_time = iss.confirmation_time
+
+    if confirming_candle is not None:
+        if confirming_candle.index != iss.confirmation_candle_index:
+            raise ValueError(
+                f"Confirming candle index {confirming_candle.index} does not match ISS confirmation index {iss.confirmation_candle_index}"
+            )
+        if confirming_candle.is_forming or confirming_candle.bar_status != "CONFIRMED_COMPLETED":
+            is_completed = False
+        eff_close_price = confirming_candle.close
+        if close_time is None and not confirming_candle.is_forming:
+            close_time = getattr(confirming_candle, "close_time", None)
+    else:
+        eff_close_price = iss.completion_close_price
+
+    if close_price is not None and abs(close_price - eff_close_price) > 1e-6:
+        raise ValueError(
+            f"Supplied close_price ({close_price}) conflicts with verified ISS completion price ({eff_close_price})"
+        )
+
     if close_time is None:
-        raise ValueError("ConfirmedISSEvent must have confirmation_time to adapt to ConfirmationEvidenceRecord")
+        is_completed = False
+        close_time = datetime(1970, 1, 1, tzinfo=validate_and_normalize_timestamp(datetime.now(), "now").tzinfo)
 
     structural_refs: List[str] = [
         f"ISS_CANDIDATE:{iss.candidate_id}",
@@ -153,7 +207,7 @@ def adapt_confirmed_iss_to_evidence(
         price_basis=price_basis,
         direction=mapped_direction,
         price_provenance="CONFIRMATION_CANDLE_CLOSE",
-        is_completed=True,
+        is_completed=is_completed,
         has_unresolved_dependencies=has_unresolved_dependencies,
         structural_dependency_references=tuple(structural_refs),
         symbol=symbol,

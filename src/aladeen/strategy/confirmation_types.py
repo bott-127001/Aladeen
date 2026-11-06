@@ -59,6 +59,10 @@ class ConfirmationRejectionReason(str, Enum):
     INCOMPLETE_EVIDENCE = "INCOMPLETE_EVIDENCE"
     ISOLATED_TRACKING_ONLY = "ISOLATED_TRACKING_ONLY"
     CONFLICTING_IDENTITY = "CONFLICTING_IDENTITY"
+    MISSING_MATCHING_AUTHORITY = "MISSING_MATCHING_AUTHORITY"
+    EVIDENCE_NOT_YET_AVAILABLE = "EVIDENCE_NOT_YET_AVAILABLE"
+    CROSS_DOMAIN_ORDERING_REJECTED = "CROSS_DOMAIN_ORDERING_REJECTED"
+    ASSOCIATION_TARGET_MISMATCH = "ASSOCIATION_TARGET_MISMATCH"
 
 
 def format_length_prefixed(val: str) -> str:
@@ -248,15 +252,18 @@ class CandidateSetupRecord:
 
 @dataclass(frozen=True)
 class ConfirmationMatchResult:
-    """Immutable result of associating a confirmation evidence record with an activation."""
+    """Immutable result of associating a confirmation evidence record with an activation.
+
+    Evaluated timestamp is strictly deterministic from MatchingContext.evaluation_time.
+    """
     match_id: str
     status: ConfirmationMatchStatus
     activation_id: str
     evidence_event_id: str
+    evaluated_at: datetime
     candidate_record: Optional[CandidateSetupRecord] = None
     rejection_reasons: Tuple[ConfirmationRejectionReason, ...] = field(default_factory=tuple)
     diagnostic_message: Optional[str] = None
-    evaluated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     def __post_init__(self) -> None:
         if not isinstance(self.match_id, str) or not self.match_id.strip():
@@ -267,3 +274,36 @@ class ConfirmationMatchResult:
             object.__setattr__(self, "rejection_reasons", tuple(self.rejection_reasons))
         norm_time = validate_and_normalize_timestamp(self.evaluated_at, "evaluated_at")
         object.__setattr__(self, "evaluated_at", norm_time)
+
+
+@dataclass(frozen=True)
+class TouchSequenceEvidence:
+    """Authoritative sequence domain and monotonic sequence index of a price touch observation."""
+    sequence_domain: SequenceDomain
+    sequence_ref: int
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.sequence_domain, SequenceDomain):
+            raise TypeError("sequence_domain must be SequenceDomain instance")
+        if not isinstance(self.sequence_ref, int) or self.sequence_ref < 0:
+            raise ValueError("sequence_ref must be non-negative integer")
+
+
+@dataclass(frozen=True)
+class BatchMatchResult:
+    """Immutable result of batch confirmation matching.
+
+    Provides unique, deduplicated candidate setup records separately
+    from pair-level association diagnostics.
+    """
+    unique_candidates: Tuple[CandidateSetupRecord, ...]
+    pair_results: Tuple[ConfirmationMatchResult, ...]
+    diagnostic_messages: Tuple[str, ...] = field(default_factory=tuple)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.unique_candidates, tuple):
+            object.__setattr__(self, "unique_candidates", tuple(self.unique_candidates))
+        if not isinstance(self.pair_results, tuple):
+            object.__setattr__(self, "pair_results", tuple(self.pair_results))
+        if not isinstance(self.diagnostic_messages, tuple):
+            object.__setattr__(self, "diagnostic_messages", tuple(self.diagnostic_messages))
