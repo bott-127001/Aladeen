@@ -60,6 +60,7 @@ class TJLReducer:
         self._all_labeled_zones: List[TJLZone] = []
         self._outgoing_cancellation_intent: bool = False
         self._last_transition: Optional[TJLTransitionRecord] = None
+        self._transition_history: List[TJLTransitionRecord] = []
         self._is_unresolved: bool = False
         self._unresolved_diagnostic: Optional[str] = None
         self._last_processed_index: int = -1
@@ -67,7 +68,8 @@ class TJLReducer:
         self._last_received_open_time: Optional[datetime] = None
         self._received_indices: Set[int] = set()
         self._set_counter: int = 0
-        self._last_choch_bar_index: Optional[int] = None
+        self._structural_epoch: int = 0
+        self._last_choch_time: Optional[datetime] = None
 
     @property
     def source_engine_id(self) -> str:
@@ -97,6 +99,10 @@ class TJLReducer:
     def last_received_index(self) -> int:
         return self._last_received_index if self._last_received_index >= 0 else self._last_processed_index
 
+    @property
+    def structural_epoch(self) -> int:
+        return self._structural_epoch
+
     def reset(self) -> None:
         """Resets the reducer to initial clean state."""
         self._current_direction = None
@@ -107,6 +113,7 @@ class TJLReducer:
         self._all_labeled_zones.clear()
         self._outgoing_cancellation_intent = False
         self._last_transition = None
+        self._transition_history.clear()
         self._is_unresolved = False
         self._unresolved_diagnostic = None
         self._last_processed_index = -1
@@ -114,7 +121,8 @@ class TJLReducer:
         self._last_received_open_time = None
         self._received_indices.clear()
         self._set_counter = 0
-        self._last_choch_bar_index = None
+        self._structural_epoch = 0
+        self._last_choch_time = None
 
     def reduce(self, observation: TJLStructuralObservation) -> TJLSnapshot:
         """Atomically evaluates a structural observation and advances state."""
@@ -156,13 +164,13 @@ class TJLReducer:
                 f"Direction changed spontaneously from {self._current_direction} to {observation.direction} without is_choch_event=True"
             )
 
-        # Post-CHOCH current-epoch provenance check
-        if self._last_choch_bar_index is not None and not observation.is_choch_event:
+        # Post-CHOCH current-epoch provenance check using confirmation time
+        if self._last_choch_time is not None and not observation.is_choch_event:
             for pt_name, pt in (("ch_point", observation.ch_point), ("cl_point", observation.cl_point)):
-                if pt is not None and pt.confirmed_bar_index is not None:
-                    if pt.confirmed_bar_index <= self._last_choch_bar_index:
+                if pt is not None and pt.confirmed_time is not None:
+                    if pt.confirmed_time <= self._last_choch_time:
                         raise ValueError(
-                            f"Pre-CHOCH point {pt_name} (confirmed at bar {pt.confirmed_bar_index}) cannot be reused in new structural epoch (CHOCH at bar {self._last_choch_bar_index})"
+                            f"Pre-CHOCH point {pt_name} (confirmed at {pt.confirmed_time}) cannot be reused in new structural epoch (CHOCH at {self._last_choch_time})"
                         )
 
         # -----------------------------------------------------------------
@@ -174,6 +182,7 @@ class TJLReducer:
         staged_physical_levels = dict(self._physical_levels)
         staged_role_zones = dict(self._role_zones)
         staged_all_labeled = list(self._all_labeled_zones)
+        staged_transition_history = list(self._transition_history)
         staged_outgoing_cancellation = False
         staged_cancelled_set_id: Optional[str] = None
         staged_cancelled_fp: Optional[TJLFingerprint] = None
@@ -181,7 +190,8 @@ class TJLReducer:
         staged_unresolved_diag = self._unresolved_diagnostic
         staged_last_processed = self._last_processed_index
         staged_set_counter = self._set_counter
-        staged_last_choch = self._last_choch_bar_index
+        staged_epoch = self._structural_epoch
+        staged_choch_time = self._last_choch_time
         newly_labeled: List[TJLZone] = []
 
         # 1. Unresolved State Handling
@@ -199,7 +209,7 @@ class TJLReducer:
                 outgoing_cancelled_fingerprint=None,
                 diagnostic=staged_unresolved_diag,
             )
-            # Commit receipt metadata without advancing authoritative processed state
+            # Do NOT append receipt diagnostic to authoritative transition history, but update receipt metadata
             self._received_indices.add(observation.candle_index)
             self._last_received_index = observation.candle_index
             self._last_received_open_time = observation.candle_open_time
@@ -221,9 +231,10 @@ class TJLReducer:
             else:
                 staged_outgoing_cancellation = False
 
-            if observation.new_choch_direction is not None:
-                staged_direction = observation.new_choch_direction
-            staged_last_choch = observation.candle_index
+            assert observation.new_choch_direction is not None
+            staged_direction = observation.new_choch_direction
+            staged_epoch += 1
+            staged_choch_time = observation.candle_open_time
 
             record = TJLTransitionRecord(
                 transition_type=TJLTransitionType.CHOCH_INVALIDATION,
@@ -236,15 +247,19 @@ class TJLReducer:
                 outgoing_cancelled_fingerprint=staged_cancelled_fp,
                 diagnostic="Invalidated by source CHOCH confirmation",
             )
+            staged_transition_history.append(record)
+
             self._current_direction = staged_direction
             self._current_eligible_set = None
             self._outgoing_cancellation_intent = staged_outgoing_cancellation
             self._last_transition = record
+            self._transition_history = staged_transition_history
             self._last_processed_index = observation.candle_index
             self._last_received_index = observation.candle_index
             self._last_received_open_time = observation.candle_open_time
             self._received_indices.add(observation.candle_index)
-            self._last_choch_bar_index = staged_last_choch
+            self._structural_epoch = staged_epoch
+            self._last_choch_time = staged_choch_time
             return self.get_snapshot()
 
         # 3. Label Confirmed Swing Points and Compute Zones
@@ -264,8 +279,17 @@ class TJLReducer:
                 source_open_time=ch_candle.open_time,
                 side=TJLSide.HIGH,
             )
-            # Physical level geometry
-            if ch_level_id not in staged_physical_levels:
+            # Physical level geometry validation against cached
+            if ch_level_id in staged_physical_levels:
+                cached = staged_physical_levels[ch_level_id]
+                if (
+                    cached.lower_price != ch_candle.upper_body_edge
+                    or cached.upper_price != ch_candle.high
+                    or cached.source_candle_index != ch_candle.index
+                    or cached.source_candle_open_time != ch_candle.open_time
+                ):
+                    raise ValueError(f"Conflicting physical level geometry for existing {ch_level_id}")
+            else:
                 staged_physical_levels[ch_level_id] = PhysicalLevel(
                     level_id=ch_level_id,
                     lower_price=ch_candle.upper_body_edge,
@@ -314,8 +338,17 @@ class TJLReducer:
                 source_open_time=cl_candle.open_time,
                 side=TJLSide.LOW,
             )
-            # Physical level geometry
-            if cl_level_id not in staged_physical_levels:
+            # Physical level geometry validation against cached
+            if cl_level_id in staged_physical_levels:
+                cached = staged_physical_levels[cl_level_id]
+                if (
+                    cached.lower_price != cl_candle.low
+                    or cached.upper_price != cl_candle.lower_body_edge
+                    or cached.source_candle_index != cl_candle.index
+                    or cached.source_candle_open_time != cl_candle.open_time
+                ):
+                    raise ValueError(f"Conflicting physical level geometry for existing {cl_level_id}")
+            else:
                 staged_physical_levels[cl_level_id] = PhysicalLevel(
                     level_id=cl_level_id,
                     lower_price=cl_candle.low,
@@ -450,6 +483,7 @@ class TJLReducer:
             outgoing_cancelled_fingerprint=staged_cancelled_fp,
             diagnostic=None,
         )
+        staged_transition_history.append(record)
 
         # -------------------------------------------------------------
         # Commit all staged state mutations
@@ -460,6 +494,7 @@ class TJLReducer:
         self._physical_levels = staged_physical_levels
         self._role_zones = staged_role_zones
         self._all_labeled_zones = staged_all_labeled
+        self._transition_history = staged_transition_history
         self._outgoing_cancellation_intent = staged_outgoing_cancellation
         self._last_transition = record
         self._last_processed_index = observation.candle_index
@@ -467,7 +502,8 @@ class TJLReducer:
         self._last_received_open_time = observation.candle_open_time
         self._received_indices.add(observation.candle_index)
         self._set_counter = staged_set_counter
-        self._last_choch_bar_index = staged_last_choch
+        self._structural_epoch = staged_epoch
+        self._last_choch_time = staged_choch_time
 
         return self.get_snapshot()
 
@@ -483,8 +519,10 @@ class TJLReducer:
             historical_sets=tuple(self._historical_sets),
             outgoing_cancellation_intent=self._outgoing_cancellation_intent,
             last_transition=self._last_transition,
+            transition_history=tuple(self._transition_history),
             is_unresolved=self._is_unresolved,
             unresolved_diagnostic=self._unresolved_diagnostic,
             last_processed_index=self._last_processed_index,
             last_received_index=self._last_received_index if self._last_received_index >= 0 else self._last_processed_index,
+            structural_epoch=self._structural_epoch,
         )

@@ -182,3 +182,97 @@ class TestTJLTypes:
         # Attempting to mutate mappingproxy raises TypeError
         with pytest.raises(TypeError):
             obs.source_candle_lookup[2] = c1  # type: ignore[index]
+
+    def test_current_eligible_set_invariants_and_rejections(self) -> None:
+        """CurrentEligibleSet strictly validates cross-field consistency on direct construction."""
+        t0 = datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc)
+        c1 = StrategyCandle(index=1, open_time=t0, open=1.130, high=1.140, low=1.129, close=1.135, is_forming=False, bar_status="CONFIRMED_COMPLETED")
+        c4 = StrategyCandle(index=4, open_time=t0, open=1.110, high=1.115, low=1.104, close=1.105, is_forming=False, bar_status="CONFIRMED_COMPLETED")
+
+        z1 = TJLZone.from_candle(c1, TJLLabel.TJL1, is_high_side=True, feed_id="FEED_1", timeframe="H1", confirmed_candle_index=4)
+        z2 = TJLZone.from_candle(c4, TJLLabel.TJL2_A_PLUS, is_high_side=False, feed_id="FEED_1", timeframe="H1", confirmed_candle_index=4)
+        fp_valid = TJLFingerprint("ENGINE_1", Direction.UPWARD, 1, 4, 5)
+
+        # 1. Valid construction succeeds
+        valid_set = CurrentEligibleSet(
+            set_id="SET_1",
+            fingerprint=fp_valid,
+            direction=Direction.UPWARD,
+            source_engine_id="ENGINE_1",
+            symbol_feed_id="FEED_1",
+            source_timeframe="H1",
+            tjl1_zone=z1,
+            tjl2_zone=z2,
+            p3_source_index=5,
+            p3_open_time=t0,
+            p3_price=1.155,
+            eligibility_available_time=t0,
+            created_at_candle_index=7,
+        )
+        assert valid_set.set_id == "SET_1"
+
+        # 2. Mismatched direction raises ValueError
+        with pytest.raises(ValueError, match="differs from set direction"):
+            CurrentEligibleSet(
+                set_id="SET_1",
+                fingerprint=TJLFingerprint("ENGINE_1", Direction.DOWNWARD, 1, 4, 5),
+                direction=Direction.UPWARD,
+                source_engine_id="ENGINE_1",
+                symbol_feed_id="FEED_1",
+                source_timeframe="H1",
+                tjl1_zone=z1,
+                tjl2_zone=z2,
+                p3_source_index=5,
+                p3_open_time=t0,
+                p3_price=1.155,
+                eligibility_available_time=t0,
+                created_at_candle_index=7,
+            )
+
+        # 3. Mismatched zone roles raise ValueError
+        with pytest.raises(ValueError, match="tjl1_zone must have label=TJL1"):
+            CurrentEligibleSet(
+                set_id="SET_1",
+                fingerprint=fp_valid,
+                direction=Direction.UPWARD,
+                source_engine_id="ENGINE_1",
+                symbol_feed_id="FEED_1",
+                source_timeframe="H1",
+                tjl1_zone=z2,  # Wrong zone!
+                tjl2_zone=z1,
+                p3_source_index=5,
+                p3_open_time=t0,
+                p3_price=1.155,
+                eligibility_available_time=t0,
+                created_at_candle_index=7,
+            )
+
+    def test_transition_record_cancellation_invariants(self) -> None:
+        """TJLTransitionRecord requires outgoing cancelled set ID and fingerprint if and only if cancellation intent is True."""
+        fp = TJLFingerprint("ENGINE_1", Direction.UPWARD, 1, 4, 5)
+        # Cancellation intent True without outgoing set raises ValueError
+        with pytest.raises(ValueError, match="requires explicit outgoing_cancelled_set_id"):
+            TJLTransitionRecord(
+                transition_type=TJLTransitionType.SET_REPLACEMENT,
+                outgoing_cancellation_intent=True,
+                current_set=None,
+                newly_labeled_zones=(),
+                transition_candle_index=7,
+                transition_time=None,
+                outgoing_cancelled_set_id=None,
+                outgoing_cancelled_fingerprint=None,
+            )
+
+        # Cancellation intent False with outgoing set raises ValueError
+        with pytest.raises(ValueError, match="cannot have outgoing_cancelled_set_id"):
+            TJLTransitionRecord(
+                transition_type=TJLTransitionType.FIRST_CREATION,
+                outgoing_cancellation_intent=False,
+                current_set=None,
+                newly_labeled_zones=(),
+                transition_candle_index=7,
+                transition_time=None,
+                outgoing_cancelled_set_id="SET_1",
+                outgoing_cancelled_fingerprint=fp,
+            )
+

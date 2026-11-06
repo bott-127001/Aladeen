@@ -11,7 +11,7 @@ import pytest
 from aladeen.strategy.types import Direction, MSMConfig, StrategyCandle
 from aladeen.strategy.validator import adapt_candles
 from aladeen.strategy.tjl_coordinator import TJLCoordinator
-from aladeen.strategy.tjl_types import TJLLabel, TJLTransitionType
+from aladeen.strategy.tjl_types import TJLLabel, TJLSide, TJLTransitionType
 
 
 @pytest.fixture(scope="module")
@@ -158,8 +158,67 @@ class TestTJLCoordinator:
         assert s9.last_transition.transition_type == TJLTransitionType.CHOCH_INVALIDATION
         assert s9.last_transition.outgoing_cancelled_set_id == "SET_1"
 
-    def test_atomic_incremental_rollback_and_valid_retry(self, tjl_fixtures) -> None:
-        """[Finding 2 Regression] Incremental failure leaves coordinator 100% untouched; valid retry matches reference run."""
+    def test_actual_candle_driven_post_choch_recovery_and_new_direction_set(self, tjl_fixtures) -> None:
+        """[Directive 6.B] Full candle sequence: Set 1 -> CHOCH -> gap -> first new-direction eligible set."""
+        fix = tjl_fixtures["tjl_09_source_choch_eligibility_invalidation_and_gap"]
+        start_time = datetime.fromisoformat(fix["start_candle_time"])
+        coord = TJLCoordinator(
+            config=MSMConfig(direction=Direction.UPWARD, start_candle_time=start_time),
+            symbol_feed_id="FEED_EURUSD_H1",
+            source_timeframe="H1",
+            source_engine_id="ENGINE_EURUSD_H1",
+        )
+
+        candles = adapt_candles(fix["candles"])
+        # Process through CHOCH confirmation at candle 9
+        for c in candles:
+            coord.process_candle(c)
+
+        snap_choch = coord.get_snapshot()
+        assert snap_choch.current_eligible_set is None
+        assert snap_choch.direction == Direction.DOWNWARD
+        assert snap_choch.structural_epoch == 1
+
+        # Now extend with candles establishing the new DOWNWARD epoch:
+        # In MSM restart after Bearish CHOCH:
+        # Restart reference is P3 at candle 5 (price 1.155).
+        # First eligible pullback position must occur strictly after confirmation bar (candle 9).
+        last_t = candles[-1].open_time
+        # Candle 10: Downward continuation close lower
+        c10 = StrategyCandle(index=10, open_time=last_t + timedelta(hours=1), open=1.095, high=1.098, low=1.070, close=1.075, is_forming=False, bar_status="CONFIRMED_COMPLETED", close_time=last_t + timedelta(hours=2))
+        # Candle 11: Downward move low
+        c11 = StrategyCandle(index=11, open_time=last_t + timedelta(hours=2), open=1.075, high=1.078, low=1.050, close=1.055, is_forming=False, bar_status="CONFIRMED_COMPLETED", close_time=last_t + timedelta(hours=3))
+        # Candle 12: Pullback candle 1 (Green)
+        c12 = StrategyCandle(index=12, open_time=last_t + timedelta(hours=3), open=1.055, high=1.070, low=1.052, close=1.065, is_forming=False, bar_status="CONFIRMED_COMPLETED", close_time=last_t + timedelta(hours=4))
+        # Candle 13: Pullback candle 2 (Green, close > high of 12)
+        c13 = StrategyCandle(index=13, open_time=last_t + timedelta(hours=4), open=1.065, high=1.080, low=1.062, close=1.075, is_forming=False, bar_status="CONFIRMED_COMPLETED", close_time=last_t + timedelta(hours=5))
+        # Candle 14: Downward break confirming pair in new direction (breaks below low of 11)
+        c14 = StrategyCandle(index=14, open_time=last_t + timedelta(hours=5), open=1.075, high=1.076, low=1.040, close=1.045, is_forming=False, bar_status="CONFIRMED_COMPLETED", close_time=last_t + timedelta(hours=6))
+        # Candle 15: Pullback candle 1 for new P3 (Green)
+        c15 = StrategyCandle(index=15, open_time=last_t + timedelta(hours=6), open=1.045, high=1.060, low=1.042, close=1.055, is_forming=False, bar_status="CONFIRMED_COMPLETED", close_time=last_t + timedelta(hours=7))
+        # Candle 16: Pullback candle 2 for new P3 (Green)
+        c16 = StrategyCandle(index=16, open_time=last_t + timedelta(hours=7), open=1.055, high=1.070, low=1.052, close=1.065, is_forming=False, bar_status="CONFIRMED_COMPLETED", close_time=last_t + timedelta(hours=8))
+
+        extension = [c10, c11, c12, c13, c14, c15, c16]
+        for c in extension:
+            coord.process_candle(c)
+
+        snap_recovery = coord.get_snapshot()
+        assert snap_recovery.direction == Direction.DOWNWARD
+        assert snap_recovery.structural_epoch == 1
+        assert snap_recovery.current_eligible_set is not None
+
+        new_set = snap_recovery.current_eligible_set
+        assert new_set.direction == Direction.DOWNWARD
+        # In DOWNWARD set: TJL1 is CL (low-side), TJL2 is CH (high-side)
+        assert new_set.tjl1_zone.label == TJLLabel.TJL1
+        assert new_set.tjl1_zone.level_id.side == TJLSide.LOW
+        assert new_set.tjl2_zone.label == TJLLabel.TJL2_A_PLUS
+        assert new_set.tjl2_zone.level_id.side == TJLSide.HIGH
+        assert len(snap_recovery.historical_sets) == 2  # Set 1 (Bullish) and Set 2 (Bearish)
+
+    def test_failure_injection_after_main_coordinator_rollback_and_valid_retry(self, tjl_fixtures) -> None:
+        """[Directive 6.A] Injected failure after main-coordinator advance leaves live coordinator untouched; retry matches reference run."""
         fix = tjl_fixtures["tjl_01_bullish_basic_end_to_end"]
         candles = adapt_candles(fix["candles"])
         start_time = datetime.fromisoformat(fix["start_candle_time"])
@@ -176,26 +235,80 @@ class TestTJLCoordinator:
             coord.process_candle(c)
 
         snap_before = coord.get_snapshot()
-        prev_choch_count = coord._prev_choch_count
-        prev_lookup_len = len(coord._candle_lookup)
+        lookup_before = dict(coord._candle_lookup)
+        main_coord_before_dir = coord._main_coordinator.direction
+        main_coord_before_last = coord._main_coordinator.last_processed_index
+        prev_choch_count_before = coord._prev_choch_count
 
-        # Attempt to deliver duplicate / non-chronological candle (raises ValueError)
-        with pytest.raises(ValueError):
-            coord.process_candle(candles[0])
+        # Monkeypatch the live reducer to simulate a failure AFTER main coordinator advance
+        orig_reduce = coord._reducer.reduce
 
-        snap_after_fail = coord.get_snapshot()
-        assert snap_before == snap_after_fail
-        assert coord._prev_choch_count == prev_choch_count
-        assert len(coord._candle_lookup) == prev_lookup_len
+        def failing_reduce(obs):
+            raise RuntimeError("Injected downstream failure after main coordinator advance")
 
-        # Now deliver the valid next candle (candles[5])
+        coord._reducer.reduce = failing_reduce
+
+        # Attempt to deliver candle 5 -> must raise RuntimeError
+        with pytest.raises(RuntimeError, match="Injected downstream failure"):
+            coord.process_candle(candles[5])
+
+        # Assert all live components are 100% unchanged!
+        assert coord.get_snapshot() == snap_before
+        assert coord._candle_lookup == lookup_before
+        assert coord._main_coordinator.direction == main_coord_before_dir
+        assert coord._main_coordinator.last_processed_index == main_coord_before_last
+        assert coord._prev_choch_count == prev_choch_count_before
+
+        # Restore original reducer
+        coord._reducer.reduce = orig_reduce
+
+        # Now deliver candle 5 and 6
         coord.process_candle(candles[5])
-        assert coord.last_processed_index == 5
+        coord.process_candle(candles[6])
+
+        # Independent reference coordinator processed cleanly from start
+        coord_ref = TJLCoordinator(
+            config=MSMConfig(direction=Direction.UPWARD, start_candle_time=start_time),
+            symbol_feed_id="FEED_EURUSD_H1",
+            source_timeframe="H1",
+            source_engine_id="ENGINE_EURUSD_H1",
+        )
+        for c in candles[:7]:
+            coord_ref.process_candle(c)
+
+        # Retried coordinator state matches reference run identically
+        assert coord.get_snapshot() == coord_ref.get_snapshot()
+
+    def test_arbitrary_decreasing_source_ids_candle_driven(self, tjl_fixtures) -> None:
+        """[Directive 6.C] Candle-driven coordinator handles strictly decreasing unique source IDs identically."""
+        fix = tjl_fixtures["tjl_01_bullish_basic_end_to_end"]
+        start_time = datetime.fromisoformat(fix["start_candle_time"])
+
+        # Map indices to decreasing IDs: 900, 890, 880, ...
+        decreasing_candles = []
+        for i, c in enumerate(fix["candles"]):
+            c_copy = dict(c)
+            c_copy["index"] = 900 - (i * 10)
+            decreasing_candles.append(c_copy)
+
+        coord = TJLCoordinator(
+            config=MSMConfig(direction=Direction.UPWARD, start_candle_time=start_time),
+            symbol_feed_id="FEED_EURUSD_H1",
+            source_timeframe="H1",
+            source_engine_id="ENGINE_EURUSD_H1",
+        )
+        snaps = coord.replay_candles(decreasing_candles)
+
+        # Bar 7 (chronological 8th candle, index = 900 - 70 = 830)
+        s7 = snaps[7]
+        assert s7.current_eligible_set is not None
+        # Points correspond to indices 900 - 10 = 890, 900 - 40 = 860, 900 - 50 = 850
+        assert s7.current_eligible_set.fingerprint == ("ENGINE_EURUSD_H1", "UPWARD", 890, 860, 850)
+        assert s7.current_eligible_set.p3_source_index == 850
 
     def test_unknown_availability_preserved_as_none_in_coordinator(self, tjl_fixtures) -> None:
         """[Finding 1 Regression] When candle close_time is None, availability_time remains None in snapshot."""
         fix = tjl_fixtures["tjl_01_bullish_basic_end_to_end"]
-        # Modify candle 7 to have close_time = None
         modified_candles = [dict(c) for c in fix["candles"][:8]]
         for c in modified_candles:
             c["close_time"] = None  # Unknown close time!
@@ -209,30 +322,29 @@ class TestTJLCoordinator:
         )
         snap = coord.process_candles(modified_candles)
         assert snap.current_eligible_set is not None
-        # Must preserve None!
         assert snap.current_eligible_set.eligibility_available_time is None
 
-    def test_batch_vs_sequential_vs_replay_consistency(self, tjl_fixtures) -> None:
-        """Verifies that batch process_candles, incremental process_candle, and replay_candles yield identical state."""
-        fix = tjl_fixtures["tjl_01_bullish_basic_end_to_end"]
+    def test_batch_vs_sequential_vs_replay_consistency_full_lifecycle(self, tjl_fixtures) -> None:
+        """[Directive 6.E] Full prefix consistency across batch, sequential, and replay APIs on complete Bearish lifecycle."""
+        fix = tjl_fixtures["tjl_06_pullback_t2_replacement_and_cancellation_intent"]
         candles = adapt_candles(fix["candles"])
         start_time = datetime.fromisoformat(fix["start_candle_time"])
 
         # 1. Batch
         coord_batch = TJLCoordinator(
-            config=MSMConfig(direction=Direction.UPWARD, start_candle_time=start_time),
-            symbol_feed_id="FEED_EURUSD_H1",
+            config=MSMConfig(direction=Direction.DOWNWARD, start_candle_time=start_time),
+            symbol_feed_id="FEED_GBPUSD_H1",
             source_timeframe="H1",
-            source_engine_id="ENGINE_EURUSD_H1",
+            source_engine_id="ENGINE_GBPUSD_H1",
         )
         snap_batch = coord_batch.process_candles(candles)
 
         # 2. Sequential incremental
         coord_seq = TJLCoordinator(
-            config=MSMConfig(direction=Direction.UPWARD, start_candle_time=start_time),
-            symbol_feed_id="FEED_EURUSD_H1",
+            config=MSMConfig(direction=Direction.DOWNWARD, start_candle_time=start_time),
+            symbol_feed_id="FEED_GBPUSD_H1",
             source_timeframe="H1",
-            source_engine_id="ENGINE_EURUSD_H1",
+            source_engine_id="ENGINE_GBPUSD_H1",
         )
         for c in candles:
             coord_seq.process_candle(c)
@@ -240,17 +352,14 @@ class TestTJLCoordinator:
 
         # 3. Replay
         coord_replay = TJLCoordinator(
-            config=MSMConfig(direction=Direction.UPWARD, start_candle_time=start_time),
-            symbol_feed_id="FEED_EURUSD_H1",
+            config=MSMConfig(direction=Direction.DOWNWARD, start_candle_time=start_time),
+            symbol_feed_id="FEED_GBPUSD_H1",
             source_timeframe="H1",
-            source_engine_id="ENGINE_EURUSD_H1",
+            source_engine_id="ENGINE_GBPUSD_H1",
         )
         snaps_replay = coord_replay.replay_candles(candles)
         snap_last = snaps_replay[-1]
 
-        # Assert identical results
-        assert snap_batch.current_eligible_set == snap_seq.current_eligible_set
-        assert snap_batch.current_eligible_set == snap_last.current_eligible_set
-        assert snap_batch.all_labeled_zones == snap_seq.all_labeled_zones
-        assert snap_batch.all_labeled_zones == snap_last.all_labeled_zones
-        assert snap_batch.outgoing_cancellation_intent == snap_seq.outgoing_cancellation_intent
+        # Assert identical results across all fields
+        assert snap_batch == snap_seq
+        assert snap_batch == snap_last

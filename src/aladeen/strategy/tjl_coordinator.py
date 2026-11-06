@@ -169,21 +169,43 @@ class TJLCoordinator:
         # 3. Check for confirmed CHOCH event on this bar
         current_choch_count = len(coord_snap.confirmed_choch_events)
         is_choch_event = current_choch_count > prev_choch_count_copy
+        if is_choch_event:
+            latest_choch = coord_snap.confirmed_choch_events[-1]
+            new_choch_direction = latest_choch.new_direction
+            obs_direction = (
+                Direction.UPWARD
+                if new_choch_direction == Direction.DOWNWARD
+                else Direction.DOWNWARD
+            )
+        else:
+            obs_direction = coord_snap.active_direction
+            new_choch_direction = None
 
         # 4. Extract current-epoch confirmed high and low
         ch_point: Optional[SwingPoint] = None
         cl_point: Optional[SwingPoint] = None
         if coord_snap.msm_snapshot.confirmed_pairs:
             latest_pair = coord_snap.msm_snapshot.confirmed_pairs[-1]
-            ch_point = latest_pair.high
-            cl_point = latest_pair.low
+            if coord_snap.confirmed_choch_events:
+                last_choch_time = coord_snap.confirmed_choch_events[-1].c2_open_time
+                conf_candle = candle_lookup_copy.get(latest_pair.confirmation_bar_index)
+                conf_time = (
+                    latest_pair.confirmation_time
+                    or (conf_candle.open_time if conf_candle is not None else None)
+                )
+                if conf_time is not None and conf_time > last_choch_time:
+                    ch_point = latest_pair.high
+                    cl_point = latest_pair.low
+            else:
+                ch_point = latest_pair.high
+                cl_point = latest_pair.low
 
         # 5. Build structural observation preserving unknown close time as None
         observation = TJLStructuralObservation(
             source_engine_id=self.source_engine_id,
             symbol_feed_id=self.symbol_feed_id,
             source_timeframe=self.source_timeframe,
-            direction=coord_snap.active_direction,
+            direction=obs_direction,
             candle_index=candle.index,
             candle_open_time=candle.open_time,
             availability_time=candle.close_time,  # Strictly None if close_time is unknown!
@@ -191,7 +213,7 @@ class TJLCoordinator:
             cl_point=cl_point,
             tentative_p3=coord_snap.msm_snapshot.tentative_point,
             is_choch_event=is_choch_event,
-            new_choch_direction=coord_snap.active_direction if is_choch_event else None,
+            new_choch_direction=new_choch_direction,
             is_unresolved=coord_snap.is_unresolved,
             unresolved_diagnostic=(
                 coord_snap.unresolved_diagnostic.diagnostic_type.value

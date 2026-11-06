@@ -152,7 +152,7 @@ class PhysicalLevel:
                 f"PhysicalLevel lower_price ({self.lower_price}) cannot exceed upper_price ({self.upper_price})"
             )
 
-        # Exact zero-width line classification: equality on preserved price representation
+        # Exact zero-width line classification: strict equality, zero tolerance
         expected_is_line = (self.lower_price == self.upper_price)
         if self.is_line != expected_is_line:
             raise ValueError(
@@ -344,6 +344,45 @@ class CurrentEligibleSet:
             norm_avail = validate_and_normalize_timestamp(self.eligibility_available_time, "eligibility_available_time")
             object.__setattr__(self, "eligibility_available_time", norm_avail)
 
+        # Cross-field consistency validations
+        if self.fingerprint.source_engine_id != self.source_engine_id:
+            raise ValueError(
+                f"Fingerprint source_engine_id ({self.fingerprint.source_engine_id}) differs from set source_engine_id ({self.source_engine_id})"
+            )
+        if self.fingerprint.direction != self.direction:
+            raise ValueError(
+                f"Fingerprint direction ({self.fingerprint.direction}) differs from set direction ({self.direction})"
+            )
+        if self.fingerprint.p3_point_id != self.p3_source_index:
+            raise ValueError(
+                f"Fingerprint p3_point_id ({self.fingerprint.p3_point_id}) differs from set p3_source_index ({self.p3_source_index})"
+            )
+
+        if self.direction == Direction.UPWARD:
+            if self.tjl1_zone.label != TJLLabel.TJL1 or self.tjl1_zone.level_id.side != TJLSide.HIGH:
+                raise ValueError("In UPWARD set, tjl1_zone must have label=TJL1 and side=HIGH")
+            if self.tjl2_zone.label != TJLLabel.TJL2_A_PLUS or self.tjl2_zone.level_id.side != TJLSide.LOW:
+                raise ValueError("In UPWARD set, tjl2_zone must have label=TJL2_A_PLUS and side=LOW")
+            if self.fingerprint.ch_point_id != self.tjl1_zone.source_candle_index:
+                raise ValueError("In UPWARD set, fingerprint ch_point_id must match tjl1_zone source candle index")
+            if self.fingerprint.cl_point_id != self.tjl2_zone.source_candle_index:
+                raise ValueError("In UPWARD set, fingerprint cl_point_id must match tjl2_zone source candle index")
+        else:
+            if self.tjl1_zone.label != TJLLabel.TJL1 or self.tjl1_zone.level_id.side != TJLSide.LOW:
+                raise ValueError("In DOWNWARD set, tjl1_zone must have label=TJL1 and side=LOW")
+            if self.tjl2_zone.label != TJLLabel.TJL2_A_PLUS or self.tjl2_zone.level_id.side != TJLSide.HIGH:
+                raise ValueError("In DOWNWARD set, tjl2_zone must have label=TJL2_A_PLUS and side=HIGH")
+            if self.fingerprint.cl_point_id != self.tjl1_zone.source_candle_index:
+                raise ValueError("In DOWNWARD set, fingerprint cl_point_id must match tjl1_zone source candle index")
+            if self.fingerprint.ch_point_id != self.tjl2_zone.source_candle_index:
+                raise ValueError("In DOWNWARD set, fingerprint ch_point_id must match tjl2_zone source candle index")
+
+        for z_name, z in (("tjl1_zone", self.tjl1_zone), ("tjl2_zone", self.tjl2_zone)):
+            if z.level_id.symbol_feed_id != self.symbol_feed_id:
+                raise ValueError(f"{z_name} symbol_feed_id ({z.level_id.symbol_feed_id}) does not match set ({self.symbol_feed_id})")
+            if z.level_id.source_timeframe != self.source_timeframe:
+                raise ValueError(f"{z_name} source_timeframe ({z.level_id.source_timeframe}) does not match set ({self.source_timeframe})")
+
 
 @dataclass(frozen=True)
 class TJLTransitionRecord:
@@ -367,6 +406,17 @@ class TJLTransitionRecord:
         if self.transition_time is not None:
             norm_time = validate_and_normalize_timestamp(self.transition_time, "transition_time")
             object.__setattr__(self, "transition_time", norm_time)
+
+        if self.outgoing_cancellation_intent:
+            if self.outgoing_cancelled_set_id is None or self.outgoing_cancelled_fingerprint is None:
+                raise ValueError(
+                    "outgoing_cancellation_intent=True requires explicit outgoing_cancelled_set_id and outgoing_cancelled_fingerprint"
+                )
+        else:
+            if self.outgoing_cancelled_set_id is not None or self.outgoing_cancelled_fingerprint is not None:
+                raise ValueError(
+                    "outgoing_cancellation_intent=False cannot have outgoing_cancelled_set_id or outgoing_cancelled_fingerprint"
+                )
 
 
 @dataclass(frozen=True)
@@ -411,50 +461,68 @@ class TJLStructuralObservation:
             norm_avail = validate_and_normalize_timestamp(self.availability_time, "availability_time")
             object.__setattr__(self, "availability_time", norm_avail)
 
-        # Make source_candle_lookup strictly immutable
-        if isinstance(self.source_candle_lookup, dict):
-            object.__setattr__(self, "source_candle_lookup", MappingProxyType(dict(self.source_candle_lookup)))
-        elif not isinstance(self.source_candle_lookup, MappingProxyType):
-            object.__setattr__(self, "source_candle_lookup", MappingProxyType(dict(self.source_candle_lookup)))
+        # Defensive copy: copy contents even if input is MappingProxyType
+        copied_lookup = dict(self.source_candle_lookup)
+        object.__setattr__(self, "source_candle_lookup", MappingProxyType(copied_lookup))
 
-        # Validate swing point kinds and provenance against lookup
+        # Validate CHOCH flags and directions together
+        if self.is_choch_event:
+            if self.new_choch_direction is None:
+                raise ValueError("is_choch_event=True requires explicit new_choch_direction")
+            if self.new_choch_direction == self.direction:
+                raise ValueError(
+                    f"is_choch_event=True must transition to opposite direction, got {self.direction} -> {self.new_choch_direction}"
+                )
+        else:
+            if self.new_choch_direction is not None:
+                raise ValueError("is_choch_event=False cannot have new_choch_direction")
+
+        # Validate swing point kinds, confirmation status, and exact marking prices
         if self.ch_point is not None:
             if not isinstance(self.ch_point, SwingPoint):
                 raise TypeError(f"ch_point must be SwingPoint, got {type(self.ch_point).__name__}")
-            if self.ch_point.candle_index in self.source_candle_lookup:
-                c = self.source_candle_lookup[self.ch_point.candle_index]
-                if self.ch_point.candle_open_time != c.open_time:
-                    raise ValueError(
-                        f"ch_point open_time ({self.ch_point.candle_open_time}) does not match source candle open_time ({c.open_time})"
-                    )
-                if self.ch_point.price < c.lower_body_edge:
-                    raise ValueError(
-                        f"ch_point price ({self.ch_point.price}) is below source candle body"
-                    )
+            if not self.ch_point.is_confirmed:
+                raise ValueError("ch_point in observation must be confirmed (is_confirmed=True)")
+            if self.ch_point.candle_index not in self.source_candle_lookup:
+                raise ValueError(f"ch_point candle index {self.ch_point.candle_index} missing from source lookup")
+            c_high = self.source_candle_lookup[self.ch_point.candle_index]
+            if self.ch_point.candle_open_time != c_high.open_time:
+                raise ValueError("ch_point open_time does not match source candle open_time")
+            if not math.isclose(self.ch_point.price, c_high.upper_body_edge, abs_tol=1e-9):
+                raise ValueError(
+                    f"ch_point price ({self.ch_point.price}) does not match source candle upper body edge ({c_high.upper_body_edge})"
+                )
 
         if self.cl_point is not None:
             if not isinstance(self.cl_point, SwingPoint):
                 raise TypeError(f"cl_point must be SwingPoint, got {type(self.cl_point).__name__}")
-            if self.cl_point.candle_index in self.source_candle_lookup:
-                c = self.source_candle_lookup[self.cl_point.candle_index]
-                if self.cl_point.candle_open_time != c.open_time:
-                    raise ValueError(
-                        f"cl_point open_time ({self.cl_point.candle_open_time}) does not match source candle open_time ({c.open_time})"
-                    )
-                if self.cl_point.price > c.upper_body_edge:
-                    raise ValueError(
-                        f"cl_point price ({self.cl_point.price}) is above source candle body"
-                    )
+            if not self.cl_point.is_confirmed:
+                raise ValueError("cl_point in observation must be confirmed (is_confirmed=True)")
+            if self.cl_point.candle_index not in self.source_candle_lookup:
+                raise ValueError(f"cl_point candle index {self.cl_point.candle_index} missing from source lookup")
+            c_low = self.source_candle_lookup[self.cl_point.candle_index]
+            if self.cl_point.candle_open_time != c_low.open_time:
+                raise ValueError("cl_point open_time does not match source candle open_time")
+            if not math.isclose(self.cl_point.price, c_low.lower_body_edge, abs_tol=1e-9):
+                raise ValueError(
+                    f"cl_point price ({self.cl_point.price}) does not match source candle lower body edge ({c_low.lower_body_edge})"
+                )
 
         if self.tentative_p3 is not None:
             if not isinstance(self.tentative_p3, SwingPoint):
                 raise TypeError(f"tentative_p3 must be SwingPoint, got {type(self.tentative_p3).__name__}")
-            if self.tentative_p3.candle_index in self.source_candle_lookup:
-                c = self.source_candle_lookup[self.tentative_p3.candle_index]
-                if self.tentative_p3.candle_open_time != c.open_time:
-                    raise ValueError(
-                        f"tentative_p3 open_time ({self.tentative_p3.candle_open_time}) does not match source candle open_time ({c.open_time})"
-                    )
+            if self.tentative_p3.is_confirmed:
+                raise ValueError("tentative_p3 in observation cannot be already confirmed")
+            if self.tentative_p3.candle_index not in self.source_candle_lookup:
+                raise ValueError(f"tentative_p3 candle index {self.tentative_p3.candle_index} missing from source lookup")
+            c_p3 = self.source_candle_lookup[self.tentative_p3.candle_index]
+            if self.tentative_p3.candle_open_time != c_p3.open_time:
+                raise ValueError("tentative_p3 open_time does not match source candle open_time")
+            expected_p3_price = c_p3.upper_body_edge if self.direction == Direction.UPWARD else c_p3.lower_body_edge
+            if not math.isclose(self.tentative_p3.price, expected_p3_price, abs_tol=1e-9):
+                raise ValueError(
+                    f"tentative_p3 price ({self.tentative_p3.price}) does not match expected body edge ({expected_p3_price})"
+                )
 
 
 @dataclass(frozen=True)
@@ -469,7 +537,9 @@ class TJLSnapshot:
     historical_sets: Tuple[CurrentEligibleSet, ...]
     outgoing_cancellation_intent: bool
     last_transition: Optional[TJLTransitionRecord]
+    transition_history: Tuple[TJLTransitionRecord, ...]
     is_unresolved: bool
     unresolved_diagnostic: Optional[str]
     last_processed_index: int
     last_received_index: int
+    structural_epoch: int = 0

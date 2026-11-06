@@ -85,7 +85,7 @@ class TestTJLReducer:
         t0 = datetime(2026, 10, 1, 0, 0, tzinfo=timezone.utc)
         c1 = _make_candle(1, 1.130, 1.140, 1.129, 1.135, t0 + timedelta(hours=1))
         c4 = _make_candle(4, 1.110, 1.115, 1.104, 1.105, t0 + timedelta(hours=4))
-        c5 = _make_candle(5, 1.140, 1.155, 1.139, 1.150, t0 + timedelta(hours=5))
+        c5 = _make_candle(5, 1.140, 1.155, 1.139, 1.155, t0 + timedelta(hours=5))
         c7 = _make_candle(7, 1.145, 1.150, 1.142, 1.146, t0 + timedelta(hours=7))
 
         ch = SwingPoint(price=1.135, candle_index=1, candle_open_time=c1.open_time, identified_bar_index=1, confirmed_bar_index=4)
@@ -250,7 +250,7 @@ class TestTJLReducer:
         t0 = datetime(2026, 10, 1, 0, 0, tzinfo=timezone.utc)
         c1 = _make_candle(1, 1.130, 1.140, 1.129, 1.135, t0 + timedelta(hours=1))
         c4 = _make_candle(4, 1.110, 1.115, 1.104, 1.105, t0 + timedelta(hours=4))
-        c5 = _make_candle(5, 1.140, 1.155, 1.139, 1.150, t0 + timedelta(hours=5))
+        c5 = _make_candle(5, 1.140, 1.155, 1.139, 1.155, t0 + timedelta(hours=5))
 
         # 1. UPWARD structure: CH Bar 1 is TJL1
         ch = SwingPoint(price=1.135, candle_index=1, candle_open_time=c1.open_time, identified_bar_index=1, confirmed_bar_index=4)
@@ -278,7 +278,7 @@ class TestTJLReducer:
             source_engine_id="ENGINE_CROSS",
             symbol_feed_id="FEED_CROSS",
             source_timeframe="H1",
-            direction=Direction.DOWNWARD,
+            direction=Direction.UPWARD,
             candle_index=9,
             candle_open_time=t0 + timedelta(hours=9),
             is_choch_event=True,
@@ -288,8 +288,8 @@ class TestTJLReducer:
         # 3. DOWNWARD structure: candle 1 is confirmed as Lower Resistance (CH) in DOWNWARD -> receives TJL2_A_PLUS role!
         c10 = _make_candle(10, 1.090, 1.095, 1.080, 1.085, t0 + timedelta(hours=10))
         c12 = _make_candle(12, 1.070, 1.075, 1.060, 1.065, t0 + timedelta(hours=12))
-        ch_down = SwingPoint(price=1.135, candle_index=1, candle_open_time=c1.open_time, identified_bar_index=1, confirmed_bar_index=10)
-        cl_down = SwingPoint(price=1.085, candle_index=10, candle_open_time=c10.open_time, identified_bar_index=10, confirmed_bar_index=10)
+        ch_down = SwingPoint(price=1.135, candle_index=1, candle_open_time=c1.open_time, identified_bar_index=1, confirmed_bar_index=10, confirmed_time=t0 + timedelta(hours=10))
+        cl_down = SwingPoint(price=1.085, candle_index=10, candle_open_time=c10.open_time, identified_bar_index=10, confirmed_bar_index=10, confirmed_time=t0 + timedelta(hours=10))
         p3_down = SwingPoint(price=1.065, candle_index=12, candle_open_time=c12.open_time, identified_bar_index=14)
 
         snap2 = reducer.reduce(TJLStructuralObservation(
@@ -319,7 +319,7 @@ class TestTJLReducer:
         t0 = datetime(2026, 10, 1, 0, 0, tzinfo=timezone.utc)
         c1 = _make_candle(1, 1.130, 1.140, 1.129, 1.135, t0 + timedelta(hours=1))
         c4 = _make_candle(4, 1.110, 1.115, 1.104, 1.105, t0 + timedelta(hours=4))
-        c5 = _make_candle(5, 1.140, 1.155, 1.139, 1.150, t0 + timedelta(hours=5))
+        c5 = _make_candle(5, 1.140, 1.155, 1.139, 1.155, t0 + timedelta(hours=5))
 
         # 1. Set 1 at Bar 7
         reducer.reduce(TJLStructuralObservation(
@@ -341,7 +341,7 @@ class TestTJLReducer:
             source_engine_id="ENGINE_TEST",
             symbol_feed_id="FEED_TEST",
             source_timeframe="H1",
-            direction=Direction.DOWNWARD,
+            direction=Direction.UPWARD,
             candle_index=9,
             candle_open_time=t0 + timedelta(hours=9),
             is_choch_event=True,
@@ -391,3 +391,157 @@ class TestTJLReducer:
                 is_choch_event=False,
                 source_candle_lookup={1: c1},
             ))
+
+    def test_conflicting_physical_geometry_rejected(self) -> None:
+        """[Finding 4 Regression] Conflicting geometry for an already cached StableLevelId raises ValueError without mutating state."""
+        reducer = TJLReducer("ENGINE_TEST", "FEED_TEST", "H1")
+        t0 = datetime(2026, 10, 1, 0, 0, tzinfo=timezone.utc)
+        c1 = _make_candle(1, 1.130, 1.140, 1.129, 1.135, t0 + timedelta(hours=1))
+
+        ch1 = SwingPoint(price=1.135, candle_index=1, candle_open_time=c1.open_time, identified_bar_index=1, confirmed_bar_index=1)
+        reducer.reduce(TJLStructuralObservation(
+            source_engine_id="ENGINE_TEST",
+            symbol_feed_id="FEED_TEST",
+            source_timeframe="H1",
+            direction=Direction.UPWARD,
+            candle_index=1,
+            candle_open_time=c1.open_time,
+            ch_point=ch1,
+            source_candle_lookup={1: c1},
+        ))
+
+        # Deliver a conflicting candle at candle_index=2 claiming the SAME open_time but different high!
+        c1_conflicting = _make_candle(2, 1.130, 1.150, 1.129, 1.135, c1.open_time)
+        ch_conflict = SwingPoint(price=1.135, candle_index=2, candle_open_time=c1.open_time, identified_bar_index=2, confirmed_bar_index=2)
+
+        with pytest.raises(ValueError, match="Conflicting physical level geometry"):
+            reducer.reduce(TJLStructuralObservation(
+                source_engine_id="ENGINE_TEST",
+                symbol_feed_id="FEED_TEST",
+                source_timeframe="H1",
+                direction=Direction.UPWARD,
+                candle_index=2,
+                candle_open_time=t0 + timedelta(hours=2),
+                ch_point=ch_conflict,
+                source_candle_lookup={2: c1_conflicting},
+            ))
+
+    def test_epoch_timestamp_guard_rejects_pre_choch_points(self) -> None:
+        """[Finding 1 Regression] Post-CHOCH structure rejects pre-CHOCH confirmed points based on chronological timestamps, not ID arithmetic."""
+        reducer = TJLReducer("ENGINE_TEST", "FEED_TEST", "H1")
+        t0 = datetime(2026, 10, 1, 0, 0, tzinfo=timezone.utc)
+        c1 = _make_candle(1, 1.130, 1.140, 1.129, 1.135, t0 + timedelta(hours=1))
+        c4 = _make_candle(4, 1.110, 1.115, 1.104, 1.105, t0 + timedelta(hours=4))
+
+        # 1. Bullish at Bar 4
+        ch = SwingPoint(price=1.135, candle_index=1, candle_open_time=c1.open_time, identified_bar_index=1, confirmed_bar_index=4, confirmed_time=t0 + timedelta(hours=4))
+        cl = SwingPoint(price=1.105, candle_index=4, candle_open_time=c4.open_time, identified_bar_index=4, confirmed_bar_index=4, confirmed_time=t0 + timedelta(hours=4))
+        reducer.reduce(TJLStructuralObservation(
+            source_engine_id="ENGINE_TEST",
+            symbol_feed_id="FEED_TEST",
+            source_timeframe="H1",
+            direction=Direction.UPWARD,
+            candle_index=4,
+            candle_open_time=c4.open_time,
+            ch_point=ch,
+            cl_point=cl,
+            source_candle_lookup={1: c1, 4: c4},
+        ))
+
+        # 2. CHOCH to DOWNWARD at Bar 9 (open_time = t0 + 9h)
+        reducer.reduce(TJLStructuralObservation(
+            source_engine_id="ENGINE_TEST",
+            symbol_feed_id="FEED_TEST",
+            source_timeframe="H1",
+            direction=Direction.UPWARD,
+            candle_index=9,
+            candle_open_time=t0 + timedelta(hours=9),
+            is_choch_event=True,
+            new_choch_direction=Direction.DOWNWARD,
+        ))
+
+        # 3. Post-CHOCH observation at Bar 10 attempts to use CL confirmed at t0 + 4h (pre-CHOCH confirmation!)
+        with pytest.raises(ValueError, match="cannot be reused in new structural epoch"):
+            reducer.reduce(TJLStructuralObservation(
+                source_engine_id="ENGINE_TEST",
+                symbol_feed_id="FEED_TEST",
+                source_timeframe="H1",
+                direction=Direction.DOWNWARD,
+                candle_index=10,
+                candle_open_time=t0 + timedelta(hours=10),
+                cl_point=cl,  # Confirmed at t0 + 4h <= CHOCH at t0 + 9h!
+                source_candle_lookup={4: c4},
+            ))
+
+    def test_arbitrary_decreasing_source_ids_supported(self) -> None:
+        """[Directive 6.C] Supports arbitrary or strictly decreasing unique source candle IDs purely via chronological timestamps."""
+        reducer = TJLReducer("ENGINE_DESC", "FEED_DESC", "H1")
+        t0 = datetime(2026, 10, 1, 0, 0, tzinfo=timezone.utc)
+        # Candle IDs decreasing: 500 -> 400 -> 300 -> 200
+        c_high = _make_candle(500, 1.130, 1.140, 1.129, 1.135, t0 + timedelta(hours=1))
+        c_low = _make_candle(400, 1.110, 1.115, 1.104, 1.105, t0 + timedelta(hours=4))
+        c_p3 = _make_candle(300, 1.140, 1.155, 1.139, 1.155, t0 + timedelta(hours=5))
+        c_bar7 = _make_candle(200, 1.145, 1.150, 1.142, 1.146, t0 + timedelta(hours=7))
+
+        ch = SwingPoint(price=1.135, candle_index=500, candle_open_time=c_high.open_time, identified_bar_index=500, confirmed_bar_index=400)
+        cl = SwingPoint(price=1.105, candle_index=400, candle_open_time=c_low.open_time, identified_bar_index=400, confirmed_bar_index=400)
+        p3 = SwingPoint(price=1.155, candle_index=300, candle_open_time=c_p3.open_time, identified_bar_index=200)
+
+        snap = reducer.reduce(TJLStructuralObservation(
+            source_engine_id="ENGINE_DESC",
+            symbol_feed_id="FEED_DESC",
+            source_timeframe="H1",
+            direction=Direction.UPWARD,
+            candle_index=200,
+            candle_open_time=c_bar7.open_time,
+            availability_time=t0 + timedelta(hours=8),
+            ch_point=ch,
+            cl_point=cl,
+            tentative_p3=p3,
+            source_candle_lookup={500: c_high, 400: c_low, 300: c_p3, 200: c_bar7},
+        ))
+
+        assert snap.current_eligible_set is not None
+        assert snap.current_eligible_set.fingerprint == ("ENGINE_DESC", "UPWARD", 500, 400, 300)
+        assert snap.current_eligible_set.tjl1_zone.source_candle_index == 500
+        assert snap.current_eligible_set.tjl2_zone.source_candle_index == 400
+
+    def test_transition_history_retained_and_immutable(self) -> None:
+        """[Directive 5] Transition history preserves full audit log across creation, retention, replacement, and invalidation."""
+        reducer = TJLReducer("ENGINE_AUDIT", "FEED_AUDIT", "H1")
+        t0 = datetime(2026, 10, 1, 0, 0, tzinfo=timezone.utc)
+        c1 = _make_candle(1, 1.130, 1.140, 1.129, 1.135, t0 + timedelta(hours=1))
+        c4 = _make_candle(4, 1.110, 1.115, 1.104, 1.105, t0 + timedelta(hours=4))
+        c5 = _make_candle(5, 1.140, 1.155, 1.139, 1.155, t0 + timedelta(hours=5))
+
+        # 1. First set at Bar 7
+        reducer.reduce(TJLStructuralObservation(
+            source_engine_id="ENGINE_AUDIT",
+            symbol_feed_id="FEED_AUDIT",
+            source_timeframe="H1",
+            direction=Direction.UPWARD,
+            candle_index=7,
+            candle_open_time=t0 + timedelta(hours=7),
+            ch_point=SwingPoint(price=1.135, candle_index=1, candle_open_time=c1.open_time, identified_bar_index=1, confirmed_bar_index=4),
+            cl_point=SwingPoint(price=1.105, candle_index=4, candle_open_time=c4.open_time, identified_bar_index=4, confirmed_bar_index=4),
+            tentative_p3=SwingPoint(price=1.155, candle_index=5, candle_open_time=c5.open_time, identified_bar_index=7),
+            source_candle_lookup={1: c1, 4: c4, 5: c5},
+        ))
+
+        # 2. CHOCH at Bar 9
+        snap = reducer.reduce(TJLStructuralObservation(
+            source_engine_id="ENGINE_AUDIT",
+            symbol_feed_id="FEED_AUDIT",
+            source_timeframe="H1",
+            direction=Direction.UPWARD,
+            candle_index=9,
+            candle_open_time=t0 + timedelta(hours=9),
+            is_choch_event=True,
+            new_choch_direction=Direction.DOWNWARD,
+        ))
+
+        assert len(snap.transition_history) == 2
+        assert snap.transition_history[0].transition_type == TJLTransitionType.FIRST_CREATION
+        assert snap.transition_history[1].transition_type == TJLTransitionType.CHOCH_INVALIDATION
+        assert snap.transition_history[1].outgoing_cancelled_set_id == "SET_1"
+

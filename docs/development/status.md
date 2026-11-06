@@ -263,3 +263,32 @@ Last Updated: 2026-11-05 (MSM Dashboard Milestone Accepted — Transition to CHO
 - **Active Branch**: `feature/tjl-engine` created from `859cf12ae11b2198a6306a183364860e84b82724`.
 - **Scope Boundaries**: Strictly zero UI, taps, activation engine, usage ledger, arbitration, entry signals, or order execution. Zero merging into `main`.
 
+---
+
+## 9. Trend Joining Level (TJL) Pure Offline Engine Implementation (HANDOFF-040)
+- **Implemented Subsystem**: Pure offline TJL labeling, geometry calculation, and current-set lifecycle engine (`src/aladeen/strategy/tjl_types.py`, `src/aladeen/strategy/tjl_reducer.py`, `src/aladeen/strategy/tjl_coordinator.py`, `docs/architecture/tjl-engine.md`).
+- **Core Architecture & Review Hardening**:
+  1. **Source-ID and Epoch Independence**:
+     - Removed all numeric bar-index ordering/inequality assumptions (`<= _last_choch_bar_index`).
+     - Structural epochs are explicitly tracked via `structural_epoch: int` and chronological UTC confirmation timestamps (`confirmed_time > _last_choch_time` / `conf_time > last_choch_open_time`).
+     - Arbitrary string or strictly decreasing numeric IDs (`500 -> 400 -> 300 -> 200` and `900 -> 890 -> 880...`) verified end-to-end.
+  2. **Actual Post-CHOCH Recovery Evidence**:
+     - Verified pure candle-driven recovery: `Set 1 (Bullish) -> CHOCH Invalidation (epoch 0 to 1, Set 1 cancelled, post-CHOCH gap with 0 active sets) -> Bearish Pair Confirmed (Bar 14) -> Set 2 First Creation (Bar 16)`.
+     - 2 historical sets preserved in audit log with distinct epoch provenance.
+  3. **Atomic Transaction Staging & Failure Rollback**:
+     - All sequential candle processing stages state changes across local copies of the underlying `MSMChochCoordinator`, `TJLReducer`, and candle lookup dictionary.
+     - Failure injection between coordinator advance and reducer commit leaves coordinator and reducer completely unmutated; immediate valid retry succeeds cleanly.
+  4. **Physical Level vs Contextual Role Separation**:
+     - `PhysicalLevel`: immutable physical boundary geometry keyed by `StableLevelId`.
+     - `TJLZone`: contextual directional role assignment (`TJL1`, `TJL2_A_PLUS`). Conflicting physical geometries for identical level IDs are rejected fail-closed.
+  5. **Exact Zero-Width Lines & Availability Preservation**:
+     - Zero-width lines require exact price equality (`lower_price == upper_price`), rejecting tolerances or `math.isclose`.
+     - Missing candle close times strictly preserve `availability_time = None`, never substituted by `open_time`.
+  6. **Clean Cancellation Containment**:
+     - `outgoing_cancelled_set_id` and `outgoing_cancelled_fingerprint` explicitly identify cancelled sets.
+     - Unresolved and idempotent no-op receipts do NOT leak or re-emit stale cancellation intent.
+- **Verification Summary**:
+  - Full TJL suite: 43/43 tests passing in 0.70s.
+  - Full repository offline suite: 373/373 tests passing in 14.35s (0 failures, 1 deselected).
+- **Scope Compliance**: Strictly offline calculations. Zero UI, zero tap tracking, zero activation engine, zero usage ledger, zero order execution, and zero merging to `main`.
+
