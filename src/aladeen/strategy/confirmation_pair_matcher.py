@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from types import MappingProxyType
 from typing import Any, Dict, FrozenSet, List, Mapping, Optional, Sequence, Set, Tuple
 
 from .activation_types import (
@@ -95,8 +96,40 @@ class MatchingContext:
         object.__setattr__(self, "evaluation_time", norm_time)
         if not isinstance(self.current_members, Mapping):
             raise TypeError("current_members must be a Mapping of member_key -> SourceMemberReference")
+        frozen_members: Dict[str, SourceMemberReference] = {}
+        for k, v in self.current_members.items():
+            if not isinstance(k, str) or not k.strip():
+                raise ValueError("current_members keys must be non-empty strings")
+            if not isinstance(v, SourceMemberReference):
+                raise TypeError(f"current_members[{k!r}] must be SourceMemberReference, got {type(v).__name__}")
+            frozen_members[k] = v
+        object.__setattr__(self, "current_members", MappingProxyType(frozen_members))
+
         if not isinstance(self.source_resolution_status, Mapping):
             raise TypeError("source_resolution_status must be a Mapping of member_key -> bool")
+        frozen_res: Dict[str, bool] = {}
+        for k, v in self.source_resolution_status.items():
+            if not isinstance(k, str) or not k.strip():
+                raise ValueError("source_resolution_status keys must be non-empty strings")
+            if type(v) is not bool:
+                raise TypeError(
+                    f"source_resolution_status[{k!r}] must be strictly a bool, got {type(v).__name__} ({v!r})"
+                )
+            frozen_res[k] = v
+        object.__setattr__(self, "source_resolution_status", MappingProxyType(frozen_res))
+
+        if self.touch_sequence_evidence is not None:
+            if not isinstance(self.touch_sequence_evidence, Mapping):
+                raise TypeError("touch_sequence_evidence must be a Mapping of activation_id -> TouchSequenceEvidence")
+            frozen_touches: Dict[str, TouchSequenceEvidence] = {}
+            for k, v in self.touch_sequence_evidence.items():
+                if not isinstance(k, str) or not k.strip():
+                    raise ValueError("touch_sequence_evidence keys must be non-empty strings")
+                if not isinstance(v, TouchSequenceEvidence):
+                    raise TypeError(f"touch_sequence_evidence[{k!r}] must be TouchSequenceEvidence, got {type(v).__name__}")
+                frozen_touches[k] = v
+            object.__setattr__(self, "touch_sequence_evidence", MappingProxyType(frozen_touches))
+
         if not isinstance(self.coverage_status, CoverageStatus):
             raise TypeError("coverage_status must be CoverageStatus enum")
 
@@ -153,7 +186,7 @@ class ConfirmationPairMatcher:
                     diagnostic_messages.append(
                         f"Member {activation.member_key} lacks explicit source_resolution_status in context"
                     )
-                elif not context.source_resolution_status[activation.member_key]:
+                elif context.source_resolution_status[activation.member_key] is not True:
                     rejection_reasons.append(ConfirmationRejectionReason.BLOCKED_UNRESOLVED_SOURCE_DEPENDENCY)
                     diagnostic_messages.append(
                         f"Source calculation for member {activation.member_key} is marked unresolved"

@@ -733,6 +733,67 @@ class TestAuthoritativeMatchingAuthority:
         assert res.status == ConfirmationMatchStatus.BLOCKED
         assert ConfirmationRejectionReason.UNKNOWN_SOURCE_RESOLUTION_AUTHORITY in res.rejection_reasons
 
+    def test_matching_context_source_resolution_status_must_be_strict_bool(self) -> None:
+        """Malformed truthy values such as 'UNRESOLVED' or non-bools in source_resolution_status raise TypeError."""
+        mem = make_member()
+        with pytest.raises(TypeError, match="must be strictly a bool"):
+            MatchingContext(
+                domain_session_id="SESS_01",
+                revision_id="REV_01",
+                expected_price_basis=PriceBasis.BID,
+                expected_confirmation_config_id="CONF_CFG_01",
+                matching_sequence_domain=DEFAULT_DOMAIN,
+                evaluation_time=datetime(2026, 10, 2, 12, 0, tzinfo=timezone.utc),
+                current_members={mem.member_key: mem},
+                source_resolution_status={mem.member_key: "UNRESOLVED"},  # type: ignore[dict-item]
+            )
+
+        with pytest.raises(TypeError, match="must be strictly a bool"):
+            MatchingContext(
+                domain_session_id="SESS_01",
+                revision_id="REV_01",
+                expected_price_basis=PriceBasis.BID,
+                expected_confirmation_config_id="CONF_CFG_01",
+                matching_sequence_domain=DEFAULT_DOMAIN,
+                evaluation_time=datetime(2026, 10, 2, 12, 0, tzinfo=timezone.utc),
+                current_members={mem.member_key: mem},
+                source_resolution_status={mem.member_key: 1},  # type: ignore[dict-item]
+            )
+
+    def test_matching_context_defensively_freezes_external_dictionaries(self) -> None:
+        """Mutating external dictionaries after MatchingContext construction does not affect context."""
+        mem = make_member()
+        members_dict = {mem.member_key: mem}
+        res_dict = {mem.member_key: True}
+        touches_dict: Dict[str, TouchSequenceEvidence] = {}
+
+        ctx = MatchingContext(
+            domain_session_id="SESS_01",
+            revision_id="REV_01",
+            expected_price_basis=PriceBasis.BID,
+            expected_confirmation_config_id="CONF_CFG_01",
+            matching_sequence_domain=DEFAULT_DOMAIN,
+            evaluation_time=datetime(2026, 10, 2, 12, 0, tzinfo=timezone.utc),
+            current_members=members_dict,
+            source_resolution_status=res_dict,
+            touch_sequence_evidence=touches_dict,
+        )
+
+        # Mutate external dicts
+        res_dict[mem.member_key] = False
+        res_dict["NEW_KEY"] = True
+        members_dict.clear()
+        touches_dict["TOUCH_1"] = TouchSequenceEvidence(
+            sequence_domain=DEFAULT_DOMAIN,
+            sequence_ref=100,
+        )
+
+        # Assert frozen context is unaffected
+        assert ctx.source_resolution_status[mem.member_key] is True
+        assert "NEW_KEY" not in ctx.source_resolution_status
+        assert mem.member_key in ctx.current_members
+        assert len(ctx.touch_sequence_evidence) == 0
+
     def test_activation_under_unresolved_source_structure_fails_closed_locally(self) -> None:
         """Pending activation under unresolved source structure blocks locally; independent members match."""
         matcher = ConfirmationMatcher()
@@ -900,6 +961,7 @@ class TestAdapterProvenanceAndCompletionIntegrity:
             symbol="EURUSD",
             feed_id="FEED_EURUSD_H4",
             sequence_domain=DEFAULT_DOMAIN,
+            provenance_type=EvidenceProvenanceType.SYNTHETIC_TYPED,
         )
 
         assert ev.is_completed is False
@@ -929,12 +991,22 @@ class TestAdapterProvenanceAndCompletionIntegrity:
             close_time=open_time + timedelta(minutes=5),
         )
 
+        envelope = ValidatedCandleStreamEnvelope(
+            candle=forming_candle,
+            symbol="EURUSD",
+            feed_id="FEED_EURUSD_H4",
+            timeframe="M5",
+            price_basis=PriceBasis.BID,
+            confirmation_config_id="CONF_CFG_EURUSD_M5_v1",
+            confirmation_candle_id="EURUSD:M5:20261002T083000Z",
+        )
+
         ev = adapt_confirmed_choch_to_evidence(
             choch=choch,
             confirmation_config_id="CONF_CFG_EURUSD_M5_v1",
             confirmation_timeframe="M5",
             confirmation_candle_id="EURUSD:M5:20261002T083000Z",
-            confirming_candle=forming_candle,
+            envelope=envelope,
             symbol="EURUSD",
             feed_id="FEED_EURUSD_H4",
             sequence_domain=DEFAULT_DOMAIN,
@@ -959,13 +1031,23 @@ class TestAdapterProvenanceAndCompletionIntegrity:
             close_time=close_time,
         )
 
+        envelope = ValidatedCandleStreamEnvelope(
+            candle=hourly_candle,
+            symbol="EURUSD",
+            feed_id="FEED_EURUSD_H4",
+            timeframe="M5",
+            price_basis=PriceBasis.BID,
+            confirmation_config_id="CONF_CFG_EURUSD_M5_v1",
+            confirmation_candle_id="EURUSD:M5:20261002T080000Z",
+        )
+
         with pytest.raises(ValueError, match="contradicts declared confirmation_timeframe"):
             adapt_confirmed_choch_to_evidence(
                 choch=choch,
                 confirmation_config_id="CONF_CFG_EURUSD_M5_v1",
                 confirmation_timeframe="M5",
                 confirmation_candle_id="EURUSD:M5:20261002T080000Z",
-                confirming_candle=hourly_candle,
+                envelope=envelope,
                 symbol="EURUSD",
                 feed_id="FEED_EURUSD_H4",
                 sequence_domain=DEFAULT_DOMAIN,
@@ -988,13 +1070,22 @@ class TestAdapterProvenanceAndCompletionIntegrity:
             bar_status="CONFIRMED_COMPLETED",
             close_time=close_time + timedelta(minutes=1),
         )
+        envelope_open = ValidatedCandleStreamEnvelope(
+            candle=candle_wrong_open,
+            symbol="EURUSD",
+            feed_id="FEED_01",
+            timeframe="M5",
+            price_basis=PriceBasis.BID,
+            confirmation_config_id="CONF_CFG_01",
+            confirmation_candle_id="CANDLE_01",
+        )
         with pytest.raises(ValueError, match="does not match CHOCH c2_open_time"):
             adapt_confirmed_choch_to_evidence(
                 choch=choch,
                 confirmation_config_id="CONF_CFG_01",
                 confirmation_timeframe="M5",
                 confirmation_candle_id="CANDLE_01",
-                confirming_candle=candle_wrong_open,
+                envelope=envelope_open,
                 symbol="EURUSD",
                 feed_id="FEED_01",
                 sequence_domain=DEFAULT_DOMAIN,
@@ -1011,13 +1102,22 @@ class TestAdapterProvenanceAndCompletionIntegrity:
             bar_status="CONFIRMED_COMPLETED",
             close_time=close_time + timedelta(minutes=1),
         )
+        envelope_close = ValidatedCandleStreamEnvelope(
+            candle=candle_wrong_close,
+            symbol="EURUSD",
+            feed_id="FEED_01",
+            timeframe="M5",
+            price_basis=PriceBasis.BID,
+            confirmation_config_id="CONF_CFG_01",
+            confirmation_candle_id="CANDLE_01",
+        )
         with pytest.raises(ValueError, match="does not match candle close_time|contradicts declared"):
             adapt_confirmed_choch_to_evidence(
                 choch=choch,
                 confirmation_config_id="CONF_CFG_01",
                 confirmation_timeframe="M5",
                 confirmation_candle_id="CANDLE_01",
-                confirming_candle=candle_wrong_close,
+                envelope=envelope_close,
                 symbol="EURUSD",
                 feed_id="FEED_01",
                 sequence_domain=DEFAULT_DOMAIN,
@@ -1040,6 +1140,15 @@ class TestAdapterProvenanceAndCompletionIntegrity:
             bar_status="CONFIRMED_COMPLETED",
             close_time=close_time,
         )
+        envelope = ValidatedCandleStreamEnvelope(
+            candle=candle,
+            symbol="EURUSD",
+            feed_id="FEED_01",
+            timeframe="M5",
+            price_basis=PriceBasis.BID,
+            confirmation_config_id="CONF_CFG_01",
+            confirmation_candle_id="CANDLE_01",
+        )
 
         with pytest.raises(ValueError, match="conflicts with candle close price"):
             adapt_confirmed_choch_to_evidence(
@@ -1047,7 +1156,7 @@ class TestAdapterProvenanceAndCompletionIntegrity:
                 confirmation_config_id="CONF_CFG_01",
                 confirmation_timeframe="M5",
                 confirmation_candle_id="CANDLE_01",
-                confirming_candle=candle,
+                envelope=envelope,
                 close_price=1.1399,
                 symbol="EURUSD",
                 feed_id="FEED_01",
@@ -1055,16 +1164,28 @@ class TestAdapterProvenanceAndCompletionIntegrity:
             )
 
     def test_choch_completed_detector_evidence_without_candle_fails_closed(self) -> None:
-        """Claiming completed detector confirmation without supplying confirming_candle raises ValueError."""
+        """Claiming completed detector confirmation without supplying envelope raises ValueError."""
         choch = make_test_choch()
+        candle = StrategyCandle(
+            index=9,
+            open_time=choch.c2_open_time or datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc),
+            open=1.1340,
+            high=1.1345,
+            low=1.1310,
+            close=1.1320,
+            is_forming=False,
+            bar_status="CONFIRMED_COMPLETED",
+            close_time=choch.confirmation_time,
+        )
 
-        with pytest.raises(ValueError, match="Completed detector confirmation requires authoritative confirming_candle"):
+        # 1. Total omission of envelope
+        with pytest.raises(ValueError, match="DETECTOR_CONFIRMED adaptation strictly requires mandatory ValidatedCandleStreamEnvelope"):
             adapt_confirmed_choch_to_evidence(
                 choch=choch,
                 confirmation_config_id="CONF_CFG_01",
                 confirmation_timeframe="M5",
                 confirmation_candle_id="CANDLE_01",
-                confirming_candle=None,
+                envelope=None,
                 close_price=1.1320,
                 symbol="EURUSD",
                 feed_id="FEED_01",
@@ -1072,18 +1193,61 @@ class TestAdapterProvenanceAndCompletionIntegrity:
                 provenance_type=EvidenceProvenanceType.DETECTOR_CONFIRMED,
             )
 
-    def test_iss_completed_detector_evidence_without_candle_fails_closed(self) -> None:
-        """ISS completed detector evidence claiming completion without confirming_candle raises ValueError."""
-        iss = make_test_iss()
+        # 2. Raw confirming_candle cannot bypass envelope
+        with pytest.raises(ValueError, match="raw confirming_candle cannot bypass envelope"):
+            adapt_confirmed_choch_to_evidence(
+                choch=choch,
+                confirmation_config_id="CONF_CFG_01",
+                confirmation_timeframe="M5",
+                confirmation_candle_id="CANDLE_01",
+                confirming_candle=candle,
+                envelope=None,
+                symbol="EURUSD",
+                feed_id="FEED_01",
+                sequence_domain=DEFAULT_DOMAIN,
+                provenance_type=EvidenceProvenanceType.DETECTOR_CONFIRMED,
+            )
 
-        with pytest.raises(ValueError, match="Completed detector confirmation requires authoritative confirming_candle"):
+    def test_iss_completed_detector_evidence_without_candle_fails_closed(self) -> None:
+        """ISS completed detector evidence claiming completion without envelope raises ValueError."""
+        iss = make_test_iss()
+        close_time = iss.confirmation_time or datetime(2026, 10, 1, 21, 0, tzinfo=timezone.utc)
+        candle = StrategyCandle(
+            index=20,
+            open_time=close_time - timedelta(hours=1),
+            open=1.1100,
+            high=1.1180,
+            low=1.1090,
+            close=1.1120,
+            is_forming=False,
+            bar_status="CONFIRMED_COMPLETED",
+            close_time=close_time,
+        )
+
+        # 1. Total omission of envelope
+        with pytest.raises(ValueError, match="DETECTOR_CONFIRMED adaptation strictly requires mandatory ValidatedCandleStreamEnvelope"):
             adapt_confirmed_iss_to_evidence(
                 iss=iss,
                 confirmation_config_id="CONF_CFG_01",
                 confirmation_timeframe="H1",
                 confirmation_candle_id="CANDLE_01",
-                confirming_candle=None,
+                envelope=None,
                 close_price=1.1120,
+                symbol="EURUSD",
+                feed_id="FEED_01",
+                sequence_domain=DEFAULT_DOMAIN,
+                provenance_type=EvidenceProvenanceType.DETECTOR_CONFIRMED,
+            )
+
+        # 2. Raw confirming_candle cannot bypass envelope
+        with pytest.raises(ValueError, match="raw confirming_candle cannot bypass envelope"):
+            adapt_confirmed_iss_to_evidence(
+                iss=iss,
+                confirmation_config_id="CONF_CFG_01",
+                confirmation_timeframe="H1",
+                confirmation_candle_id="CANDLE_01",
+                confirming_candle=candle,
+                envelope=None,
                 symbol="EURUSD",
                 feed_id="FEED_01",
                 sequence_domain=DEFAULT_DOMAIN,
@@ -1111,6 +1275,15 @@ class TestAdapterProvenanceAndCompletionIntegrity:
             bar_status="CONFIRMED_COMPLETED",
             close_time=close_time,
         )
+        envelope_iss = ValidatedCandleStreamEnvelope(
+            candle=candle_wrong_close,
+            symbol="EURUSD",
+            feed_id="FEED_01",
+            timeframe="H1",
+            price_basis=PriceBasis.BID,
+            confirmation_config_id="CONF_CFG_H1_01",
+            confirmation_candle_id="CANDLE_20",
+        )
 
         with pytest.raises(ValueError, match="contradicts ISS completion_close_price"):
             adapt_confirmed_iss_to_evidence(
@@ -1118,14 +1291,14 @@ class TestAdapterProvenanceAndCompletionIntegrity:
                 confirmation_config_id="CONF_CFG_H1_01",
                 confirmation_timeframe="H1",
                 confirmation_candle_id="CANDLE_20",
-                confirming_candle=candle_wrong_close,
+                envelope=envelope_iss,
                 symbol="EURUSD",
                 feed_id="FEED_01",
                 sequence_domain=DEFAULT_DOMAIN,
             )
 
     def test_stream_envelope_contradictions_rejected_choch_and_iss(self) -> None:
-        """ValidatedCandleStreamEnvelope with contradictory symbol/feed/config raises ValueError."""
+        """ValidatedCandleStreamEnvelope with contradictory symbol/feed/config raises ValueError for both CHOCH and ISS."""
         open_time = datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc)
         close_time = datetime(2026, 10, 2, 8, 35, tzinfo=timezone.utc)
         choch = make_test_choch(open_time=open_time, confirmation_time=close_time)
@@ -1142,23 +1315,95 @@ class TestAdapterProvenanceAndCompletionIntegrity:
             close_time=close_time,
         )
 
-        envelope_wrong_feed = ValidatedCandleStreamEnvelope(
+        # 1. CHOCH contradictory feed_id
+        envelope_wrong_feed_choch = ValidatedCandleStreamEnvelope(
             candle=candle,
             symbol="EURUSD",
-            feed_id="FEED_CONTRADICTING",  # Contradicts parameter
+            feed_id="FEED_CONTRADICTING",
             timeframe="M5",
             price_basis=PriceBasis.BID,
             confirmation_config_id="CONF_CFG_01",
             confirmation_candle_id="CANDLE_01",
         )
-
         with pytest.raises(ValueError, match="Envelope feed_id .* contradicts parameter"):
             adapt_confirmed_choch_to_evidence(
                 choch=choch,
                 confirmation_config_id="CONF_CFG_01",
                 confirmation_timeframe="M5",
                 confirmation_candle_id="CANDLE_01",
-                envelope=envelope_wrong_feed,
+                envelope=envelope_wrong_feed_choch,
+                symbol="EURUSD",
+                feed_id="FEED_EURUSD_H4",
+                sequence_domain=DEFAULT_DOMAIN,
+            )
+
+        # 2. ISS contradictory feed_id
+        iss = make_test_iss(
+            confirmation_candle_index=9,
+            confirmation_time=close_time,
+            completion_close_price=1.1350,
+        )
+        envelope_wrong_feed_iss = ValidatedCandleStreamEnvelope(
+            candle=candle,
+            symbol="EURUSD",
+            feed_id="FEED_CONTRADICTING_ISS",
+            timeframe="M5",
+            price_basis=PriceBasis.BID,
+            confirmation_config_id="CONF_CFG_01",
+            confirmation_candle_id="CANDLE_01",
+        )
+        with pytest.raises(ValueError, match="Envelope feed_id .* contradicts parameter"):
+            adapt_confirmed_iss_to_evidence(
+                iss=iss,
+                confirmation_config_id="CONF_CFG_01",
+                confirmation_timeframe="M5",
+                confirmation_candle_id="CANDLE_01",
+                envelope=envelope_wrong_feed_iss,
+                symbol="EURUSD",
+                feed_id="FEED_EURUSD_H4",
+                sequence_domain=DEFAULT_DOMAIN,
+            )
+
+        # 3. CHOCH contradictory sequence domain
+        envelope_wrong_domain = ValidatedCandleStreamEnvelope(
+            candle=candle,
+            symbol="EURUSD",
+            feed_id="FEED_EURUSD_H4",
+            timeframe="M5",
+            price_basis=PriceBasis.BID,
+            confirmation_config_id="CONF_CFG_01",
+            confirmation_candle_id="CANDLE_01",
+            sequence_domain=SequenceDomain(feed_id="FEED_OTHER", run_id="RUN_OTHER"),
+        )
+        with pytest.raises(ValueError, match="Envelope sequence_domain .* contradicts parameter"):
+            adapt_confirmed_choch_to_evidence(
+                choch=choch,
+                confirmation_config_id="CONF_CFG_01",
+                confirmation_timeframe="M5",
+                confirmation_candle_id="CANDLE_01",
+                envelope=envelope_wrong_domain,
+                symbol="EURUSD",
+                feed_id="FEED_EURUSD_H4",
+                sequence_domain=DEFAULT_DOMAIN,
+            )
+
+        # 4. ISS contradictory symbol
+        envelope_wrong_symbol_iss = ValidatedCandleStreamEnvelope(
+            candle=candle,
+            symbol="GBPUSD",
+            feed_id="FEED_EURUSD_H4",
+            timeframe="M5",
+            price_basis=PriceBasis.BID,
+            confirmation_config_id="CONF_CFG_01",
+            confirmation_candle_id="CANDLE_01",
+        )
+        with pytest.raises(ValueError, match="Envelope symbol .* contradicts parameter"):
+            adapt_confirmed_iss_to_evidence(
+                iss=iss,
+                confirmation_config_id="CONF_CFG_01",
+                confirmation_timeframe="M5",
+                confirmation_candle_id="CANDLE_01",
+                envelope=envelope_wrong_symbol_iss,
                 symbol="EURUSD",
                 feed_id="FEED_EURUSD_H4",
                 sequence_domain=DEFAULT_DOMAIN,
@@ -1178,6 +1423,7 @@ class TestAdapterProvenanceAndCompletionIntegrity:
                 symbol="EURUSD",
                 feed_id="FEED_01",
                 sequence_domain=DEFAULT_DOMAIN,
+                provenance_type=EvidenceProvenanceType.SYNTHETIC_TYPED,
             )
 
     def test_evidence_placeholder_structural_references_rejected(self) -> None:
@@ -1241,6 +1487,38 @@ class TestBatchConsolidationAndDeterministicOrdering:
         assert cand1.candidate_id == expected_cand_id
         assert cand2.candidate_id == expected_cand_id
         assert cand1.candidate_id == cand2.candidate_id
+
+    def test_batch_consolidation_same_pattern_multiple_events_not_marked_consolidated(self) -> None:
+        """Multiple confirmation events with the same pattern preserve event IDs but do NOT set is_consolidated=True."""
+        matcher = ConfirmationMatcher()
+        act = make_activation()
+        ctx = make_context()
+
+        ev1 = make_evidence(event_id="EVT_CHOCH_1", pattern_type="CHOCH", close_price=1.1350)
+        ev2 = make_evidence(event_id="EVT_CHOCH_2", pattern_type="CHOCH", close_price=1.1350)
+
+        res = matcher.match_batch([act], [ev1, ev2], ctx)
+        assert len(res.unique_candidates) == 1
+        cand = res.unique_candidates[0]
+        assert cand.confirmation_patterns == ("CHOCH",)
+        assert cand.confirmation_event_ids == ("EVT_CHOCH_1", "EVT_CHOCH_2")
+        assert cand.is_consolidated is False
+
+    def test_batch_consolidation_dual_pattern_marked_consolidated(self) -> None:
+        """Confirmation events with dual patterns (CHOCH + ISS) set is_consolidated=True per schema."""
+        matcher = ConfirmationMatcher()
+        act = make_activation()
+        ctx = make_context()
+
+        ev_choch = make_evidence(event_id="EVT_CHOCH", pattern_type="CHOCH", close_price=1.1350)
+        ev_iss = make_evidence(event_id="EVT_ISS", pattern_type="ISS", close_price=1.1350)
+
+        res = matcher.match_batch([act], [ev_choch, ev_iss], ctx)
+        assert len(res.unique_candidates) == 1
+        cand = res.unique_candidates[0]
+        assert cand.confirmation_patterns == ("CHOCH", "ISS")
+        assert cand.confirmation_event_ids == ("EVT_CHOCH", "EVT_ISS")
+        assert cand.is_consolidated is True
 
     def test_duplicate_activations_with_conflicting_payloads_fails_closed(self) -> None:
         """Duplicate activations with conflicting payloads reject with CONFLICTING_IDENTITY deterministically."""
@@ -1445,11 +1723,27 @@ class TestCandleDerivedContinuousDetection:
         raw_candles = fix["candles"]
         base_time = datetime(2026, 10, 1, 0, 0, tzinfo=timezone.utc)
         h1_candles = []
+        processed_candles = []
         for i, c in enumerate(raw_candles):
+            open_t = base_time + timedelta(hours=i)
+            close_t = base_time + timedelta(hours=i + 1)
             c_copy = dict(c)
-            c_copy["time"] = (base_time + timedelta(hours=i)).isoformat()
-            c_copy["close_time"] = (base_time + timedelta(hours=i + 1)).isoformat()
+            c_copy["time"] = open_t.isoformat()
+            c_copy["close_time"] = close_t.isoformat()
             h1_candles.append(c_copy)
+            processed_candles.append(
+                StrategyCandle(
+                    index=i,
+                    open_time=open_t,
+                    open=float(c["open"]),
+                    high=float(c["high"]),
+                    low=float(c["low"]),
+                    close=float(c["close"]),
+                    is_forming=False,
+                    bar_status="CONFIRMED_COMPLETED",
+                    close_time=close_t,
+                )
+            )
 
         config = MSMConfig(start_candle_time=base_time, direction=Direction.UPWARD)
         coordinator = MSMChochCoordinator(config)
@@ -1461,22 +1755,12 @@ class TestCandleDerivedContinuousDetection:
         assert choch.c2_candle_index == 9
 
         # Tap occurs at candle 7 (after Point 3 at candle 5, before CHOCH confirmation at candle 9)
-        tap_time = datetime.fromisoformat(h1_candles[7]["time"]).astimezone(timezone.utc)
-        conf_close = choch.confirmation_time or datetime.fromisoformat(h1_candles[9]["close_time"]).astimezone(timezone.utc)
+        tap_time = processed_candles[7].open_time
+        conf_close = choch.confirmation_time or processed_candles[9].close_time
         assert tap_time < conf_close
 
-        # Authoritative confirming candle 9 with full provenance
-        confirming_candle = StrategyCandle(
-            index=9,
-            open_time=datetime.fromisoformat(h1_candles[9]["time"]).astimezone(timezone.utc),
-            open=float(h1_candles[9]["open"]),
-            high=float(h1_candles[9]["high"]),
-            low=float(h1_candles[9]["low"]),
-            close=float(h1_candles[9]["close"]),
-            is_forming=False,
-            bar_status="CONFIRMED_COMPLETED",
-            close_time=conf_close,
-        )
+        # Authoritative confirming candle 9 looked up directly from processed input candle stream
+        confirming_candle = processed_candles[choch.c2_candle_index]
 
         # D1 source timeframe mapping to H1 confirmation (§6)
         act = make_activation(
@@ -1531,30 +1815,38 @@ class TestCandleDerivedContinuousDetection:
     ) -> None:
         """Validates candle-derived ISS: authoritative 2-candle pullback matches; unresolved multi-candle blocks fail-closed."""
         fix = iss_fixtures["fixtures"]["iss_02_bullish_basic_end_to_end"]
-        start_time = datetime.fromisoformat(fix["candles"][0]["time"]).astimezone(timezone.utc)
+        raw_candles = fix["candles"]
+        start_time = datetime.fromisoformat(raw_candles[0]["time"]).astimezone(timezone.utc)
+        processed_candles = []
+        for i, c in enumerate(raw_candles):
+            open_t = datetime.fromisoformat(c["time"]).astimezone(timezone.utc)
+            close_t = datetime.fromisoformat(c["close_time"]).astimezone(timezone.utc)
+            processed_candles.append(
+                StrategyCandle(
+                    index=i,
+                    open_time=open_t,
+                    open=float(c["open"]),
+                    high=float(c["high"]),
+                    low=float(c["low"]),
+                    close=float(c["close"]),
+                    is_forming=False,
+                    bar_status="CONFIRMED_COMPLETED",
+                    close_time=close_t,
+                )
+            )
+
         engine = ISSEngine(ISSConfig(main_direction=Direction.UPWARD, start_candle_time=start_time))
-        snap = engine.process_candles(fix["candles"])
+        snap = engine.process_candles(raw_candles)
 
         assert snap.lifecycle_status == ISSLifecycleStatus.CONFIRMED
         assert len(snap.confirmed_events) == 1
         iss_event = snap.confirmed_events[0]
 
-        c20_raw = fix["candles"][20]
-        conf_time = iss_event.confirmation_time or datetime.fromisoformat(c20_raw["close_time"]).astimezone(timezone.utc)
-        tap_time = datetime.fromisoformat(fix["candles"][15]["time"]).astimezone(timezone.utc)
+        # Authoritative confirming candle looked up directly from processed input candle stream
+        confirming_candle = processed_candles[iss_event.confirmation_candle_index]
+        conf_time = iss_event.confirmation_time or confirming_candle.close_time
+        tap_time = processed_candles[15].open_time
         assert tap_time < conf_time
-
-        confirming_candle = StrategyCandle(
-            index=20,
-            open_time=datetime.fromisoformat(c20_raw["time"]).astimezone(timezone.utc),
-            open=float(c20_raw["open"]),
-            high=float(c20_raw["high"]),
-            low=float(c20_raw["low"]),
-            close=float(c20_raw["close"]),
-            is_forming=False,
-            bar_status="CONFIRMED_COMPLETED",
-            close_time=conf_time,
-        )
 
         envelope = ValidatedCandleStreamEnvelope(
             candle=confirming_candle,

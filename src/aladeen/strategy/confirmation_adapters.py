@@ -45,6 +45,7 @@ class ValidatedCandleStreamEnvelope:
     price_basis: PriceBasis
     confirmation_config_id: str
     confirmation_candle_id: str
+    sequence_domain: Optional[SequenceDomain] = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.candle, StrategyCandle):
@@ -61,6 +62,8 @@ class ValidatedCandleStreamEnvelope:
             raise ValueError("confirmation_config_id must be non-empty string")
         if not isinstance(self.confirmation_candle_id, str) or not self.confirmation_candle_id.strip():
             raise ValueError("confirmation_candle_id must be non-empty string")
+        if self.sequence_domain is not None and not isinstance(self.sequence_domain, SequenceDomain):
+            raise TypeError("sequence_domain must be SequenceDomain instance if provided")
 
 
 def adapt_confirmed_choch_to_evidence(
@@ -111,6 +114,16 @@ def adapt_confirmed_choch_to_evidence(
     if choch.c1_candle_index is None or choch.c1_candle_index < 0 or choch.c2_candle_index is None or choch.c2_candle_index < 0:
         raise ValueError("ConfirmedChoch missing valid c1/c2 candle indices")
 
+    # For DETECTOR_CONFIRMED adaptation, ValidatedCandleStreamEnvelope is strictly mandatory
+    if provenance_type == EvidenceProvenanceType.DETECTOR_CONFIRMED:
+        if envelope is None:
+            raise ValueError(
+                "DETECTOR_CONFIRMED adaptation strictly requires mandatory ValidatedCandleStreamEnvelope; raw confirming_candle cannot bypass envelope"
+            )
+        if confirming_candle is not None and confirming_candle != envelope.candle:
+            raise ValueError("confirming_candle contradicts envelope candle")
+        confirming_candle = envelope.candle
+
     # If stream envelope is provided, validate explicit authority binding
     if envelope is not None:
         if envelope.symbol != symbol:
@@ -125,6 +138,8 @@ def adapt_confirmed_choch_to_evidence(
             raise ValueError(f"Envelope config ({envelope.confirmation_config_id}) contradicts parameter config ({confirmation_config_id})")
         if envelope.confirmation_candle_id != confirmation_candle_id:
             raise ValueError(f"Envelope candle ID ({envelope.confirmation_candle_id}) contradicts parameter candle ID ({confirmation_candle_id})")
+        if envelope.sequence_domain is not None and envelope.sequence_domain != sequence_domain:
+            raise ValueError(f"Envelope sequence_domain ({envelope.sequence_domain}) contradicts parameter ({sequence_domain})")
         confirming_candle = envelope.candle
 
     is_completed = True
@@ -264,6 +279,16 @@ def adapt_confirmed_iss_to_evidence(
     if not iss.internal_points or len(iss.internal_points) != 5:
         raise ValueError("ConfirmedISSEvent missing valid 5 internal_points structural dependencies")
 
+    # For DETECTOR_CONFIRMED adaptation, ValidatedCandleStreamEnvelope is strictly mandatory
+    if provenance_type == EvidenceProvenanceType.DETECTOR_CONFIRMED:
+        if envelope is None:
+            raise ValueError(
+                "DETECTOR_CONFIRMED adaptation strictly requires mandatory ValidatedCandleStreamEnvelope; raw confirming_candle cannot bypass envelope"
+            )
+        if confirming_candle is not None and confirming_candle != envelope.candle:
+            raise ValueError("confirming_candle contradicts envelope candle")
+        confirming_candle = envelope.candle
+
     # If stream envelope is provided, validate explicit authority binding
     if envelope is not None:
         if envelope.symbol != symbol:
@@ -278,6 +303,8 @@ def adapt_confirmed_iss_to_evidence(
             raise ValueError(f"Envelope config ({envelope.confirmation_config_id}) contradicts parameter config ({confirmation_config_id})")
         if envelope.confirmation_candle_id != confirmation_candle_id:
             raise ValueError(f"Envelope candle ID ({envelope.confirmation_candle_id}) contradicts parameter candle ID ({confirmation_candle_id})")
+        if envelope.sequence_domain is not None and envelope.sequence_domain != sequence_domain:
+            raise ValueError(f"Envelope sequence_domain ({envelope.sequence_domain}) contradicts parameter ({sequence_domain})")
         confirming_candle = envelope.candle
 
     is_completed = True

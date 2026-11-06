@@ -2592,3 +2592,42 @@ Last Updated: 2026-11-06 (Milestone 29 Release-Readiness Audit & Offline Runbook
   - Strategy engines (`msm_engine.py`, `choch_detector.py`, `iss_engine.py`, `tjl_coordinator.py`, `activation_engine.py`, `activation_adapter.py`) remain 100% untouched (0 diff against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`).
   - Zero live MT5 trading, zero UI order execution, zero arbitration, zero usage writes, zero automated trading.
   - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
+
+
+---
+
+## 42. Milestone 31 — Offline Confirmation Matcher Mandatory Stream Authority & Traceable Integration (HANDOFF-096)
+- **Active Branch**: `feature/confirmation-monitor`
+- **Parent Commit**: `ddd34ce7ea9f12c0e80e58218072461a7a6bd7de` (HANDOFF-095)
+- **Defects Addressed in HANDOFF-096 (Review Directives 1–4)**:
+  1. *Mandatory and Symmetric Stream Envelope Binding for DETECTOR_CONFIRMED*:
+     - Made `ValidatedCandleStreamEnvelope` strictly mandatory for `DETECTOR_CONFIRMED` adaptation in both `adapt_confirmed_choch_to_evidence` and `adapt_confirmed_iss_to_evidence`.
+     - Removed raw confirming candle bypass: passing raw candle without envelope raises `ValueError`.
+     - Confirming candle is resolved directly from `envelope.candle`.
+     - Validated all envelope fields (`symbol`, `feed_id`, `timeframe`, `price_basis`, `confirmation_config_id`, `confirmation_candle_id`, `sequence_domain`).
+     - Added omission and contradictory parameter tests for both CHOCH and ISS (`test_choch_completed_detector_evidence_without_candle_fails_closed`, `test_iss_completed_detector_evidence_without_candle_fails_closed`, `test_stream_envelope_contradictions_rejected_choch_and_iss`).
+  2. *Strict Boolean Validation and Defensive Freezing of MatchingContext Mappings*:
+     - `source_resolution_status` values must be strictly boolean (`type(v) is bool`). Non-bool values like `"UNRESOLVED"` or integers raise `TypeError`.
+     - Defensively copies and freezes `source_resolution_status`, `current_members`, and `touch_sequence_evidence` using `MappingProxyType`, preventing external dictionary mutation from altering context during evaluation.
+     - Pair matcher resolution gate strictly checks `context.source_resolution_status[member_key] is True`.
+  3. *Aligned is_consolidated with Schema Dual-Pattern Presence*:
+     - `is_consolidated` is set to `True` strictly when both CHOCH and ISS patterns are present (`len(all_patterns) > 1`). Multiple events under the same pattern are preserved in `all_event_ids` with `is_consolidated = False`.
+     - Added test cases verifying both same-pattern multiple events (`test_batch_consolidation_same_pattern_multiple_events_not_marked_consolidated`) and dual-pattern consolidation (`test_batch_consolidation_dual_pattern_marked_consolidated`).
+  4. *Separately Retrievable Integration Module Using Processed-Input Candles*:
+     - Created `tests/test_confirmation_detector_integration.py` containing complete end-to-end continuous detection demonstrations:
+       * Fixture loading and exact candle adaptation from JSON.
+       * Detector/coordinator execution from configured start candle.
+       * Actual emitted detector event retrieval.
+       * Confirming candle looked up directly by index from the processed input candle stream (`processed_candles[c2_index]`, `processed_candles[conf_index]`), completely eliminating hardcoded expected candles.
+       * Envelope construction using that retrieved candle and matching metadata.
+       * Matcher execution and candidate assertions.
+       * Fail-closed blocked-branch verification for unresolved ISS pullback ambiguity.
+- **Verification Summary**:
+  - Focused confirmation matcher test suite: **58/58 passed in 0.75s** (`pytest tests/test_confirmation_matcher.py -v`).
+  - Separately retrievable detector integration test suite: **2/2 passed in 0.57s** (`pytest tests/test_confirmation_detector_integration.py -v`).
+  - Full offline repository test suite: **635/635 passed in 8.76s** (`pytest tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py --ignore=tests/test_activation_browser_controlled.py --ignore=tests/activation_browser_runner.py --ignore=tests/activation_browser_harness.py --ignore=tests/test_browser_race_controlled.py --ignore=tests/test_choch_browser_verification.py --ignore=tests/browser_check.py`).
+- **Safety Boundary Maintained**:
+  - Pure offline calculation layer only.
+  - Strategy engines (`msm_engine.py`, `choch_detector.py`, `iss_engine.py`, `tjl_coordinator.py`, `activation_engine.py`, `activation_adapter.py`) remain 100% untouched (0 diff against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`).
+  - Zero live MT5 trading, zero UI order execution, zero arbitration, zero usage writes, zero automated trading.
+  - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.

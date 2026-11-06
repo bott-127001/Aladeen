@@ -169,7 +169,9 @@ class ConfirmationBatchConsolidator:
                     any_synthetic = True
 
             first = cand_list[0]
-            is_consolidated = len(all_patterns) > 1 or len(all_event_ids) > 1
+            # The accepted schema defines is_consolidated as True strictly when dual patterns (both CHOCH and ISS) are present.
+            # Multiple events under the same pattern are preserved in all_event_ids without marking is_consolidated = True.
+            is_consolidated = len(all_patterns) > 1
             prov_type = EvidenceProvenanceType.SYNTHETIC_TYPED if any_synthetic else EvidenceProvenanceType.DETECTOR_CONFIRMED
 
             # Setup-stable candidate ID derived strictly from setup_key
