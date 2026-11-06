@@ -24,7 +24,7 @@ def create_app(adapter: Any = None) -> Dash:
         title="Aladeen / TopG",
         update_title="Loading…",
     )
-    app.layout = build_layout()
+    app.layout = build_layout
     register_callbacks(app, adapter=adapter)
     return app
 

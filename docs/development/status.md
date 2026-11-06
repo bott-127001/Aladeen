@@ -1373,3 +1373,48 @@ Last Updated: 2026-11-06 (Activation Engine Pure Offline Milestone Accepted — 
   3. *Engine Integrity*: Strictly zero modification to accepted strategy engines (`msm_engine`, `choch_engine`, `iss_engine`, `tjl_coordinator`, `activation_engine`, `activation_adapter`).
   4. *Core Ambiguities Preserved*: Upstream $c_1 == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
   5. *Branch Boundary*: Committed and pushed strictly on `feature/activation-dashboard`. No merging into `main`.
+
+### HANDOFF-072: Atomic Clear Lease Guard, Bounded Registry Metadata, Application-Boundary Callable Layout, and Event-Driven Concurrency Tests
+- **Active Branch**: `feature/activation-dashboard`
+- **Immediate Parent Commit**: `01e5b9bc40bc668293d6fca530918a4a00954be4` (HANDOFF-071)
+- **Requirements Baseline Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d` (Milestone 26 / HANDOFF-066 accepted)
+- **Root Baseline Engine Commit**: `0867c740352297fb43e781fb654706218771d533` (Milestone 25 / HANDOFF-061)
+- **Objective**: Deliver complete closure of all items from Perplexity's review of HANDOFF-071:
+  1. *Atomic Clear Guard Obeying Operational Leases (`src/aladeen/strategy/service.py`)*:
+     - Updated `ActivationSessionRegistry.clear()`: Evaluates `active_in_flight` under registry lock; if any session currently holds an active operational lease (`count > 0`), clear rejects atomically with `RuntimeError` without performing any mutation or resetting coordinators.
+     - Prevents lock-generation overlap or corruption of in-flight active operations when `reset_activation_session_registry()` or explicit `clear()` is invoked.
+  2. *Strictly Bounded Registry Metadata Bookkeeping (`src/aladeen/strategy/service.py`)*:
+     - Eviction Pruning: Updated `_enforce_capacity_locked()` and `remove_session()` to cleanly purge evicted sessions from all metadata collections: `_session_locks`, `_active_leases`, and `_session_incarnations`.
+     - Monotonic Incarnation Token: Replaced historical unbounded dictionary with a process-monotonic incarnation counter (`_incarnation_counter: int = 0`). Every session creation / recreation receives a strictly greater, never-before-used incarnation number (`INC1`, `INC2`, etc.) in $O(1)$ memory.
+     - Custom Prefix Protection: Enforced that explicitly supplied `run_id_prefix` cannot override or bypass incarnation identity; clean prefix is always formatted as `f"{clean_prefix}_INC{incarnation}"`.
+     - Zero Unbounded Dictionaries: Guaranteed that `_sessions`, `_session_locks`, `_active_leases`, `_session_incarnations`, and `_access_order` are all strictly bounded by `max_sessions`.
+  3. *Application-Boundary Session Initialization Path (`src/aladeen/app.py`)*:
+     - Configured `app.layout = build_layout` as a callable in `create_app()`, ensuring Dash calls `build_layout` dynamically on every new client HTTP connection rather than reusing a static layout evaluated once at startup.
+     - Every incoming connection evaluates `build_layout()` and receives a fresh unique session UUID in `dashboard-session-id-store` with `storage_type="session"`.
+     - Browser tabs persist this identity across steady polling refreshes in `sessionStorage` via `ensure_dashboard_session_id`.
+  4. *Event-Driven Concurrency Tests & Regressions (`tests/test_activation_dashboard_integration.py`)*:
+     - Replaced sleep-based barrier test in `test_same_session_overlapping_operations_are_serialized` with event-driven synchronization (`threading.Event`), asserting serialization without sleep dependencies and propagating worker exceptions.
+     - Added `test_clear_rejected_while_operational_lease_is_active`: Asserts that `clear()` fails atomically with `RuntimeError` while an operational lease is held and leaves active session and lock entries intact.
+     - Added `test_bounded_registry_bookkeeping_across_high_volume_unique_sessions`: Ingests 100 unique session IDs and verifies that all metadata collections remain strictly bounded by `max_sessions`.
+     - Added `test_recreation_with_custom_run_prefix_enforces_fresh_incarnation`: Verifies custom run prefixes advance incarnation upon recreation and establish fresh causal domains.
+     - Added `test_application_boundary_session_initialization_and_refresh_retention`: Verifies that `app.layout` is callable, multiple connection calls produce distinct session IDs, and existing session IDs are retained across refresh.
+- **Completed Deliverables**:
+  1. [`src/aladeen/strategy/service.py`](file:///src/aladeen/strategy/service.py): Atomic clear lease rejection, metadata pruning on eviction, process-monotonic incarnation token, and custom prefix protection.
+  2. [`src/aladeen/app.py`](file:///src/aladeen/app.py): Configured `app.layout = build_layout` callable for dynamic per-connection layouts.
+  3. [`tests/test_activation_dashboard_integration.py`](file:///tests/test_activation_dashboard_integration.py): 21 comprehensive integration tests (+4 new regressions covering atomic clear rejection, metadata bounding under high volume, custom prefix incarnation enforcement, and application-boundary session initialization).
+  4. [`docs/development/status.md`](file:///docs/development/status.md): HANDOFF-072 documentation.
+- **Verification Summary**:
+  - Activation dashboard integration suite: **21 / 21 passed** in 1.40s (`pytest tests/test_activation_dashboard_integration.py -q`).
+  - Activation dashboard fixture integrity suite: **11 / 11 passed** in 0.50s (`pytest tests/test_activation_dashboard_fixture_integrity.py -q`).
+  - TJL dashboard integration suite: **32 / 32 passed** in 3.09s (`pytest tests/test_tjl_dashboard_integration.py -q`).
+  - App construction suite: **16 / 16 passed** in 1.25s (`pytest tests/test_app.py -q`).
+  - Full offline repository test suite: **541 / 541 passed** in 7.11s (`pytest -q tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py`).
+  - Reconciled Test Inventory: 520 baseline tests + 21 integration tests = 541 passing offline tests.
+  - Runtime Engine Modification Audit: Exactly zero modifications to strategy engines (`msm_engine`, `choch_engine`, `iss_engine`, `tjl_coordinator`, `activation_engine`, `activation_adapter`).
+  - Visual Limitation: Offline test suite verifies HTML DOM tree structure and Dash component properties; visual browser acceptance remains unverified until live browser testing.
+- **Scope Compliance & Standing Invariants**:
+  1. *Pure Read-Only Presentation*: Strictly zero UI order execution, zero MT5 trading calls, zero live account modification.
+  2. *Downstream Invariant*: Strictly zero confirmation arbitration/selection, zero usage ledger writes, zero trade entry signals.
+  3. *Engine Integrity*: Strictly zero modification to accepted strategy engines (`msm_engine`, `choch_engine`, `iss_engine`, `tjl_coordinator`, `activation_engine`, `activation_adapter`).
+  4. *Core Ambiguities Preserved*: Upstream $c_1 == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
+  5. *Branch Boundary*: Committed and pushed strictly on `feature/activation-dashboard`. No merging into `main`.

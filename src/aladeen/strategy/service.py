@@ -540,6 +540,7 @@ class ActivationSessionRegistry:
         self._session_locks: Dict[str, threading.RLock] = {}
         self._active_leases: Dict[str, int] = {}
         self._session_incarnations: Dict[str, int] = {}
+        self._incarnation_counter: int = 0
         self._lock = threading.Lock()
 
     @property
@@ -570,9 +571,16 @@ class ActivationSessionRegistry:
         # Evict oldest idle session if at capacity
         self._enforce_capacity_locked(allow_count=self._max_sessions - 1)
 
-        incarnation = self._session_incarnations.get(session_id, 0) + 1
+        self._incarnation_counter += 1
+        incarnation = self._incarnation_counter
         self._session_incarnations[session_id] = incarnation
-        prefix = run_id_prefix or f"SESSION_{session_id}_INC{incarnation}"
+
+        # Ensure custom run_id_prefix cannot bypass fresh incarnation identity
+        if run_id_prefix:
+            clean_prefix = run_id_prefix.rstrip("_")
+            prefix = f"{clean_prefix}_INC{incarnation}"
+        else:
+            prefix = f"SESSION_{session_id}_INC{incarnation}"
 
         coord = ActivationSessionCoordinator(sequence_domain_run_id=prefix)
         self._sessions[session_id] = coord
@@ -584,6 +592,8 @@ class ActivationSessionRegistry:
     def _enforce_capacity_locked(self, allow_count: Optional[int] = None) -> None:
         """Evicts idle sessions in LRU order when total sessions exceed target capacity.
         Never evicts or resets an in-use session (active_leases > 0).
+        Cleans up all associated bookkeeping collections (_session_locks, _active_leases,
+        _session_incarnations) to prevent unbounded memory growth.
         """
         target = self._max_sessions if allow_count is None else allow_count
         while len(self._sessions) > target:
@@ -599,6 +609,10 @@ class ActivationSessionRegistry:
             evicted = self._sessions.pop(evict_candidate, None)
             if evicted is not None:
                 evicted.reset()
+            # Bound all metadata collections: prune evicted session from all dictionaries
+            self._session_locks.pop(evict_candidate, None)
+            self._active_leases.pop(evict_candidate, None)
+            self._session_incarnations.pop(evict_candidate, None)
 
     def get_or_create(self, session_id: str, run_id_prefix: Optional[str] = None) -> ActivationSessionCoordinator:
         """Returns the isolated ActivationSessionCoordinator for session_id, creating one if absent."""
@@ -647,16 +661,29 @@ class ActivationSessionRegistry:
                 coord.reset()
             if session_id in self._access_order:
                 self._access_order.remove(session_id)
+            self._session_locks.pop(session_id, None)
+            self._active_leases.pop(session_id, None)
+            self._session_incarnations.pop(session_id, None)
 
     def clear(self) -> None:
-        """Clears and resets all managed sessions."""
+        """Clears and resets all managed sessions.
+
+        Fails atomically without mutation if any session currently has an active operational lease,
+        preventing lock-generation overlap or corruption of in-flight operations.
+        """
         with self._lock:
+            active_in_flight = [sid for sid, count in self._active_leases.items() if count > 0]
+            if active_in_flight:
+                raise RuntimeError(
+                    f"Cannot clear registry while operational leases are active: in-use sessions = {active_in_flight}"
+                )
             for coord in self._sessions.values():
                 coord.reset()
             self._sessions.clear()
             self._access_order.clear()
             self._active_leases.clear()
             self._session_locks.clear()
+            self._session_incarnations.clear()
 
 
 _default_session_registry: Optional[ActivationSessionRegistry] = None
