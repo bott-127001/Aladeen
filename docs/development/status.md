@@ -858,3 +858,47 @@ Last Updated: 2026-11-05 (MSM Dashboard Milestone Accepted — Transition to CHO
   2. *Downstream Invariant*: Strictly zero usage ledger implementation, zero confirmation arbitration, zero trade entry signals.
   3. *Core Ambiguities Preserved*: Upstream $c_1 == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
   4. *Branch Boundary*: Committed and pushed strictly on `feature/activation-engine`. No merging into `main`.
+
+
+### Milestone 23 (Activation Engine): Source Cancellation Reason Restrictions, Empty-Target Rejection, and Authoritative Commit-Routing Validation (HANDOFF-060)
+- **Active Branch**: feature/activation-engine
+- **Parent Commit**: c9e86c208020a90b3566b512d4e4ac64923eb567 (HANDOFF-059)
+- **Root Baseline Commit**: 535af1434ed9a6b93328202039db7f1d4f4be410 (Accepted TJL Dashboard Integration)
+- **Objective**: Address Perplexity's review of HANDOFF-059:
+  1. Restrict source cancellation reasons in `process_cancellation_event()` strictly to `SOURCE_CHOCH` and `SOURCE_REPLACEMENT` before envelope consumption; fail closed with `InvalidEvidenceError` if `EXTERNAL_ENTRY` is submitted to the source handler.
+  2. Reject empty or whitespace `target_set_id` consistently while preserving valid directional-only CHOCH cancellation.
+  3. Complete external-commit receiving-context validation: require authoritative `target_symbol` and `target_source_timeframe` for `SAME_SOURCE_TIMEFRAME`, and `target_engine_id` for `ENGINE_LOCAL`. Missing routing evidence fails closed without cancelling activations or consuming sequence. Correctly addressed commits for unrelated contexts cleanly ignore.
+  4. Update all commit fixtures (including `test_activation_replay.py`) to supply explicit routing evidence.
+- **Completed Deliverables**:
+  1. **Strict Cancellation Reason & Non-Empty Target Enforcement**:
+     - In `process_cancellation_event()` ([`src/aladeen/strategy/activation_evidence.py`](file:///src/aladeen/strategy/activation_evidence.py)), reject any reason other than `SOURCE_CHOCH` and `SOURCE_REPLACEMENT` before sequence validation.
+     - Reject empty or whitespace `target_set_id` with `InvalidEvidenceError`.
+     - Directional-only CHOCH cancellation is preserved and operates cleanly.
+  2. **Mandatory External-Commit Routing Evidence Contract**:
+     - In `process_external_commit_event()` ([`src/aladeen/strategy/activation_evidence.py`](file:///src/aladeen/strategy/activation_evidence.py)), enforce mandatory routing fields before sequence consumption:
+       - `SAME_SOURCE_TIMEFRAME` requires non-empty `target_symbol` and `target_source_timeframe`.
+       - `ENGINE_LOCAL` requires non-empty `target_engine_id`.
+     - Missing routing evidence strictly fails closed with `InvalidEvidenceError` leaving checkpoint untouched and sequence unconsumed.
+     - Commits addressed to unrelated contexts return `state.get_snapshot()` without affecting this engine.
+  3. **Updated Fixtures & Non-Truncating Retrievable Modules**:
+     - Updated all commit fixtures across `test_activation_engine.py` and `test_activation_replay.py` to supply authoritative routing evidence.
+     - All strategy runtime files and test modules remain strictly under 380 lines.
+  4. **Decisive Regressions Added**:
+     - `EXTERNAL_ENTRY` submitted as `SourceCancellationEvent` rejected with checkpoint unchanged and sequence unconsumed.
+     - Empty/whitespace CHOCH set target rejected.
+     - Valid event retry at unconsumed sequence succeeds.
+     - Missing commit-routing evidence fails closed.
+     - Wrong-context commit cannot affect this engine.
+     - Valid scoped commit preserves winner and cancels competitors.
+- **Verification Summary**:
+  - Activation engine execution suite: 44/44 passed in 0.81s (`pytest tests/test_activation_engine.py -q`).
+  - Activation replay execution suite: 1/1 passed in 1.48s (`pytest tests/test_activation_replay.py -q`).
+  - Activation adapter suite: 14/14 passed in 0.61s (`pytest tests/test_activation_adapter.py -q`).
+  - Activation fixture integrity suite: 28/28 passed in 0.60s (`pytest tests/test_activation_fixture_integrity.py -q`).
+  - Total activation tests: 87/87 passed.
+  - Full offline repository test suite: 507/507 passed in 14.16s (`pytest -q tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py`).
+- **Scope Compliance & Standing Invariants**:
+  1. *Offline Only*: Strictly zero UI order execution, zero MT5 trading calls, zero live account modification.
+  2. *Downstream Invariant*: Strictly zero usage ledger implementation, zero confirmation arbitration, zero trade entry signals.
+  3. *Core Ambiguities Preserved*: Upstream $c_1 == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
+  4. *Branch Boundary*: Committed and pushed strictly on `feature/activation-engine`. No merging into `main`.

@@ -33,23 +33,34 @@ def process_cancellation_event(
     event: SourceCancellationEvent,
 ) -> ActivationLifecycleSnapshot:
     """Processes source CHOCH and replacement cancellations with explicit targeting validation."""
-    # 1. Reject unsupported partial-role targeting (source cancellations operate at set/direction level)
+    # 1. Restrict cancellation reasons to SOURCE_CHOCH and SOURCE_REPLACEMENT before consuming envelope
+    if event.cancellation_reason not in (CancellationReason.SOURCE_CHOCH, CancellationReason.SOURCE_REPLACEMENT):
+        raise InvalidEvidenceError(
+            f"Unsupported cancellation reason {event.cancellation_reason.value!r} in process_cancellation_event; "
+            "only SOURCE_CHOCH and SOURCE_REPLACEMENT are supported."
+        )
+
+    # 2. Reject unsupported partial-role targeting (source cancellations operate at set/direction level)
     if event.target_role is not None:
         raise InvalidEvidenceError(
             f"Partial-role targeting is not supported for {event.cancellation_reason.value}; "
             "source cancellations operate at full set or directional level."
         )
 
-    # 2. Validate targeting contracts per cancellation reason
+    # 3. Reject empty or whitespace target_set_id if provided
+    if event.target_set_id is not None and not event.target_set_id.strip():
+        raise InvalidEvidenceError("target_set_id must be non-empty string if provided")
+
+    # 4. Validate targeting contracts per cancellation reason
     if event.cancellation_reason == CancellationReason.SOURCE_REPLACEMENT:
-        if event.target_set_id is None or not event.target_set_id.strip():
+        if not event.target_set_id:
             raise InvalidEvidenceError("SOURCE_REPLACEMENT cancellation requires non-empty target_set_id")
     elif event.cancellation_reason == CancellationReason.SOURCE_CHOCH:
-        if event.target_set_id is None and event.affected_direction is None:
-            raise InvalidEvidenceError("SOURCE_CHOCH cancellation requires target_set_id and/or affected_direction")
+        if not event.target_set_id and event.affected_direction is None:
+            raise InvalidEvidenceError("SOURCE_CHOCH cancellation requires non-empty target_set_id and/or affected_direction")
 
-    # 3. Check for contradictory targeting against known members in current state
-    if event.target_set_id is not None and event.affected_direction is not None:
+    # 5. Check for contradictory targeting against known members in current state
+    if event.target_set_id and event.affected_direction is not None:
         for m in state.current_members.values():
             if m.set_id == event.target_set_id and m.direction != event.affected_direction:
                 raise InvalidEvidenceError(
@@ -57,7 +68,7 @@ def process_cancellation_event(
                     f"has direction {m.direction.value!r} but event declared affected_direction {event.affected_direction.value!r}"
                 )
 
-    # 4. Domain and sequence validation
+    # 6. Domain and sequence validation
     is_dup = validate_sequence_and_domain(
         state=state,
         event_id=event.event_id,
@@ -69,7 +80,7 @@ def process_cancellation_event(
     if is_dup:
         return state.get_snapshot()
 
-    # 5. Identify matching members strictly by declared targets
+    # 7. Identify matching members strictly by declared targets
     members_to_cancel: List[str] = []
     for member_key, member in list(state.current_members.items()):
         # If target_set_id is specified, member must match that set
@@ -82,7 +93,7 @@ def process_cancellation_event(
 
         members_to_cancel.append(member_key)
 
-    # 6. Apply cancellations to matching members
+    # 8. Apply cancellations to matching members
     for member_key in members_to_cancel:
         # Remove membership eligibility permanently from current members
         state.current_members.pop(member_key, None)
@@ -127,11 +138,28 @@ def process_external_commit_event(
             f"Supported scopes are: {sorted(SUPPORTED_COMMIT_SCOPES)}"
         )
 
-    # 2. Context routing: if target symbol or timeframe is specified, verify match
-    if event.target_symbol is not None and event.target_symbol != state.symbol:
-        return state.get_snapshot()
-    if event.target_source_timeframe is not None and event.target_source_timeframe != state.source_timeframe:
-        return state.get_snapshot()
+    # 2. Context routing validation: require authoritative target routing evidence
+    if event.cancelled_competing_scope == "SAME_SOURCE_TIMEFRAME":
+        if not event.target_symbol or not event.target_symbol.strip():
+            raise InvalidEvidenceError(
+                "Missing routing evidence: SAME_SOURCE_TIMEFRAME external commit requires authoritative target_symbol"
+            )
+        if not event.target_source_timeframe or not event.target_source_timeframe.strip():
+            raise InvalidEvidenceError(
+                "Missing routing evidence: SAME_SOURCE_TIMEFRAME external commit requires authoritative target_source_timeframe"
+            )
+        # If addressed to an unrelated symbol or timeframe, cleanly ignore without affecting this engine
+        if event.target_symbol != state.symbol or event.target_source_timeframe != state.source_timeframe:
+            return state.get_snapshot()
+
+    elif event.cancelled_competing_scope == "ENGINE_LOCAL":
+        if not event.target_engine_id or not event.target_engine_id.strip():
+            raise InvalidEvidenceError(
+                "Missing routing evidence: ENGINE_LOCAL external commit requires authoritative target_engine_id"
+            )
+        # If addressed to an unrelated engine, cleanly ignore without affecting this engine
+        if event.target_engine_id != state.engine_id:
+            return state.get_snapshot()
 
     # 3. Domain and monotonic sequence validation (consumes sequence only after scope is validated)
     is_dup = validate_sequence_and_domain(

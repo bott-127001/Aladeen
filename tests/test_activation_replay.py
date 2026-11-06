@@ -80,7 +80,12 @@ class TestActivationReplayExecution:
         ev_reg = RegisterMembersEvent("EV_REG", default_domain, 100, datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc), (m_adv1, m_adv2))
         ev_touch1 = ExactPricePrint("O1", 1.1370, PriceBasis.BID, datetime(2026, 10, 2, 8, 15, tzinfo=timezone.utc), default_domain, 101)
         ev_touch2 = ExactPricePrint("O2", 1.1045, PriceBasis.BID, datetime(2026, 10, 2, 8, 20, tzinfo=timezone.utc), default_domain, 102)
-        ev_commit = ExternalCommitEvent("C1", datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc), default_domain, 103, winning_engine_id="OTHER", winning_set_id="OTHER_SET", winning_role="TJL1")
+        ev_commit = ExternalCommitEvent(
+            "C1", datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc), default_domain, 103,
+            winning_engine_id="OTHER", winning_set_id="OTHER_SET", winning_role="TJL1",
+            cancelled_competing_scope="SAME_SOURCE_TIMEFRAME",
+            target_symbol="FEED::EURUSD::H1", target_source_timeframe="H1"
+        )
         ev_dep = ExactPricePrint("O_DEP", 1.1200, PriceBasis.BID, datetime(2026, 10, 2, 8, 35, tzinfo=timezone.utc), default_domain, 104)
         ev_ret1 = ExactPricePrint("O_RET1", 1.1370, PriceBasis.BID, datetime(2026, 10, 2, 8, 40, tzinfo=timezone.utc), default_domain, 105)
         ev_ret2 = ExactPricePrint("O_RET2", 1.1045, PriceBasis.BID, datetime(2026, 10, 2, 8, 45, tzinfo=timezone.utc), default_domain, 106)

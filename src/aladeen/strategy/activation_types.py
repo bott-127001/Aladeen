@@ -226,6 +226,7 @@ class ExternalCommitEvent:
     cancelled_competing_scope: str = "SAME_SOURCE_TIMEFRAME"
     target_symbol: Optional[str] = None
     target_source_timeframe: Optional[str] = None
+    target_engine_id: Optional[str] = None
     note: Optional[str] = None
 
     def __post_init__(self) -> None:

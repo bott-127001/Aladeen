@@ -308,7 +308,7 @@ class TestActivationEngineExecution:
         # Depart -> Outside
         engine.process_event(ExactPricePrint(observation_id="O2", price=1.1420, price_basis=PriceBasis.BID, timestamp=datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc), sequence_domain=default_domain, sequence_ref=502))
         # External commit -> Armed (Path B)
-        engine.process_event(ExternalCommitEvent(event_id="C1", timestamp=datetime(2026, 10, 2, 8, 45, tzinfo=timezone.utc), sequence_domain=default_domain, sequence_ref=503, winning_engine_id="O", winning_set_id="S", winning_role="R"))
+        engine.process_event(ExternalCommitEvent(event_id="C1", timestamp=datetime(2026, 10, 2, 8, 45, tzinfo=timezone.utc), sequence_domain=default_domain, sequence_ref=503, winning_engine_id="O", winning_set_id="S", winning_role="R", target_symbol="EURUSD", target_source_timeframe="H1"))
         assert engine.get_snapshot().rearm_controllers[m.member_key].state == ActivationState.OUT_OF_ZONE_ARMED
         assert m.member_key not in engine.get_snapshot().active_activations
         assert len(engine.get_snapshot().terminal_activations) == 1
@@ -403,7 +403,7 @@ class TestActivationEngineExecution:
         engine.process_event(ExternalCommitEvent(
             event_id="EVT_COMMIT", timestamp=datetime(2026, 10, 2, 8, 15, tzinfo=timezone.utc),
             sequence_domain=default_domain, sequence_ref=801,
-            winning_engine_id="O", winning_set_id="S", winning_role="R",
+            winning_engine_id="O", winning_set_id="S", winning_role="R", target_symbol="EURUSD", target_source_timeframe="H1",
         ))
 
         # Retouch event attempting to use the SAME sequence_ref 801 -> REJECTED!
@@ -459,7 +459,7 @@ class TestActivationEngineExecution:
         snap = engine.process_event(ExternalCommitEvent(
             event_id="COMMIT_TJL1_WINS", timestamp=datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc),
             sequence_domain=default_domain, sequence_ref=1003,
-            winning_engine_id="ENGINE_EURUSD_H1", winning_set_id="SET_1", winning_role="TJL1",
+            winning_engine_id="ENGINE_EURUSD_H1", winning_set_id="SET_1", winning_role="TJL1", target_symbol="EURUSD", target_source_timeframe="H1",
         ))
 
         # TJL1 is NOT cancelled (remains PENDING_ACTIVATION)
@@ -473,7 +473,7 @@ class TestActivationEngineExecution:
         engine.register_source_member(sample_member)
         engine.process_event(ExactPricePrint(observation_id="IN1", price=1.1370, price_basis=PriceBasis.BID, timestamp=datetime(2026, 10, 2, 8, 15, tzinfo=timezone.utc), sequence_domain=default_domain, sequence_ref=1101))
         engine.process_event(ExactPricePrint(observation_id="OUT1", price=1.1450, price_basis=PriceBasis.BID, timestamp=datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc), sequence_domain=default_domain, sequence_ref=1102))
-        snap_cancel = engine.process_event(ExternalCommitEvent(event_id="C1", timestamp=datetime(2026, 10, 2, 8, 45, tzinfo=timezone.utc), sequence_domain=default_domain, sequence_ref=1103, winning_engine_id="O", winning_set_id="S", winning_role="R"))
+        snap_cancel = engine.process_event(ExternalCommitEvent(event_id="C1", timestamp=datetime(2026, 10, 2, 8, 45, tzinfo=timezone.utc), sequence_domain=default_domain, sequence_ref=1103, winning_engine_id="O", winning_set_id="S", winning_role="R", target_symbol="EURUSD", target_source_timeframe="H1"))
         assert sample_member.member_key not in snap_cancel.active_activations
         assert snap_cancel.rearm_controllers[sample_member.member_key].state == ActivationState.OUT_OF_ZONE_ARMED
         assert snap_cancel.rearm_controllers[sample_member.member_key].rearm_armed is True
@@ -486,7 +486,7 @@ class TestActivationEngineExecution:
         """Path A: Inside at cancellation -> lingering inside blocks -> outside departure arms -> retouch rearms."""
         engine.register_source_member(sample_member)
         engine.process_event(ExactPricePrint(observation_id="IN1", price=1.1370, price_basis=PriceBasis.BID, timestamp=datetime(2026, 10, 2, 8, 15, tzinfo=timezone.utc), sequence_domain=default_domain, sequence_ref=1201))
-        engine.process_event(ExternalCommitEvent(event_id="C1", timestamp=datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc), sequence_domain=default_domain, sequence_ref=1202, winning_engine_id="O", winning_set_id="S", winning_role="R"))
+        engine.process_event(ExternalCommitEvent(event_id="C1", timestamp=datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc), sequence_domain=default_domain, sequence_ref=1202, winning_engine_id="O", winning_set_id="S", winning_role="R", target_symbol="EURUSD", target_source_timeframe="H1"))
         assert sample_member.member_key not in engine.get_snapshot().active_activations
         assert engine.get_snapshot().rearm_controllers[sample_member.member_key].state == ActivationState.CANCELLED_EXTERNAL_ENTRY
         assert engine.get_snapshot().rearm_controllers[sample_member.member_key].rearm_armed is False
@@ -510,7 +510,7 @@ class TestActivationEngineExecution:
         engine.register_source_member(sample_member)
         engine.process_event(ExactPricePrint(observation_id="OBS_USED_G1", price=1.1370, price_basis=PriceBasis.BID, timestamp=datetime(2026, 10, 2, 8, 15, tzinfo=timezone.utc), sequence_domain=default_domain, sequence_ref=1301))
         engine.process_event(ExactPricePrint(observation_id="OUT", price=1.1450, price_basis=PriceBasis.BID, timestamp=datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc), sequence_domain=default_domain, sequence_ref=1302))
-        engine.process_event(ExternalCommitEvent(event_id="C1", timestamp=datetime(2026, 10, 2, 8, 45, tzinfo=timezone.utc), sequence_domain=default_domain, sequence_ref=1303, winning_engine_id="O", winning_set_id="S", winning_role="R"))
+        engine.process_event(ExternalCommitEvent(event_id="C1", timestamp=datetime(2026, 10, 2, 8, 45, tzinfo=timezone.utc), sequence_domain=default_domain, sequence_ref=1303, winning_engine_id="O", winning_set_id="S", winning_role="R", target_symbol="EURUSD", target_source_timeframe="H1"))
 
         # In armed state, re-using OBS_USED_G1 with conflicting content raises ConflictingEventError
         with pytest.raises(ConflictingEventError):
@@ -535,7 +535,7 @@ class TestActivationEngineExecution:
         events = [
             ExactPricePrint(observation_id="P1", price=1.1370, price_basis=PriceBasis.BID, timestamp=datetime(2026, 10, 2, 8, 15, tzinfo=timezone.utc), sequence_domain=default_domain, sequence_ref=1501),
             ExactPricePrint(observation_id="P2", price=1.1420, price_basis=PriceBasis.BID, timestamp=datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc), sequence_domain=default_domain, sequence_ref=1502),
-            ExternalCommitEvent(event_id="C1", timestamp=datetime(2026, 10, 2, 8, 45, tzinfo=timezone.utc), sequence_domain=default_domain, sequence_ref=1503, winning_engine_id="O", winning_set_id="S", winning_role="R"),
+            ExternalCommitEvent(event_id="C1", timestamp=datetime(2026, 10, 2, 8, 45, tzinfo=timezone.utc), sequence_domain=default_domain, sequence_ref=1503, winning_engine_id="O", winning_set_id="S", winning_role="R", target_symbol="EURUSD", target_source_timeframe="H1"),
             ExactPricePrint(observation_id="P3", price=1.1380, price_basis=PriceBasis.BID, timestamp=datetime(2026, 10, 2, 9, 0, tzinfo=timezone.utc), sequence_domain=default_domain, sequence_ref=1504),
         ]
 
@@ -579,7 +579,7 @@ class TestActivationEngineExecution:
             RegisterMembersEvent("EVT_REG_1", default_domain, 2001, datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc), (m_set1_tjl1, m_set1_tjl2)),
             ExactPricePrint("OBS_TOUCH_1", 1.1370, PriceBasis.BID, datetime(2026, 10, 2, 8, 15, tzinfo=timezone.utc), default_domain, 2002),
             ExactPricePrint("OBS_OUT_1", 1.1420, PriceBasis.BID, datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc), default_domain, 2003),
-            ExternalCommitEvent("EVT_COMMIT", datetime(2026, 10, 2, 8, 45, tzinfo=timezone.utc), default_domain, 2004, winning_engine_id="OTHER", winning_set_id="OTHER", winning_role="OTHER"),
+            ExternalCommitEvent("EVT_COMMIT", datetime(2026, 10, 2, 8, 45, tzinfo=timezone.utc), default_domain, 2004, winning_engine_id="OTHER", winning_set_id="OTHER", winning_role="OTHER", target_symbol="EURUSD", target_source_timeframe="H1"),
             ExactPricePrint("OBS_RETOUCH_1", 1.1380, PriceBasis.BID, datetime(2026, 10, 2, 9, 0, tzinfo=timezone.utc), default_domain, 2005),
             SourceCancellationEvent(
                 event_id="EVT_REPL_SET1",
@@ -702,7 +702,7 @@ class TestActivationEngineExecution:
         engine.process_event(ExactPricePrint(observation_id="O2", price=1.1420, price_basis=PriceBasis.BID, timestamp=datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc), sequence_domain=default_domain, sequence_ref=302))
 
         # External commit -> terminalizes ACT::...::01, arms controller for gen 2
-        engine.process_event(ExternalCommitEvent(event_id="C1", timestamp=datetime(2026, 10, 2, 8, 45, tzinfo=timezone.utc), sequence_domain=default_domain, sequence_ref=303, winning_engine_id="O", winning_set_id="S", winning_role="R"))
+        engine.process_event(ExternalCommitEvent(event_id="C1", timestamp=datetime(2026, 10, 2, 8, 45, tzinfo=timezone.utc), sequence_domain=default_domain, sequence_ref=303, winning_engine_id="O", winning_set_id="S", winning_role="R", target_symbol="EURUSD", target_source_timeframe="H1"))
 
         # Source CHOCH invalidation arrives
         engine.process_event(SourceCancellationEvent(event_id="CH1", cancellation_reason=CancellationReason.SOURCE_CHOCH, sequence_domain=default_domain, sequence_ref=304, affected_direction=Direction.UPWARD))
@@ -719,7 +719,7 @@ class TestActivationEngineExecution:
         # Gen 1 touch
         engine.process_event(ExactPricePrint(observation_id="O1", price=1.1370, price_basis=PriceBasis.BID, timestamp=datetime(2026, 10, 2, 8, 15, tzinfo=timezone.utc), sequence_domain=default_domain, sequence_ref=401))
         # Commit while inside
-        engine.process_event(ExternalCommitEvent(event_id="C1", timestamp=datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc), sequence_domain=default_domain, sequence_ref=402, winning_engine_id="O", winning_set_id="S", winning_role="R"))
+        engine.process_event(ExternalCommitEvent(event_id="C1", timestamp=datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc), sequence_domain=default_domain, sequence_ref=402, winning_engine_id="O", winning_set_id="S", winning_role="R", target_symbol="EURUSD", target_source_timeframe="H1"))
 
         # Depart outside
         engine.process_event(ExactPricePrint(observation_id="O_DEP", price=1.1300, price_basis=PriceBasis.BID, timestamp=datetime(2026, 10, 2, 8, 45, tzinfo=timezone.utc), sequence_domain=default_domain, sequence_ref=403))
@@ -894,7 +894,7 @@ class TestActivationEngineExecution:
         eng.process_event(ExactPricePrint("O1", 1.1370, PriceBasis.BID, datetime(2026, 10, 2, 8, 15, tzinfo=timezone.utc), default_domain, 501))
         eng.process_event(ExactPricePrint("O2", 1.1045, PriceBasis.BID, datetime(2026, 10, 2, 8, 20, tzinfo=timezone.utc), default_domain, 502))
         # Commit / external cancellation -> terminalizes gen 1 for both
-        eng.process_event(ExternalCommitEvent("C1", datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc), default_domain, 503, winning_engine_id="OTHER", winning_set_id="SET_X", winning_role="R"))
+        eng.process_event(ExternalCommitEvent("C1", datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc), default_domain, 503, winning_engine_id="OTHER", winning_set_id="SET_X", winning_role="R", target_symbol="FEED_EURUSD_H1", target_source_timeframe="H1"))
 
         # Outside departure for both
         eng.process_event(ExactPricePrint("O_DEP", 1.1200, PriceBasis.BID, datetime(2026, 10, 2, 8, 45, tzinfo=timezone.utc), default_domain, 504))
@@ -928,7 +928,7 @@ class TestActivationEngineExecution:
         # Touch at 08:15 -> PENDING_ACTIVATION
         eng.process_event(ExactPricePrint("O1", 1.1370, PriceBasis.BID, datetime(2026, 10, 2, 8, 15, tzinfo=timezone.utc), default_domain, 601))
         # Commit at 08:30 -> CANCELLED_EXTERNAL_ENTRY (inside at cancel)
-        eng.process_event(ExternalCommitEvent("C1", datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc), default_domain, 602, winning_engine_id="OTHER", winning_set_id="SET_X", winning_role="R"))
+        eng.process_event(ExternalCommitEvent("C1", datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc), default_domain, 602, winning_engine_id="OTHER", winning_set_id="SET_X", winning_role="R", target_symbol="FEED_EURUSD_H1", target_source_timeframe="H1"))
         assert m1.member_key in eng.get_snapshot().rearm_controllers
         assert eng.get_snapshot().rearm_controllers[m1.member_key].state == ActivationState.CANCELLED_EXTERNAL_ENTRY
 
@@ -955,7 +955,7 @@ class TestActivationEngineExecution:
 
         # Touch -> Commit -> Valid outside departure under COMPLETE coverage
         eng.process_event(ExactPricePrint("O1", 1.1370, PriceBasis.BID, datetime(2026, 10, 2, 8, 15, tzinfo=timezone.utc), default_domain, 701))
-        eng.process_event(ExternalCommitEvent("C1", datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc), default_domain, 702, winning_engine_id="OTHER", winning_set_id="SET_X", winning_role="R"))
+        eng.process_event(ExternalCommitEvent("C1", datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc), default_domain, 702, winning_engine_id="OTHER", winning_set_id="SET_X", winning_role="R", target_symbol="FEED_EURUSD_H1", target_source_timeframe="H1"))
         eng.process_event(ExactPricePrint("O_DEP", 1.1200, PriceBasis.BID, datetime(2026, 10, 2, 8, 35, tzinfo=timezone.utc), default_domain, 703))
         assert eng.get_snapshot().rearm_controllers[m1.member_key].state == ActivationState.OUT_OF_ZONE_ARMED
 
@@ -977,7 +977,7 @@ class TestActivationEngineExecution:
 
         # Touch -> Commit -> Valid outside departure
         eng.process_event(ExactPricePrint("O1", 1.1370, PriceBasis.BID, datetime(2026, 10, 2, 8, 15, tzinfo=timezone.utc), default_domain, 801))
-        eng.process_event(ExternalCommitEvent("C1", datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc), default_domain, 802, winning_engine_id="OTHER", winning_set_id="SET_X", winning_role="R"))
+        eng.process_event(ExternalCommitEvent("C1", datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc), default_domain, 802, winning_engine_id="OTHER", winning_set_id="SET_X", winning_role="R", target_symbol="FEED_EURUSD_H1", target_source_timeframe="H1"))
         eng.process_event(ExactPricePrint("O_DEP", 1.1200, PriceBasis.BID, datetime(2026, 10, 2, 8, 35, tzinfo=timezone.utc), default_domain, 803))
         assert eng.get_snapshot().rearm_controllers[m1.member_key].state == ActivationState.OUT_OF_ZONE_ARMED
 
@@ -1010,7 +1010,7 @@ class TestActivationEngineExecution:
 
         # Touch at 08:15 -> Commit at 08:30 (inside at cancel)
         eng.process_event(ExactPricePrint("O1", 1.1370, PriceBasis.BID, datetime(2026, 10, 2, 8, 15, tzinfo=timezone.utc), default_domain, 901))
-        eng.process_event(ExternalCommitEvent("C1", datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc), default_domain, 902, winning_engine_id="OTHER", winning_set_id="SET_X", winning_role="R"))
+        eng.process_event(ExternalCommitEvent("C1", datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc), default_domain, 902, winning_engine_id="OTHER", winning_set_id="SET_X", winning_role="R", target_symbol="FEED_EURUSD_H1", target_source_timeframe="H1"))
 
         # Incomplete coverage
         eng.process_event(CoverageEvidence("COV_INC", default_domain, 903, CoverageStatus.INCOMPLETE, "FEED_EURUSD_H1", timestamp=datetime(2026, 10, 2, 8, 35, tzinfo=timezone.utc)))
@@ -1059,11 +1059,46 @@ class TestActivationEngineExecution:
         assert "COMMIT_BAD" not in eng._processed_events
         assert eng._last_processed_sequence == 100
 
-        # 3. Valid retry at unconsumed sequence 200 succeeds without sequence error
+        # 3. Missing routing evidence fails closed before consuming sequence
+        no_sym_commit = ExternalCommitEvent(
+            event_id="COMMIT_NO_SYM", timestamp=datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc),
+            sequence_domain=default_domain, sequence_ref=200, winning_engine_id="OTHER",
+            winning_set_id="OTHER_SET", winning_role="TJL1", cancelled_competing_scope="SAME_SOURCE_TIMEFRAME",
+            target_symbol=None, target_source_timeframe="H1"
+        )
+        with pytest.raises(InvalidEvidenceError, match="requires authoritative target_symbol"):
+            eng.process_event(no_sym_commit)
+        assert eng.create_checkpoint() == pre_fail_cp
+        assert eng._last_processed_sequence == 100
+
+        no_tf_commit = ExternalCommitEvent(
+            event_id="COMMIT_NO_TF", timestamp=datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc),
+            sequence_domain=default_domain, sequence_ref=200, winning_engine_id="OTHER",
+            winning_set_id="OTHER_SET", winning_role="TJL1", cancelled_competing_scope="SAME_SOURCE_TIMEFRAME",
+            target_symbol="FEED_EURUSD_H1", target_source_timeframe=""
+        )
+        with pytest.raises(InvalidEvidenceError, match="requires authoritative target_source_timeframe"):
+            eng.process_event(no_tf_commit)
+        assert eng.create_checkpoint() == pre_fail_cp
+
+        # 4. Wrong-context commit cleanly ignored without affecting this engine
+        wrong_sym_commit = ExternalCommitEvent(
+            event_id="COMMIT_WRONG_SYM", timestamp=datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc),
+            sequence_domain=default_domain, sequence_ref=200, winning_engine_id="OTHER",
+            winning_set_id="OTHER_SET", winning_role="TJL1", cancelled_competing_scope="SAME_SOURCE_TIMEFRAME",
+            target_symbol="WRONG_PAIR", target_source_timeframe="H1"
+        )
+        snap_ignored = eng.process_event(wrong_sym_commit)
+        assert m1.member_key in snap_ignored.active_activations
+        assert snap_ignored.active_activations[m1.member_key].state == ActivationState.PENDING_ACTIVATION
+        assert len(snap_ignored.terminal_activations) == 0
+
+        # 5. Valid retry at unconsumed sequence 200 succeeds without sequence error
         good_commit = ExternalCommitEvent(
             event_id="COMMIT_GOOD", timestamp=datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc),
             sequence_domain=default_domain, sequence_ref=200, winning_engine_id="ENGINE_TEST",
-            winning_set_id="SET_1", winning_role="TJL1", cancelled_competing_scope="SAME_SOURCE_TIMEFRAME"
+            winning_set_id="SET_1", winning_role="TJL1", cancelled_competing_scope="SAME_SOURCE_TIMEFRAME",
+            target_symbol="FEED_EURUSD_H1", target_source_timeframe="H1"
         )
         snap = eng.process_event(good_commit)
         # Winner (SET_1) preserved in active; competitor (SET_2) terminalized to CANCELLED_EXTERNAL_ENTRY
@@ -1074,7 +1109,7 @@ class TestActivationEngineExecution:
         assert snap.terminal_activations[0].state == ActivationState.CANCELLED_EXTERNAL_ENTRY
 
     def test_source_cancellation_unsupported_role_and_contradictory_targets_rejected(self, default_domain: SequenceDomain) -> None:
-        """Directive 2 & 3: Partial-role target and contradictory target combinations reject atomically."""
+        """Directive 2 & 3: Unsupported reasons, partial-role targets, empty targets, and contradictory targets reject atomically."""
         config = ActivationEngineConfig("ENGINE_TEST", "FEED_EURUSD_H1", "H1", default_domain, PriceBasis.BID)
         eng = ActivationEngine(config)
         lvl = StableLevelId("FEED_EURUSD_H1", "H1", datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc), TJLSide.HIGH)
@@ -1083,29 +1118,49 @@ class TestActivationEngineExecution:
 
         cp = eng.create_checkpoint()
 
-        # 1. Partial-role targeting rejected
+        # 1. EXTERNAL_ENTRY masquerading as SourceCancellationEvent rejected before envelope consumption
+        bad_reason_ev = SourceCancellationEvent("CAN_EXT_ENTRY", CancellationReason.EXTERNAL_ENTRY, default_domain, 101, datetime(2026, 10, 2, 8, 10, tzinfo=timezone.utc), target_set_id="SET_1")
+        with pytest.raises(InvalidEvidenceError, match="Unsupported cancellation reason"):
+            eng.process_event(bad_reason_ev)
+        assert eng.create_checkpoint() == cp
+        assert eng._last_processed_sequence is None
+
+        # 2. Partial-role targeting rejected
         bad_role_ev = SourceCancellationEvent("CAN_ROLE", CancellationReason.SOURCE_CHOCH, default_domain, 101, datetime(2026, 10, 2, 8, 10, tzinfo=timezone.utc), target_role="TJL1", affected_direction=Direction.UPWARD)
         with pytest.raises(InvalidEvidenceError, match="Partial-role targeting is not supported"):
             eng.process_event(bad_role_ev)
         assert eng.create_checkpoint() == cp
 
-        # 2. SOURCE_REPLACEMENT without target_set_id rejected
+        # 3. Empty or whitespace target_set_id rejected
+        for bad_set in ("", "   "):
+            bad_empty_set = SourceCancellationEvent("CAN_EMPTY_SET", CancellationReason.SOURCE_CHOCH, default_domain, 101, datetime(2026, 10, 2, 8, 10, tzinfo=timezone.utc), target_set_id=bad_set)
+            with pytest.raises(InvalidEvidenceError, match="target_set_id must be non-empty string"):
+                eng.process_event(bad_empty_set)
+            assert eng.create_checkpoint() == cp
+
+        # 4. SOURCE_REPLACEMENT without target_set_id rejected
         bad_repl = SourceCancellationEvent("CAN_REPL", CancellationReason.SOURCE_REPLACEMENT, default_domain, 102, datetime(2026, 10, 2, 8, 10, tzinfo=timezone.utc), target_set_id=None)
         with pytest.raises(InvalidEvidenceError, match="requires non-empty target_set_id"):
             eng.process_event(bad_repl)
         assert eng.create_checkpoint() == cp
 
-        # 3. SOURCE_CHOCH without target_set_id or direction rejected
+        # 5. SOURCE_CHOCH without target_set_id or direction rejected
         bad_choch = SourceCancellationEvent("CAN_CHOCH", CancellationReason.SOURCE_CHOCH, default_domain, 103, datetime(2026, 10, 2, 8, 10, tzinfo=timezone.utc), target_set_id=None, affected_direction=None)
-        with pytest.raises(InvalidEvidenceError, match="requires target_set_id and/or affected_direction"):
+        with pytest.raises(InvalidEvidenceError, match="requires non-empty target_set_id"):
             eng.process_event(bad_choch)
         assert eng.create_checkpoint() == cp
 
-        # 4. Contradictory targets: SET_1 is UPWARD, declaring affected_direction DOWNWARD rejects
+        # 6. Contradictory targets: SET_1 is UPWARD, declaring affected_direction DOWNWARD rejects
         bad_contra = SourceCancellationEvent("CAN_CONTRA", CancellationReason.SOURCE_CHOCH, default_domain, 104, datetime(2026, 10, 2, 8, 10, tzinfo=timezone.utc), target_set_id="SET_1", affected_direction=Direction.DOWNWARD)
         with pytest.raises(InvalidEvidenceError, match="Contradictory cancellation targets"):
             eng.process_event(bad_contra)
         assert eng.create_checkpoint() == cp
+
+        # 7. Corrected valid event at unconsumed sequence 101 succeeds cleanly
+        valid_choch = SourceCancellationEvent("CAN_VALID", CancellationReason.SOURCE_CHOCH, default_domain, 101, datetime(2026, 10, 2, 8, 10, tzinfo=timezone.utc), affected_direction=Direction.UPWARD)
+        snap = eng.process_event(valid_choch)
+        assert len(snap.current_members) == 0
+        assert eng._last_processed_sequence == 101
 
     def test_targeted_source_cancellation_cannot_affect_unrelated_set(self, default_domain: SequenceDomain) -> None:
         """Directive 2 & 3: Targeted cancellation affects only declared target; unrelated set preserved."""
