@@ -86,50 +86,62 @@ When confirmation close timestamp strictly equals activation touch timestamp (`e
 
 *(Note: Multiple valid same-time candidates may remain in matcher output. Candidate arbitration—such as choosing between simultaneous M1 and M5 confirmations—is a future, separately authorized milestone and is strictly excluded from matcher evaluation).*
 
-### 3.2. Strict Separation: Terminal Cancellation vs. Valid Rearm
-To eliminate the risk of reviving invalidated memberships, the integration contract strictly distinguishes **terminal cancellation** from **rearm-eligible transient cancellation**:
+### 3.2. Strict Separation: Terminal Cancellation vs. Decoupled Rearm Controller
+To eliminate the risk of reviving invalidated memberships, the integration contract strictly distinguishes **terminal cancellation** from **rearm-eligible transient cancellation**, and explicitly decouples immutable terminal activation records from stateful rearm controllers:
 
 ```
-                                  ┌────────────────────────┐
-                                  │   INACTIVE_ELIGIBLE    │
-                                  └───────────┬────────────┘
-                                              │ Physical Touch Print
-                                              ▼
-                                  ┌────────────────────────┐
-                                  │   PENDING_ACTIVATION   │
-                                  └───────────┬────────────┘
-                                              │
-                    ┌─────────────────────────┼─────────────────────────┐
-                    │                         │                         │
-                    ▼                         ▼                         ▼
-        [Source Replacement]         [Source Main CHOCH]       [External Entry Commit]
-                    │                         │                         │
-                    ▼                         ▼                         ▼
-      ┌───────────────────────────┐ ┌───────────────────┐ ┌───────────────────────────┐
-      │CANCELLED_SOURCE_REPLACEMENT│ │CANCELLED_SOURCE_  │ │ CANCELLED_EXTERNAL_ENTRY  │
-      │   (TERMINAL / INELIGIBLE) │ │      CHOCH        │ │   (REARM-ELIGIBLE ONLY)   │
-      └───────────────────────────┘ │ (TERMINAL /       │ └─────────────┬─────────────┘
-                                    │   INELIGIBLE)     │               │
-                                    └───────────────────┘               ▼
-                                                           [Is Price Inside or Outside?]
-                                                                        │
-                                        ┌───────────────────────────────┴───────────────────────────────┐
-                                        │ (Path A: Inside at Cancel)                                    │ (Path B: Already Outside at Cancel)
-                                        ▼                                                               ▼
-                           [Wait for Outside Observation]                                   [Directly Armed for Retouch]
-                                        │                                                               │
-                                        └───────────────────────────────┬───────────────────────────────┘
-                                                                        │
-                                                                        ▼
-                                                           ┌─────────────────────────┐
-                                                           │    OUT_OF_ZONE_ARMED    │
-                                                           └────────────┬────────────┘
-                                                                        │ Later Inside Touch Print
-                                                                        ▼
-                                                           ┌─────────────────────────┐
-                                                           │     REARMED_PENDING     │
-                                                           │  (generation_seq += 1)  │
-                                                           └─────────────────────────┘
+[Active Membership in current_members]
+                  │
+                  ▼
+      ┌────────────────────────┐
+      │   INACTIVE_ELIGIBLE    │
+      └───────────┬────────────┘
+                  │ Physical Inside Touch Print
+                  ▼
+      ┌────────────────────────┐
+      │   PENDING_ACTIVATION   │ (ActivationRecord Gen 1)
+      └───────────┬────────────┘
+                  │
+  ┌───────────────┼───────────────────────────────┐
+  │               │                               │
+  ▼               ▼                               ▼
+[Source Repl.] [Main CHOCH]             [External Entry Commit]
+  │               │                               │
+  ▼               ▼                               ▼
+┌──────────────┐ ┌──────────────┐ ┌──────────────────────────────────────────────┐
+│CANCELLED_    │ │CANCELLED_    │ │ ActivationRecord Gen 1:                      │
+│SOURCE_REPL.  │ │SOURCE_CHOCH  │ │  -> CANCELLED_EXTERNAL_ENTRY (TERMINAL)      │
+│(TERMINAL)    │ │(TERMINAL)    │ │  -> Immutable in terminal_activations        │
+└──────────────┘ └──────────────┘ └──────────────────────┬───────────────────────┘
+                                                         │ Spawns Decoupled Controller
+                                                         ▼
+                                          ┌──────────────────────────────┐
+                                          │ RearmController:             │
+                                          │  prior_activation_id = Gen 1 │
+                                          │  generation_seq = 1          │
+                                          └──────────────┬───────────────┘
+                                                         │
+                         ┌───────────────────────────────┴───────────────────────────────┐
+                         │ Path A: Inside at Cancellation                                │ Path B: Already Outside at Cancellation
+                         ▼                                                               ▼
+            [Requires Post-Cancel Outside Print]                           [Authoritative Outside Position Established]
+                         │                                                               │
+                         └───────────────────────────────┬───────────────────────────────┘
+                                                         │
+                                                         ▼
+                                          ┌──────────────────────────────┐
+                                          │ RearmController:             │
+                                          │  state = OUT_OF_ZONE_ARMED   │
+                                          │  rearm_armed = True          │
+                                          └──────────────┬───────────────┘
+                                                         │ Fresh Physical Inside Touch Print
+                                                         ▼
+                                          ┌──────────────────────────────┐
+                                          │ New Linked ActivationRecord: │
+                                          │  generation_seq = 2          │
+                                          │  state = REARMED_PENDING     │
+                                          │  (Active in active_activations)
+                                          └──────────────────────────────┘
 ```
 
 1. **Terminal Cancellation (Strict Non-Revival)**:
@@ -137,12 +149,22 @@ To eliminate the risk of reviving invalidated memberships, the integration contr
    - **Structural Invalidation (`CANCELLED_SOURCE_CHOCH`)**: Occurs when the source timeframe forms an opposite-direction Main CHOCH, invalidating source trend direction. Activations transition to `CANCELLED_SOURCE_CHOCH`. Matching attempts reject fail-closed as `INELIGIBLE_ACTIVATION_STATE`.
 2. **Rearm-Eligible Cancellation (`CANCELLED_EXTERNAL_ENTRY`)**:
    - Permitted **only** when cancellation resulted from an external finalized trade entry commit on a competing level, and **only** while the underlying source member remains active in `current_members` and marked `UsageEvidenceStatus.UNUSED`.
-   - **Path A (Inside-at-Cancel)**: If price is observed inside the zone at cancellation, price must subsequently be observed *outside* the zone (transitioning to `OUT_OF_ZONE_ARMED`). A subsequent physical touch print *inside* the zone transitions the activation to `REARMED_PENDING` with incremented `generation_seq` (Gen 2).
-   - **Path B (Already-Outside-at-Cancel)**: If price was already observed outside the zone at cancellation, the level directly transitions to `OUT_OF_ZONE_ARMED`. The next physical touch print *inside* the zone transitions to `REARMED_PENDING` with incremented `generation_seq`.
-3. **Strict-Later Ordering on Rearm Observations**:
-   - Equal timestamps alone cannot prove departure or retouch occurred after cancellation. Strict-later sequence or time ordering ($T_{\text{cancel}} < T_{\text{outside}} < T_{\text{retouch}}$) is required to establish that departure and retouch occurred strictly after external commit cancellation.
-4. **Immutability & Causality Across Generations**:
-   - Terminal activation records remain strictly immutable. Fresh generations link to predecessor records via activation ID and carry incremented `generation_seq`.
+   - The cancelled `ActivationRecord` transitions to terminal state `CANCELLED_EXTERNAL_ENTRY` and remains **strictly immutable** in `terminal_activations`.
+   - A decoupled `RearmController` is spawned referencing `prior_activation_id` and manages the departure and arming lifecycle across two explicit paths:
+   - **Path A — Inside at Cancellation**:
+     * Authoritative cancellation occurs while price is inside the member zone.
+     * Requires a fresh physical outside observation strictly later than cancellation ($T_{\text{cancel}} < T_{\text{outside}}$), transitioning controller to `OUT_OF_ZONE_ARMED` (`rearm_armed=True`).
+     * Requires a subsequent fresh physical inside touch print strictly later than that outside observation ($T_{\text{outside}} < T_{\text{retouch}}$).
+     * Equal timestamps require compatible authoritative sequence ordering; timestamps alone do not prove the transitions.
+   - **Path B — Already Outside at Cancellation**:
+     * Authoritative outside position is already established at cancellation under the accepted activation contract (`last_observed_position == "OUTSIDE"`).
+     * The decoupled `RearmController` is armed directly (`OUT_OF_ZONE_ARMED`, `rearm_armed=True`) without requiring a redundant post-cancellation outside observation.
+     * Requires a fresh physical inside touch print strictly later than cancellation ($T_{\text{cancel}} < T_{\text{retouch}}$).
+     * Unknown position or ordering must not be interpreted as already outside.
+3. **Decoupled Controller & Generation Immutability**:
+   - The terminal predecessor record remains permanently immutable.
+   - The decoupled `RearmController` tracks arming and transitions independently.
+   - Upon valid retouch print inside the zone, a brand-new linked `ActivationRecord` is constructed in state `REARMED_PENDING` with incremented `generation_seq = 2`, fresh `first_touch_time`, and fresh `trigger_observation_id`, registered in `active_activations`.
    - Confirmation evidence must satisfy $T_{\text{confirm\_close}} \ge T_{\text{fresh\_touch}}$. Confirmation completed prior to the Gen 2 touch (including Gen 1 confirmation evidence) is rejected fail-closed as `PRE_ACTIVATION_CONFIRMATION` or `STALE_EVIDENCE_FOR_GENERATION`.
 
 ### 3.3. Canonical Candidate Setup Key & Setup-Stable Identity
@@ -185,10 +207,10 @@ Every fixture scenario is assigned an explicit execution status (`EXISTING`, `PR
 | **INT-02** | Continuous Candle-Derived Stream | D1 synthetic source activation + genuine H1 continuous ISS stream adapted from `iss_acceptance.json` (`iss_02_bullish_basic_end_to_end` with native timestamps and completion attributes). | **EXISTING**<br>(`tests/test_confirmation_detector_integration.py`) | ISSEngine processes canonical candles without retiming; confirming candle looked up directly by index 20; matches synthetic D1 activation; produces `CandidateSetupRecord` (`signal_side="SELL"`, `entry_reference_price=1.1120`). |
 | **INT-03** | End-to-End Pipeline Integration | Genuine D1 TJL engine level emission + explicit physical touch print + genuine H1 continuous CHOCH detection. | **PROPOSED**<br>(Future, separately authorized) | Proves complete candle-derived source-to-candidate chain without synthetic activation records. Asserts candidate entry reference price equals looked-up confirming candle close. |
 | **INT-04** | End-to-End Pipeline Integration | Genuine D1 TJL engine level emission + explicit physical touch print + genuine H1 continuous ISS detection. | **PROPOSED**<br>(Future, separately authorized) | Proves complete candle-derived source-to-candidate chain for ISS. Asserts single canonical candle collection passes to engine and adapter. |
-| **ACT-01** | Explicit-Print Activation Lifecycle | Explicit physical print sequence: initial touch print $\rightarrow$ external commit cancel $\rightarrow$ outside print $\rightarrow$ inside retouch print. | **EXISTING**<br>(`tests/test_confirmation_matcher.py` L493) | Activation transitions Gen 1 $\rightarrow$ `CANCELLED_EXTERNAL_ENTRY` $\rightarrow$ `OUT_OF_ZONE_ARMED` $\rightarrow$ `REARMED_PENDING` (Gen 2). Rejects Gen 1 evidence as `STALE_EVIDENCE_FOR_GENERATION` or `PRE_ACTIVATION_CONFIRMATION`; matches fresh Gen 2 evidence. |
+| **ACT-01** | Explicit-Print Activation Lifecycle | Explicit physical print sequence: initial touch print $\rightarrow$ external commit cancel $\rightarrow$ outside print $\rightarrow$ inside retouch print. | **EXISTING**<br>(`tests/test_confirmation_matcher.py` L493) | Predecessor Gen 1 transitions to terminal `CANCELLED_EXTERNAL_ENTRY` (immutable in terminal history); decoupled `RearmController` transitions through `OUT_OF_ZONE_ARMED` on outside print; fresh inside retouch print spawns new linked `ActivationRecord` in `REARMED_PENDING` (Gen 2). Rejects Gen 1 evidence as `STALE_EVIDENCE_FOR_GENERATION` or `PRE_ACTIVATION_CONFIRMATION`; matches fresh Gen 2 evidence. |
 | **ACT-02** | Explicit-Print Activation Lifecycle | Source replacement: new 3-point TJL set issued while activation is pending. | **PROPOSED**<br>(Future, separately authorized) | Activation transitions to `CANCELLED_SOURCE_REPLACEMENT`. Replaced member omitted from `current_members`. Subsequent confirmation evidence rejects as `MEMBERSHIP_CANCELLED_OR_REPLACED`. |
 | **ACT-03** | Explicit-Print Activation Lifecycle | Structural invalidation: source Main CHOCH forms while activation is pending. | **PROPOSED**<br>(Future, separately authorized) | Activation transitions to `CANCELLED_SOURCE_CHOCH`. Subsequent confirmation evidence rejects as `INELIGIBLE_ACTIVATION_STATE`. |
-| **ACT-04** | Explicit-Print Activation Lifecycle | Rearm Path B: price already observed outside zone at external commit cancellation. | **PROPOSED**<br>(Future, separately authorized) | Activation transitions directly from `CANCELLED_EXTERNAL_ENTRY` to `OUT_OF_ZONE_ARMED`. Retouch print creates Gen 2 `REARMED_PENDING`. |
+| **ACT-04** | Explicit-Print Activation Lifecycle | Rearm Path B: price already observed outside zone at external commit cancellation. | **PROPOSED**<br>(Future, separately authorized) | Predecessor Gen 1 transitions to terminal `CANCELLED_EXTERNAL_ENTRY`; decoupled `RearmController` arms directly as `OUT_OF_ZONE_ARMED` without redundant post-cancel departure; fresh inside retouch print spawns new linked `ActivationRecord` in `REARMED_PENDING` (Gen 2). |
 | **ORD-01** | Equal-Time Causal Ordering | Evidence close timestamp strictly equals activation touch timestamp; sequence authority is missing. | **EXISTING**<br>(`tests/test_confirmation_matcher.py` L614) | Rejects with `ConfirmationRejectionReason.UNKNOWN_ORDER`; `candidate_record=None`. |
 | **ORD-02** | Equal-Time Causal Ordering | Evidence close timestamp equals touch timestamp; cross-domain sequence references. | **EXISTING**<br>(`tests/test_confirmation_matcher.py` L628) | Rejects with `ConfirmationRejectionReason.CROSS_DOMAIN_ORDERING_REJECTED`; `candidate_record=None`. |
 | **ORD-03** | Equal-Time Causal Ordering | Evidence close timestamp equals touch timestamp; confirmation sequence ref $\le$ touch sequence ref. | **EXISTING**<br>(`tests/test_confirmation_matcher.py` L642) | Rejects with `ConfirmationRejectionReason.PRE_ACTIVATION_CONFIRMATION`; `candidate_record=None`. |

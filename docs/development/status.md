@@ -2808,3 +2808,30 @@ Last Updated: 2026-11-06 (Milestone 29 Release-Readiness Audit & Offline Runbook
   - Zero order execution, zero MT5 trading, zero live account modification, zero arbitration, zero usage ledger writes, zero final signal publication.
   - Core strategy engines (`msm_engine.py`, `choch_detector.py`, `iss_engine.py`, `tjl_coordinator.py`, `activation_engine.py`, `activation_adapter.py`) remain 100% untouched (0 diff against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`).
   - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
+
+
+---
+
+## 48. Milestone 32 — Offline Integration Contract Rearm Path Decoupling & Controller Separation (HANDOFF-102)
+- **Active Branch**: `feature/confirmation-monitor`
+- **Parent Commit**: `bfc3e07467f27b25965df664f1d5d1e99304bdef` (HANDOFF-101)
+- **Accepted Milestone 31 Baseline Commit**: `083d8df43c71ed0a56c6b020178dbdfdd3bf23d0` (HANDOFF-098)
+- **Defects Addressed in HANDOFF-102 (Review Directives 1–3)**:
+  1. *Precise Separation of Rearm Ordering: Path A vs. Path B*:
+     - Replaced blanket ordering inequality with explicit path contracts (§3.2):
+       * **Path A — Inside at Cancellation**: Authoritative cancellation $\rightarrow$ fresh physical outside observation strictly later than cancellation ($T_{\text{cancel}} < T_{\text{outside}}$) transitioning controller to `OUT_OF_ZONE_ARMED` $\rightarrow$ subsequent fresh physical inside touch print strictly later than that outside observation ($T_{\text{outside}} < T_{\text{retouch}}$). Equal timestamps require compatible authoritative sequence references.
+       * **Path B — Already Outside at Cancellation**: Authoritative outside position already established at cancellation under accepted activation contract (`last_observed_position == "OUTSIDE"`) $\rightarrow$ decoupled controller is armed directly (`OUT_OF_ZONE_ARMED`) without redundant post-cancel outside observation $\rightarrow$ fresh physical inside touch print strictly later than cancellation ($T_{\text{cancel}} < T_{\text{retouch}}$). Unknown position or ordering must not be interpreted as already outside.
+  2. *Decoupled Rearm Controller vs. Immutable Terminal Records*:
+     - Updated §3.2 and the architectural lifecycle diagram to reflect accepted `RearmController` and `ActivationRecord` types.
+     - The predecessor `ActivationRecord` (Gen 1) transitions to terminal state `CANCELLED_EXTERNAL_ENTRY` and remains permanently immutable in `terminal_activations`.
+     - The decoupled `RearmController` references `prior_activation_id` and manages the departure and arming state (`CANCELLED_EXTERNAL_ENTRY` $\rightarrow$ `OUT_OF_ZONE_ARMED`).
+     - Fresh physical retouch print inside zone creates a brand-new linked `ActivationRecord` in state `REARMED_PENDING` with incremented `generation_seq = 2` in `active_activations`.
+  3. *Aligned Inventory Wording*:
+     - Updated `ACT-01` and `ACT-04` rows in the §4 inventory matrix to accurately describe predecessor record immutability in terminal history, decoupled `RearmController` state progression, and construction of new linked `ActivationRecord` entries upon valid retouch.
+  4. *Carried-Forward Test Evidence*:
+     - Carried forward test results from verified baseline commit `083d8df43c71ed0a56c6b020178dbdfdd3bf23d0` (68/68 confirmation tests, 643/643 offline repository suite). Zero runtime code altered.
+- **Safety Boundary Maintained**:
+  - Specification and contract deliverables only. Zero runtime code altered.
+  - Zero order execution, zero MT5 trading, zero live account modification, zero arbitration, zero usage ledger writes, zero final signal publication.
+  - Core strategy engines (`msm_engine.py`, `choch_detector.py`, `iss_engine.py`, `tjl_coordinator.py`, `activation_engine.py`, `activation_adapter.py`) remain 100% untouched (0 diff against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`).
+  - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
