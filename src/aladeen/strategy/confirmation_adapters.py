@@ -120,8 +120,22 @@ def adapt_confirmed_choch_to_evidence(
             raise ValueError(
                 "DETECTOR_CONFIRMED adaptation strictly requires mandatory ValidatedCandleStreamEnvelope; raw confirming_candle cannot bypass envelope"
             )
+        if envelope.sequence_domain is None:
+            raise ValueError(
+                "DETECTOR_CONFIRMED adaptation strictly requires sequence_domain binding in envelope"
+            )
+        if envelope.sequence_domain != sequence_domain:
+            raise ValueError(
+                f"Envelope sequence_domain ({envelope.sequence_domain}) contradicts parameter ({sequence_domain})"
+            )
         if confirming_candle is not None and confirming_candle != envelope.candle:
             raise ValueError("confirming_candle contradicts envelope candle")
+        confirming_candle = envelope.candle
+    elif envelope is not None:
+        if envelope.sequence_domain is not None and envelope.sequence_domain != sequence_domain:
+            raise ValueError(
+                f"Envelope sequence_domain ({envelope.sequence_domain}) contradicts parameter ({sequence_domain})"
+            )
         confirming_candle = envelope.candle
 
     # If stream envelope is provided, validate explicit authority binding
@@ -138,9 +152,13 @@ def adapt_confirmed_choch_to_evidence(
             raise ValueError(f"Envelope config ({envelope.confirmation_config_id}) contradicts parameter config ({confirmation_config_id})")
         if envelope.confirmation_candle_id != confirmation_candle_id:
             raise ValueError(f"Envelope candle ID ({envelope.confirmation_candle_id}) contradicts parameter candle ID ({confirmation_candle_id})")
-        if envelope.sequence_domain is not None and envelope.sequence_domain != sequence_domain:
-            raise ValueError(f"Envelope sequence_domain ({envelope.sequence_domain}) contradicts parameter ({sequence_domain})")
         confirming_candle = envelope.candle
+
+    expected_dur = TIMEFRAME_DURATION_MAP.get(confirmation_timeframe)
+    if expected_dur is None:
+        raise ValueError(
+            f"Unsupported confirmation_timeframe {confirmation_timeframe!r}. Supported timeframes: {sorted(TIMEFRAME_DURATION_MAP.keys())}"
+        )
 
     is_completed = True
     close_time = choch.confirmation_time
@@ -156,21 +174,36 @@ def adapt_confirmed_choch_to_evidence(
             )
 
         c_close = getattr(confirming_candle, "close_time", None)
-        if choch.confirmation_time is not None and c_close is not None and choch.confirmation_time != c_close:
-            raise ValueError(
-                f"Event confirmation_time {choch.confirmation_time} does not match candle close_time {c_close}"
-            )
-
         c_open = confirming_candle.open_time
-        if c_open is not None and c_close is not None:
-            expected_dur = TIMEFRAME_DURATION_MAP.get(confirmation_timeframe)
-            if expected_dur is not None and (c_close - c_open) != expected_dur:
+
+        if provenance_type == EvidenceProvenanceType.DETECTOR_CONFIRMED:
+            if c_open is None:
+                raise ValueError("Confirming candle open_time cannot be None for detector-confirmed evidence")
+            if c_close is None:
+                raise ValueError("Confirming candle close_time cannot be None for completed detector-confirmed evidence")
+            if choch.confirmation_time is None:
+                raise ValueError("ConfirmedChoch confirmation_time cannot be None for completed detector-confirmed evidence")
+            if choch.confirmation_time != c_close:
+                raise ValueError(
+                    f"Event confirmation_time {choch.confirmation_time} does not match candle close_time {c_close}"
+                )
+            if (c_close - c_open) != expected_dur:
+                raise ValueError(
+                    f"Candle interval duration {c_close - c_open} contradicts declared confirmation_timeframe {confirmation_timeframe} ({expected_dur})"
+                )
+            if confirming_candle.is_forming or confirming_candle.bar_status != "CONFIRMED_COMPLETED":
+                is_completed = False
+        else:
+            if choch.confirmation_time is not None and c_close is not None and choch.confirmation_time != c_close:
+                raise ValueError(
+                    f"Event confirmation_time {choch.confirmation_time} does not match candle close_time {c_close}"
+                )
+            if c_open is not None and c_close is not None and (c_close - c_open) != expected_dur:
                 raise ValueError(
                     f"Candle interval duration {c_close - c_open} contradicts declared confirmation_timeframe {confirmation_timeframe}"
                 )
-
-        if confirming_candle.is_forming or confirming_candle.bar_status != "CONFIRMED_COMPLETED":
-            is_completed = False
+            if confirming_candle.is_forming or confirming_candle.bar_status != "CONFIRMED_COMPLETED":
+                is_completed = False
 
         eff_close_price = confirming_candle.close
         if close_price is not None and close_price != eff_close_price:
@@ -285,8 +318,22 @@ def adapt_confirmed_iss_to_evidence(
             raise ValueError(
                 "DETECTOR_CONFIRMED adaptation strictly requires mandatory ValidatedCandleStreamEnvelope; raw confirming_candle cannot bypass envelope"
             )
+        if envelope.sequence_domain is None:
+            raise ValueError(
+                "DETECTOR_CONFIRMED adaptation strictly requires sequence_domain binding in envelope"
+            )
+        if envelope.sequence_domain != sequence_domain:
+            raise ValueError(
+                f"Envelope sequence_domain ({envelope.sequence_domain}) contradicts parameter ({sequence_domain})"
+            )
         if confirming_candle is not None and confirming_candle != envelope.candle:
             raise ValueError("confirming_candle contradicts envelope candle")
+        confirming_candle = envelope.candle
+    elif envelope is not None:
+        if envelope.sequence_domain is not None and envelope.sequence_domain != sequence_domain:
+            raise ValueError(
+                f"Envelope sequence_domain ({envelope.sequence_domain}) contradicts parameter ({sequence_domain})"
+            )
         confirming_candle = envelope.candle
 
     # If stream envelope is provided, validate explicit authority binding
@@ -303,9 +350,13 @@ def adapt_confirmed_iss_to_evidence(
             raise ValueError(f"Envelope config ({envelope.confirmation_config_id}) contradicts parameter config ({confirmation_config_id})")
         if envelope.confirmation_candle_id != confirmation_candle_id:
             raise ValueError(f"Envelope candle ID ({envelope.confirmation_candle_id}) contradicts parameter candle ID ({confirmation_candle_id})")
-        if envelope.sequence_domain is not None and envelope.sequence_domain != sequence_domain:
-            raise ValueError(f"Envelope sequence_domain ({envelope.sequence_domain}) contradicts parameter ({sequence_domain})")
         confirming_candle = envelope.candle
+
+    expected_dur = TIMEFRAME_DURATION_MAP.get(confirmation_timeframe)
+    if expected_dur is None:
+        raise ValueError(
+            f"Unsupported confirmation_timeframe {confirmation_timeframe!r}. Supported timeframes: {sorted(TIMEFRAME_DURATION_MAP.keys())}"
+        )
 
     is_completed = True
     close_time = iss.confirmation_time
@@ -317,18 +368,36 @@ def adapt_confirmed_iss_to_evidence(
             )
 
         c_close = getattr(confirming_candle, "close_time", None)
-        if iss.confirmation_time is not None and c_close is not None and iss.confirmation_time != c_close:
-            raise ValueError(
-                f"ISS confirmation_time {iss.confirmation_time} does not match candle close_time {c_close}"
-            )
-
         c_open = confirming_candle.open_time
-        if c_open is not None and c_close is not None:
-            expected_dur = TIMEFRAME_DURATION_MAP.get(confirmation_timeframe)
-            if expected_dur is not None and (c_close - c_open) != expected_dur:
+
+        if provenance_type == EvidenceProvenanceType.DETECTOR_CONFIRMED:
+            if c_open is None:
+                raise ValueError("Confirming candle open_time cannot be None for detector-confirmed evidence")
+            if c_close is None:
+                raise ValueError("Confirming candle close_time cannot be None for completed detector-confirmed evidence")
+            if iss.confirmation_time is None:
+                raise ValueError("ConfirmedISSEvent confirmation_time cannot be None for completed detector-confirmed evidence")
+            if iss.confirmation_time != c_close:
+                raise ValueError(
+                    f"ISS confirmation_time {iss.confirmation_time} does not match candle close_time {c_close}"
+                )
+            if (c_close - c_open) != expected_dur:
+                raise ValueError(
+                    f"Candle interval duration {c_close - c_open} contradicts declared confirmation_timeframe {confirmation_timeframe} ({expected_dur})"
+                )
+            if confirming_candle.is_forming or confirming_candle.bar_status != "CONFIRMED_COMPLETED":
+                is_completed = False
+        else:
+            if iss.confirmation_time is not None and c_close is not None and iss.confirmation_time != c_close:
+                raise ValueError(
+                    f"ISS confirmation_time {iss.confirmation_time} does not match candle close_time {c_close}"
+                )
+            if c_open is not None and c_close is not None and (c_close - c_open) != expected_dur:
                 raise ValueError(
                     f"Candle interval duration {c_close - c_open} contradicts declared confirmation_timeframe {confirmation_timeframe}"
                 )
+            if confirming_candle.is_forming or confirming_candle.bar_status != "CONFIRMED_COMPLETED":
+                is_completed = False
 
         if confirming_candle.close != iss.completion_close_price:
             raise ValueError(

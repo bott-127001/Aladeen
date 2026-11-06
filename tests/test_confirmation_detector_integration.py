@@ -1,7 +1,7 @@
-"""Separately retrievable integration tests verifying candle-derived CHOCH and ISS confirmation.
+"""Separately retrievable integration tests verifying detector-derived CHOCH and ISS confirmation.
 
-Scope & Design Boundary:
--------------------------
+Scope & Design Boundary (Explicit Evidence Labeling):
+-----------------------------------------------------
 - Demonstrates complete end-to-end continuous detection and authoritative confirmation matching:
   1. Fixture loading and exact candle stream adaptation from authoritative JSON fixtures.
   2. Detector/coordinator execution from configured start candle without reset or mutation.
@@ -10,6 +10,10 @@ Scope & Design Boundary:
   5. Immutable ValidatedCandleStreamEnvelope construction binding looked-up candle and stream/config metadata.
   6. Pair matcher execution against eligible activations.
   7. Exact CandidateSetupRecord assertions and fail-closed blocked-branch verification.
+- Explicit Evidence Provenance Labeling:
+  Confirmation evidence is genuinely detector-derived and candle-provenanced from the detector engines.
+  Activations, source levels, and source member records are synthetic, fully conforming domain inputs
+  for the offline matcher (this does not claim a full candle-derived source TJL touch-to-candidate pipeline).
 - Strictly offline, read-only calculation layer. Zero network, zero MT5, zero live execution.
 """
 
@@ -68,16 +72,16 @@ def load_iss_fixture(name: str = "iss_02_bullish_basic_end_to_end") -> Dict[str,
     return data["fixtures"][name]
 
 
-def create_strategy_candles_from_raw(
+def create_synthesized_h1_candles_from_prices(
     raw_candles: List[Dict[str, Any]],
     base_time: datetime,
-    interval_duration: timedelta,
 ) -> List[StrategyCandle]:
-    """Converts raw fixture candle dicts into typed StrategyCandle collection with precise durations."""
+    """Synthesizes a 1-hour candle stream from fixture price series for H1 confirmation testing."""
+    interval = timedelta(hours=1)
     candles: List[StrategyCandle] = []
     for i, c in enumerate(raw_candles):
-        open_time = base_time + (interval_duration * i)
-        close_time = open_time + interval_duration
+        open_time = base_time + (interval * i)
+        close_time = open_time + interval
         candles.append(
             StrategyCandle(
                 index=i,
@@ -94,18 +98,44 @@ def create_strategy_candles_from_raw(
     return candles
 
 
-def test_complete_candle_derived_choch_end_to_end_integration() -> None:
+def parse_canonical_iss_candles(raw_candles: List[Dict[str, Any]]) -> List[StrategyCandle]:
+    """Parses raw candles preserving original fixture timestamps and completion attributes."""
+    candles: List[StrategyCandle] = []
+    for i, c in enumerate(raw_candles):
+        open_time = datetime.fromisoformat(c["time"]).astimezone(timezone.utc)
+        close_time = (
+            datetime.fromisoformat(c["close_time"]).astimezone(timezone.utc)
+            if "close_time" in c
+            else open_time + timedelta(hours=1)
+        )
+        candles.append(
+            StrategyCandle(
+                index=i,
+                open_time=open_time,
+                open=float(c["open"]),
+                high=float(c["high"]),
+                low=float(c["low"]),
+                close=float(c["close"]),
+                is_forming=bool(c.get("is_forming", False)),
+                bar_status=str(c.get("bar_status", "CONFIRMED_COMPLETED")),
+                close_time=close_time,
+            )
+        )
+    return candles
+
+
+def test_detector_derived_choch_matched_with_synthetic_activation() -> None:
     """Demonstrates complete candle-derived CHOCH: stream adaptation, coordinator execution,
 
-    confirming candle lookup from processed input, envelope binding, and candidate matching.
+    confirming candle lookup from processed input, envelope binding, and candidate matching
+    against a synthetic source activation.
     """
-    # 1. Fixture loading & exact candle stream adaptation
+    # 1. Fixture loading & synthesized 1-hour timeline matching D1 -> H1 confirmation mapping
     fix = load_choch_fixture("choch_bearish_basic_end_to_end")
     base_time = datetime(2026, 10, 1, 0, 0, tzinfo=timezone.utc)
-    interval = timedelta(hours=1)  # H1 confirmation timeframe
-    processed_candles = create_strategy_candles_from_raw(fix["candles"], base_time, interval)
+    processed_candles = create_synthesized_h1_candles_from_prices(fix["candles"], base_time)
 
-    # 2. Detector / coordinator execution from configured start
+    # 2. Coordinator execution from configured start using canonical candle collection
     config = MSMConfig(start_candle_time=base_time, direction=Direction.UPWARD)
     coordinator = MSMChochCoordinator(config)
     coordinator.process_candles(processed_candles)
@@ -123,7 +153,7 @@ def test_complete_candle_derived_choch_end_to_end_integration() -> None:
     assert confirming_candle.close == 1.0850
     assert confirming_candle.close_time == choch.confirmation_time
 
-    # Activation tap occurs at candle 7 (pre-confirmation, post-point 3)
+    # Synthetic activation tap occurs at candle 7 (pre-confirmation, post-point 3)
     tap_time = processed_candles[7].open_time
     assert tap_time < choch.confirmation_time
 
@@ -152,7 +182,7 @@ def test_complete_candle_derived_choch_end_to_end_integration() -> None:
         provenance_type=EvidenceProvenanceType.DETECTOR_CONFIRMED,
     )
 
-    # 6. Activation and Member setup (D1 source -> H1 confirmation)
+    # 6. Synthetic Activation and Member setup (D1 source -> H1 confirmation)
     level_id = StableLevelId(
         symbol_feed_id="FEED_EURUSD_H4",
         source_timeframe="D1",
@@ -221,22 +251,22 @@ def test_complete_candle_derived_choch_end_to_end_integration() -> None:
     assert cand.is_consolidated is False
 
 
-def test_complete_candle_derived_iss_end_to_end_integration() -> None:
-    """Demonstrates complete candle-derived ISS: stream adaptation, engine execution,
+def test_detector_derived_iss_matched_with_synthetic_activation() -> None:
+    """Demonstrates complete candle-derived ISS: canonical fixture adaptation without retiming,
 
-    confirming candle lookup from processed input, envelope binding, candidate matching,
+    engine execution on the canonical collection, confirming candle lookup from the same collection,
+    envelope binding, candidate matching against a synthetic source activation,
     and fail-closed unresolved dependency blocking.
     """
-    # 1. Fixture loading & exact candle stream adaptation
+    # 1. Canonical fixture candle loading preserving original timestamps
     fix = load_iss_fixture("iss_02_bullish_basic_end_to_end")
     raw_candles = fix["candles"]
-    start_time = datetime.fromisoformat(raw_candles[0]["time"]).astimezone(timezone.utc)
-    interval = timedelta(hours=1)  # H1 confirmation timeframe
-    processed_candles = create_strategy_candles_from_raw(raw_candles, start_time, interval)
+    canonical_candles = parse_canonical_iss_candles(raw_candles)
 
-    # 2. Engine execution from configured start
+    # 2. Engine execution from configured start on the single canonical candle collection
+    start_time = canonical_candles[0].open_time
     engine = ISSEngine(ISSConfig(main_direction=Direction.UPWARD, start_candle_time=start_time))
-    snap = engine.process_candles(raw_candles)
+    snap = engine.process_candles(canonical_candles)
 
     # 3. Retrieve actual emitted event
     assert snap.lifecycle_status == ISSLifecycleStatus.CONFIRMED
@@ -245,14 +275,14 @@ def test_complete_candle_derived_iss_end_to_end_integration() -> None:
     assert iss_event.confirmation_candle_index == 20
     assert iss_event.completion_close_price == 1.1120
 
-    # 4. Confirming candle lookup directly from processed input candle collection
-    confirming_candle = processed_candles[iss_event.confirmation_candle_index]
+    # 4. Confirming candle lookup directly from the same canonical candle collection
+    confirming_candle = canonical_candles[iss_event.confirmation_candle_index]
     assert confirming_candle.index == 20
     assert confirming_candle.close == 1.1120
     assert confirming_candle.close_time == iss_event.confirmation_time
 
-    # Activation tap occurs at candle 15 (pre-confirmation)
-    tap_time = processed_candles[15].open_time
+    # Synthetic activation tap occurs at candle 15 (pre-confirmation)
+    tap_time = canonical_candles[15].open_time
     assert tap_time < iss_event.confirmation_time
 
     # 5. Envelope construction using looked-up candle and stream metadata
@@ -267,7 +297,7 @@ def test_complete_candle_derived_iss_end_to_end_integration() -> None:
         sequence_domain=DEFAULT_DOMAIN,
     )
 
-    # 6. Activation and Member setup (D1 source -> H1 confirmation)
+    # 6. Synthetic Activation and Member setup (D1 source -> H1 confirmation)
     level_id = StableLevelId(
         symbol_feed_id="FEED_EURUSD_H4",
         source_timeframe="D1",

@@ -2631,3 +2631,43 @@ Last Updated: 2026-11-06 (Milestone 29 Release-Readiness Audit & Offline Runbook
   - Strategy engines (`msm_engine.py`, `choch_detector.py`, `iss_engine.py`, `tjl_coordinator.py`, `activation_engine.py`, `activation_adapter.py`) remain 100% untouched (0 diff against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`).
   - Zero live MT5 trading, zero UI order execution, zero arbitration, zero usage writes, zero automated trading.
   - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
+
+
+---
+
+## 43. Milestone 31 — Offline Confirmation Matcher Candle-Time Authority, Sequence-Domain Enveloping & Canonical Detector Integration (HANDOFF-097)
+- **Active Branch**: `feature/confirmation-monitor`
+- **Parent Commit**: `a43e69d873397948b5dcf55d9aee32392841be13` (HANDOFF-096)
+- **Defects Addressed in HANDOFF-097 (Review Directives 1–5)**:
+  1. *Mandatory Candle-Time Authority & Supported Timeframe Validation*:
+     - In both `adapt_confirmed_choch_to_evidence` and `adapt_confirmed_iss_to_evidence`:
+       * Declared `confirmation_timeframe` is strictly validated against `TIMEFRAME_DURATION_MAP` (unsupported timeframes like `"M15"` fail closed immediately with `ValueError`).
+       * For `DETECTOR_CONFIRMED` adaptation, `confirming_candle.open_time` and `confirming_candle.close_time` are strictly mandatory (`close_time cannot be None`).
+       * Event `confirmation_time` cannot be None and must strictly agree with `confirming_candle.close_time` (`confirmation_time == close_time`).
+       * Declared timeframe duration must strictly match `(c_close - c_open) == expected_dur`.
+       * Completed status verifies `confirming_candle.bar_status == "CONFIRMED_COMPLETED"` and `not is_forming`.
+  2. *Mandatory Envelope Sequence-Domain Binding*:
+     - For `DETECTOR_CONFIRMED` adaptation, `envelope.sequence_domain` is strictly mandatory (cannot be None).
+     - Envelope sequence domain must strictly match the caller's parameter `sequence_domain`.
+  3. *One Canonical Candle Collection in ISS Detector Integration*:
+     - In `tests/test_confirmation_detector_integration.py`, raw candles from `iss_acceptance.json` are parsed preserving original timestamps (`time` and `close_time`) into a single canonical `StrategyCandle` collection without retiming.
+     - The exact same canonical list is passed to `ISSEngine.process_candles(canonical_candles)`.
+     - Confirming candle is looked up directly by `iss_event.confirmation_candle_index` from the same canonical collection.
+  4. *Symmetric CHOCH & ISS Negative Tests*:
+     - Added comprehensive symmetric negative test suites in `tests/test_confirmation_matcher.py`:
+       * Missing candle close time (`test_choch_missing_candle_close_time_fails_closed`, `test_iss_missing_candle_close_time_fails_closed`).
+       * Unsupported confirmation timeframe (`test_choch_unsupported_confirmation_timeframe_fails_closed`, `test_iss_unsupported_confirmation_timeframe_fails_closed`).
+       * Missing or contradictory envelope sequence domain (`test_choch_envelope_missing_or_contradictory_sequence_domain_fails_closed`, `test_iss_envelope_missing_or_contradictory_sequence_domain_fails_closed`).
+       * Event and candle close time disagreement (`test_choch_event_and_candle_close_time_disagreement_fails_closed`, `test_iss_event_and_candle_close_time_disagreement_fails_closed`).
+  5. *Explicit Evidence Labeling*:
+     - Module and test docstrings in `tests/test_confirmation_detector_integration.py` explicitly label that confirmation evidence is genuinely detector-derived and candle-provenanced, while activation and member records are synthetic domain inputs conforming to the offline matcher contract (not claiming an unverified candle-derived source TJL touch pipeline).
+- **Verification Summary**:
+  - Focused confirmation matcher test suite: **66/66 passed in 0.81s** (`pytest tests/test_confirmation_matcher.py -v`).
+  - Separately retrievable detector integration test suite: **2/2 passed in 0.55s** (`pytest tests/test_confirmation_detector_integration.py -v`).
+  - Total confirmation test suite: **68/68 passed in 0.78s** (`pytest tests/test_confirmation_detector_integration.py tests/test_confirmation_matcher.py -v`).
+  - Full offline repository test suite: **643/643 passed in 11.89s** (`pytest tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py --ignore=tests/test_activation_browser_controlled.py --ignore=tests/activation_browser_runner.py --ignore=tests/activation_browser_harness.py --ignore=tests/test_browser_race_controlled.py --ignore=tests/test_choch_browser_verification.py --ignore=tests/browser_check.py`).
+- **Safety Boundary Maintained**:
+  - Pure offline calculation layer only.
+  - Zero order execution, zero MT5 trading, zero live account modification, zero arbitration, zero usage ledger writes, zero final signal publication.
+  - Core strategy engines (`msm_engine.py`, `choch_detector.py`, `iss_engine.py`, `tjl_coordinator.py`, `activation_engine.py`, `activation_adapter.py`) remain 100% untouched (0 diff against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`).
+  - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.

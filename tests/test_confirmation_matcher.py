@@ -999,6 +999,7 @@ class TestAdapterProvenanceAndCompletionIntegrity:
             price_basis=PriceBasis.BID,
             confirmation_config_id="CONF_CFG_EURUSD_M5_v1",
             confirmation_candle_id="EURUSD:M5:20261002T083000Z",
+            sequence_domain=DEFAULT_DOMAIN,
         )
 
         ev = adapt_confirmed_choch_to_evidence(
@@ -1039,6 +1040,7 @@ class TestAdapterProvenanceAndCompletionIntegrity:
             price_basis=PriceBasis.BID,
             confirmation_config_id="CONF_CFG_EURUSD_M5_v1",
             confirmation_candle_id="EURUSD:M5:20261002T080000Z",
+            sequence_domain=DEFAULT_DOMAIN,
         )
 
         with pytest.raises(ValueError, match="contradicts declared confirmation_timeframe"):
@@ -1078,6 +1080,7 @@ class TestAdapterProvenanceAndCompletionIntegrity:
             price_basis=PriceBasis.BID,
             confirmation_config_id="CONF_CFG_01",
             confirmation_candle_id="CANDLE_01",
+            sequence_domain=DEFAULT_DOMAIN,
         )
         with pytest.raises(ValueError, match="does not match CHOCH c2_open_time"):
             adapt_confirmed_choch_to_evidence(
@@ -1110,6 +1113,7 @@ class TestAdapterProvenanceAndCompletionIntegrity:
             price_basis=PriceBasis.BID,
             confirmation_config_id="CONF_CFG_01",
             confirmation_candle_id="CANDLE_01",
+            sequence_domain=DEFAULT_DOMAIN,
         )
         with pytest.raises(ValueError, match="does not match candle close_time|contradicts declared"):
             adapt_confirmed_choch_to_evidence(
@@ -1148,6 +1152,7 @@ class TestAdapterProvenanceAndCompletionIntegrity:
             price_basis=PriceBasis.BID,
             confirmation_config_id="CONF_CFG_01",
             confirmation_candle_id="CANDLE_01",
+            sequence_domain=DEFAULT_DOMAIN,
         )
 
         with pytest.raises(ValueError, match="conflicts with candle close price"):
@@ -1283,6 +1288,7 @@ class TestAdapterProvenanceAndCompletionIntegrity:
             price_basis=PriceBasis.BID,
             confirmation_config_id="CONF_CFG_H1_01",
             confirmation_candle_id="CANDLE_20",
+            sequence_domain=DEFAULT_DOMAIN,
         )
 
         with pytest.raises(ValueError, match="contradicts ISS completion_close_price"):
@@ -1324,6 +1330,7 @@ class TestAdapterProvenanceAndCompletionIntegrity:
             price_basis=PriceBasis.BID,
             confirmation_config_id="CONF_CFG_01",
             confirmation_candle_id="CANDLE_01",
+            sequence_domain=DEFAULT_DOMAIN,
         )
         with pytest.raises(ValueError, match="Envelope feed_id .* contradicts parameter"):
             adapt_confirmed_choch_to_evidence(
@@ -1351,6 +1358,7 @@ class TestAdapterProvenanceAndCompletionIntegrity:
             price_basis=PriceBasis.BID,
             confirmation_config_id="CONF_CFG_01",
             confirmation_candle_id="CANDLE_01",
+            sequence_domain=DEFAULT_DOMAIN,
         )
         with pytest.raises(ValueError, match="Envelope feed_id .* contradicts parameter"):
             adapt_confirmed_iss_to_evidence(
@@ -1364,24 +1372,24 @@ class TestAdapterProvenanceAndCompletionIntegrity:
                 sequence_domain=DEFAULT_DOMAIN,
             )
 
-        # 3. CHOCH contradictory sequence domain
-        envelope_wrong_domain = ValidatedCandleStreamEnvelope(
+        # 3. CHOCH contradictory symbol
+        envelope_wrong_symbol_choch = ValidatedCandleStreamEnvelope(
             candle=candle,
-            symbol="EURUSD",
+            symbol="GBPUSD",
             feed_id="FEED_EURUSD_H4",
             timeframe="M5",
             price_basis=PriceBasis.BID,
             confirmation_config_id="CONF_CFG_01",
             confirmation_candle_id="CANDLE_01",
-            sequence_domain=SequenceDomain(feed_id="FEED_OTHER", run_id="RUN_OTHER"),
+            sequence_domain=DEFAULT_DOMAIN,
         )
-        with pytest.raises(ValueError, match="Envelope sequence_domain .* contradicts parameter"):
+        with pytest.raises(ValueError, match="Envelope symbol .* contradicts parameter"):
             adapt_confirmed_choch_to_evidence(
                 choch=choch,
                 confirmation_config_id="CONF_CFG_01",
                 confirmation_timeframe="M5",
                 confirmation_candle_id="CANDLE_01",
-                envelope=envelope_wrong_domain,
+                envelope=envelope_wrong_symbol_choch,
                 symbol="EURUSD",
                 feed_id="FEED_EURUSD_H4",
                 sequence_domain=DEFAULT_DOMAIN,
@@ -1396,6 +1404,7 @@ class TestAdapterProvenanceAndCompletionIntegrity:
             price_basis=PriceBasis.BID,
             confirmation_config_id="CONF_CFG_01",
             confirmation_candle_id="CANDLE_01",
+            sequence_domain=DEFAULT_DOMAIN,
         )
         with pytest.raises(ValueError, match="Envelope symbol .* contradicts parameter"):
             adapt_confirmed_iss_to_evidence(
@@ -1406,6 +1415,350 @@ class TestAdapterProvenanceAndCompletionIntegrity:
                 envelope=envelope_wrong_symbol_iss,
                 symbol="EURUSD",
                 feed_id="FEED_EURUSD_H4",
+                sequence_domain=DEFAULT_DOMAIN,
+            )
+
+    def test_choch_missing_candle_close_time_fails_closed(self) -> None:
+        """Confirming candle with close_time=None fails closed for completed detector evidence."""
+        open_time = datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc)
+        choch = make_test_choch(open_time=open_time, confirmation_time=open_time + timedelta(minutes=5))
+
+        candle_no_close = StrategyCandle(
+            index=9,
+            open_time=open_time,
+            open=1.1340,
+            high=1.1360,
+            low=1.1310,
+            close=1.1350,
+            is_forming=False,
+            bar_status="CONFIRMED_COMPLETED",
+            close_time=None,
+        )
+        envelope = ValidatedCandleStreamEnvelope(
+            candle=candle_no_close,
+            symbol="EURUSD",
+            feed_id="FEED_01",
+            timeframe="M5",
+            price_basis=PriceBasis.BID,
+            confirmation_config_id="CONF_CFG_01",
+            confirmation_candle_id="CANDLE_01",
+            sequence_domain=DEFAULT_DOMAIN,
+        )
+        with pytest.raises(ValueError, match="Confirming candle close_time cannot be None for completed detector-confirmed evidence"):
+            adapt_confirmed_choch_to_evidence(
+                choch=choch,
+                confirmation_config_id="CONF_CFG_01",
+                confirmation_timeframe="M5",
+                confirmation_candle_id="CANDLE_01",
+                envelope=envelope,
+                symbol="EURUSD",
+                feed_id="FEED_01",
+                sequence_domain=DEFAULT_DOMAIN,
+            )
+
+    def test_iss_missing_candle_close_time_fails_closed(self) -> None:
+        """ISS confirming candle with close_time=None fails closed for completed detector evidence."""
+        open_time = datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc)
+        close_time = open_time + timedelta(minutes=5)
+        iss = make_test_iss(confirmation_candle_index=9, confirmation_time=close_time, completion_close_price=1.1350)
+
+        candle_no_close = StrategyCandle(
+            index=9,
+            open_time=open_time,
+            open=1.1340,
+            high=1.1360,
+            low=1.1310,
+            close=1.1350,
+            is_forming=False,
+            bar_status="CONFIRMED_COMPLETED",
+            close_time=None,
+        )
+        envelope = ValidatedCandleStreamEnvelope(
+            candle=candle_no_close,
+            symbol="EURUSD",
+            feed_id="FEED_01",
+            timeframe="M5",
+            price_basis=PriceBasis.BID,
+            confirmation_config_id="CONF_CFG_01",
+            confirmation_candle_id="CANDLE_01",
+            sequence_domain=DEFAULT_DOMAIN,
+        )
+        with pytest.raises(ValueError, match="Confirming candle close_time cannot be None for completed detector-confirmed evidence"):
+            adapt_confirmed_iss_to_evidence(
+                iss=iss,
+                confirmation_config_id="CONF_CFG_01",
+                confirmation_timeframe="M5",
+                confirmation_candle_id="CANDLE_01",
+                envelope=envelope,
+                symbol="EURUSD",
+                feed_id="FEED_01",
+                sequence_domain=DEFAULT_DOMAIN,
+            )
+
+    def test_choch_unsupported_confirmation_timeframe_fails_closed(self) -> None:
+        """Declaring an unsupported confirmation timeframe (e.g. M15) fails closed."""
+        open_time = datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc)
+        close_time = open_time + timedelta(minutes=15)
+        choch = make_test_choch(open_time=open_time, confirmation_time=close_time)
+
+        candle = StrategyCandle(
+            index=9,
+            open_time=open_time,
+            open=1.1340,
+            high=1.1360,
+            low=1.1310,
+            close=1.1350,
+            is_forming=False,
+            bar_status="CONFIRMED_COMPLETED",
+            close_time=close_time,
+        )
+        envelope = ValidatedCandleStreamEnvelope(
+            candle=candle,
+            symbol="EURUSD",
+            feed_id="FEED_01",
+            timeframe="M15",
+            price_basis=PriceBasis.BID,
+            confirmation_config_id="CONF_CFG_01",
+            confirmation_candle_id="CANDLE_01",
+            sequence_domain=DEFAULT_DOMAIN,
+        )
+        with pytest.raises(ValueError, match="Unsupported confirmation_timeframe 'M15'"):
+            adapt_confirmed_choch_to_evidence(
+                choch=choch,
+                confirmation_config_id="CONF_CFG_01",
+                confirmation_timeframe="M15",
+                confirmation_candle_id="CANDLE_01",
+                envelope=envelope,
+                symbol="EURUSD",
+                feed_id="FEED_01",
+                sequence_domain=DEFAULT_DOMAIN,
+            )
+
+    def test_iss_unsupported_confirmation_timeframe_fails_closed(self) -> None:
+        """Declaring an unsupported confirmation timeframe for ISS fails closed."""
+        open_time = datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc)
+        close_time = open_time + timedelta(minutes=15)
+        iss = make_test_iss(confirmation_candle_index=9, confirmation_time=close_time, completion_close_price=1.1350)
+
+        candle = StrategyCandle(
+            index=9,
+            open_time=open_time,
+            open=1.1340,
+            high=1.1360,
+            low=1.1310,
+            close=1.1350,
+            is_forming=False,
+            bar_status="CONFIRMED_COMPLETED",
+            close_time=close_time,
+        )
+        envelope = ValidatedCandleStreamEnvelope(
+            candle=candle,
+            symbol="EURUSD",
+            feed_id="FEED_01",
+            timeframe="M15",
+            price_basis=PriceBasis.BID,
+            confirmation_config_id="CONF_CFG_01",
+            confirmation_candle_id="CANDLE_01",
+            sequence_domain=DEFAULT_DOMAIN,
+        )
+        with pytest.raises(ValueError, match="Unsupported confirmation_timeframe 'M15'"):
+            adapt_confirmed_iss_to_evidence(
+                iss=iss,
+                confirmation_config_id="CONF_CFG_01",
+                confirmation_timeframe="M15",
+                confirmation_candle_id="CANDLE_01",
+                envelope=envelope,
+                symbol="EURUSD",
+                feed_id="FEED_01",
+                sequence_domain=DEFAULT_DOMAIN,
+            )
+
+    def test_choch_envelope_missing_or_contradictory_sequence_domain_fails_closed(self) -> None:
+        """Envelope lacking sequence_domain or with contradictory domain fails closed for DETECTOR_CONFIRMED."""
+        open_time = datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc)
+        close_time = open_time + timedelta(minutes=5)
+        choch = make_test_choch(open_time=open_time, confirmation_time=close_time)
+
+        candle = StrategyCandle(
+            index=9,
+            open_time=open_time,
+            open=1.1340,
+            high=1.1360,
+            low=1.1310,
+            close=1.1350,
+            is_forming=False,
+            bar_status="CONFIRMED_COMPLETED",
+            close_time=close_time,
+        )
+
+        # 1. Missing sequence_domain in envelope
+        envelope_no_domain = ValidatedCandleStreamEnvelope(
+            candle=candle,
+            symbol="EURUSD",
+            feed_id="FEED_01",
+            timeframe="M5",
+            price_basis=PriceBasis.BID,
+            confirmation_config_id="CONF_CFG_01",
+            confirmation_candle_id="CANDLE_01",
+            sequence_domain=None,
+        )
+        with pytest.raises(ValueError, match="strictly requires sequence_domain binding in envelope"):
+            adapt_confirmed_choch_to_evidence(
+                choch=choch,
+                confirmation_config_id="CONF_CFG_01",
+                confirmation_timeframe="M5",
+                confirmation_candle_id="CANDLE_01",
+                envelope=envelope_no_domain,
+                symbol="EURUSD",
+                feed_id="FEED_01",
+                sequence_domain=DEFAULT_DOMAIN,
+            )
+
+        # 2. Contradictory sequence_domain in envelope
+        other_domain = SequenceDomain(feed_id="FEED_OTHER", run_id="RUN_OTHER")
+        envelope_wrong_domain = ValidatedCandleStreamEnvelope(
+            candle=candle,
+            symbol="EURUSD",
+            feed_id="FEED_01",
+            timeframe="M5",
+            price_basis=PriceBasis.BID,
+            confirmation_config_id="CONF_CFG_01",
+            confirmation_candle_id="CANDLE_01",
+            sequence_domain=other_domain,
+        )
+        with pytest.raises(ValueError, match="Envelope sequence_domain .* contradicts parameter"):
+            adapt_confirmed_choch_to_evidence(
+                choch=choch,
+                confirmation_config_id="CONF_CFG_01",
+                confirmation_timeframe="M5",
+                confirmation_candle_id="CANDLE_01",
+                envelope=envelope_wrong_domain,
+                symbol="EURUSD",
+                feed_id="FEED_01",
+                sequence_domain=DEFAULT_DOMAIN,
+            )
+
+    def test_iss_envelope_missing_or_contradictory_sequence_domain_fails_closed(self) -> None:
+        """ISS envelope lacking sequence_domain or with contradictory domain fails closed."""
+        open_time = datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc)
+        close_time = open_time + timedelta(minutes=5)
+        iss = make_test_iss(confirmation_candle_index=9, confirmation_time=close_time, completion_close_price=1.1350)
+
+        candle = StrategyCandle(
+            index=9,
+            open_time=open_time,
+            open=1.1340,
+            high=1.1360,
+            low=1.1310,
+            close=1.1350,
+            is_forming=False,
+            bar_status="CONFIRMED_COMPLETED",
+            close_time=close_time,
+        )
+
+        envelope_no_domain = ValidatedCandleStreamEnvelope(
+            candle=candle,
+            symbol="EURUSD",
+            feed_id="FEED_01",
+            timeframe="M5",
+            price_basis=PriceBasis.BID,
+            confirmation_config_id="CONF_CFG_01",
+            confirmation_candle_id="CANDLE_01",
+            sequence_domain=None,
+        )
+        with pytest.raises(ValueError, match="strictly requires sequence_domain binding in envelope"):
+            adapt_confirmed_iss_to_evidence(
+                iss=iss,
+                confirmation_config_id="CONF_CFG_01",
+                confirmation_timeframe="M5",
+                confirmation_candle_id="CANDLE_01",
+                envelope=envelope_no_domain,
+                symbol="EURUSD",
+                feed_id="FEED_01",
+                sequence_domain=DEFAULT_DOMAIN,
+            )
+
+    def test_choch_event_and_candle_close_time_disagreement_fails_closed(self) -> None:
+        """Disagreement between event confirmation_time and candle close_time fails closed."""
+        open_time = datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc)
+        close_time = open_time + timedelta(minutes=5)
+        # Event declares confirmation_time 5 minutes later than candle close_time
+        choch = make_test_choch(open_time=open_time, confirmation_time=close_time + timedelta(minutes=5))
+
+        candle = StrategyCandle(
+            index=9,
+            open_time=open_time,
+            open=1.1340,
+            high=1.1360,
+            low=1.1310,
+            close=1.1350,
+            is_forming=False,
+            bar_status="CONFIRMED_COMPLETED",
+            close_time=close_time,
+        )
+        envelope = ValidatedCandleStreamEnvelope(
+            candle=candle,
+            symbol="EURUSD",
+            feed_id="FEED_01",
+            timeframe="M5",
+            price_basis=PriceBasis.BID,
+            confirmation_config_id="CONF_CFG_01",
+            confirmation_candle_id="CANDLE_01",
+            sequence_domain=DEFAULT_DOMAIN,
+        )
+        with pytest.raises(ValueError, match="Event confirmation_time .* does not match candle close_time"):
+            adapt_confirmed_choch_to_evidence(
+                choch=choch,
+                confirmation_config_id="CONF_CFG_01",
+                confirmation_timeframe="M5",
+                confirmation_candle_id="CANDLE_01",
+                envelope=envelope,
+                symbol="EURUSD",
+                feed_id="FEED_01",
+                sequence_domain=DEFAULT_DOMAIN,
+            )
+
+    def test_iss_event_and_candle_close_time_disagreement_fails_closed(self) -> None:
+        """Disagreement between ISS confirmation_time and candle close_time fails closed."""
+        open_time = datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc)
+        close_time = open_time + timedelta(minutes=5)
+        # ISS declares confirmation_time 5 minutes later than candle close_time
+        iss = make_test_iss(
+            confirmation_candle_index=9,
+            confirmation_time=close_time + timedelta(minutes=5),
+            completion_close_price=1.1350,
+        )
+
+        candle = StrategyCandle(
+            index=9,
+            open_time=open_time,
+            open=1.1340,
+            high=1.1360,
+            low=1.1310,
+            close=1.1350,
+            is_forming=False,
+            bar_status="CONFIRMED_COMPLETED",
+            close_time=close_time,
+        )
+        envelope = ValidatedCandleStreamEnvelope(
+            candle=candle,
+            symbol="EURUSD",
+            feed_id="FEED_01",
+            timeframe="M5",
+            price_basis=PriceBasis.BID,
+            confirmation_config_id="CONF_CFG_01",
+            confirmation_candle_id="CANDLE_01",
+            sequence_domain=DEFAULT_DOMAIN,
+        )
+        with pytest.raises(ValueError, match="ISS confirmation_time .* does not match candle close_time"):
+            adapt_confirmed_iss_to_evidence(
+                iss=iss,
+                confirmation_config_id="CONF_CFG_01",
+                confirmation_timeframe="M5",
+                confirmation_candle_id="CANDLE_01",
+                envelope=envelope,
+                symbol="EURUSD",
+                feed_id="FEED_01",
                 sequence_domain=DEFAULT_DOMAIN,
             )
 
@@ -1779,6 +2132,7 @@ class TestCandleDerivedContinuousDetection:
             price_basis=PriceBasis.BID,
             confirmation_config_id="CONF_CFG_EURUSD_H1_v1",
             confirmation_candle_id="EURUSD:H1:20261001T100000Z",
+            sequence_domain=DEFAULT_DOMAIN,
         )
 
         evidence = adapt_confirmed_choch_to_evidence(
@@ -1856,6 +2210,7 @@ class TestCandleDerivedContinuousDetection:
             price_basis=PriceBasis.BID,
             confirmation_config_id="CONF_CFG_EURUSD_H1_v1",
             confirmation_candle_id="EURUSD:H1:20261001T210000Z",
+            sequence_domain=DEFAULT_DOMAIN,
         )
 
         # D1 source -> H1 confirmation
