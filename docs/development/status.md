@@ -998,3 +998,39 @@ Last Updated: 2026-11-06 (Activation Engine Pure Offline Milestone Accepted — 
   4. *Core Ambiguities Preserved*: Upstream $c_1 == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
   5. *Branch Boundary*: Committed and pushed strictly on `requirements/activation-dashboard-acceptance`. No merging into `main`.
 
+### HANDOFF-063: Domain Vocabulary Realignment, Public Input Provenance Matrix, and Offline Evidence Boundary Hardening
+- **Active Branch**: `requirements/activation-dashboard-acceptance`
+- **Immediate Parent Commit**: `1cc64c489cbe97f56f4dca671759ea4be23267d3` (HANDOFF-062)
+- **Root Baseline Engine Commit**: `0867c740352297fb43e781fb654706218771d533` (Milestone 25 / HANDOFF-061)
+- **Objective**: Address Perplexity's review of HANDOFF-062:
+  1. Realine activation and coverage vocabulary: exact observed price evidence alone establishes touch (rejecting candle interval or OHLC overlap claims); enforce valid domain `CoverageStatus` enum values (`COMPLETE`, `INCOMPLETE`, `UNCERTAIN`).
+  2. Provide comprehensive field-by-field public input and provenance matrix across all 8 display groups G1-G8 (source object, public attribute, availability, missing-value presentation, join keys).
+  3. Formulate offline service evidence boundary and context lifecycle (exact prints from offline streams, usage defaults to UNKNOWN fail-closed, session discard on symbol/TF changes).
+  4. Separate planned category, construction procedure, and execution status (`"specified; not yet executed through the presentation implementation"`).
+  5. Enforce canonical unresolved banner string (`"LAST AUTHORITATIVE EVIDENCE — SOURCE UNRESOLVED"`), dedicated cancellation timestamp (`"Unknown"`) vs sequence (`"#<seq>"`) columns, and deterministic multi-tier sorting.
+- **Completed Deliverables**:
+  1. [`docs/requirements/activation-dashboard-acceptance.md`](file:///docs/requirements/activation-dashboard-acceptance.md):
+     - Corrected exact-observation and coverage semantics in §§1.2, 2.1, and Scenario 5.
+     - Section 3: Comprehensive 40-row public input and provenance matrix across G1-G8.
+     - Section 4: Defined offline service evidence boundary and session isolation lifecycle across context changes.
+     - Section 5: Updated 16 acceptance scenarios with explicit construction procedures and `"specified; not yet executed through the presentation implementation"` status.
+     - Section 6: Grounded integration-gap assessment showing dataclass sufficiency without event-target reconstruction.
+  2. [`tests/fixtures/activation_dashboard_acceptance.json`](file:///tests/fixtures/activation_dashboard_acceptance.json):
+     - Version 1.1 with valid `CoverageStatus` domain enum values (`INCOMPLETE`, `UNCERTAIN`).
+     - Construction procedure and execution status fields on all 16 scenarios.
+     - Dedicated timestamp (`"Unknown"`) and sequence (`"#125"`) assertions for Scenario 8.
+     - Canonical unresolved banner string on Scenario 13.
+     - Testable component tree and state immutability assertions on Scenario 16.
+  3. [`tests/test_activation_dashboard_fixture_integrity.py`](file:///tests/test_activation_dashboard_fixture_integrity.py) (215 lines):
+     - 8 automated integrity checks validating schema, execution status, domain coverage enum, canonical banner, timestamp/sequence separation, and component tree immutability assertions.
+- **Verification Summary**:
+  - Activation dashboard fixture integrity suite: **8 / 8 passed** in 4.09s (`pytest tests/test_activation_dashboard_fixture_integrity.py -q`).
+  - Full offline repository test suite: **517 / 517 passed** in 17.38s (`pytest -q tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py`).
+  - Runtime modification audit: Exactly zero runtime files modified (`git diff src/` is empty).
+- **Scope Compliance & Standing Invariants**:
+  1. *Requirements Phase Only*: Zero runtime modifications to strategy engine, adapter, or UI files.
+  2. *Offline Only*: Strictly zero UI order execution, zero MT5 trading calls, zero live account modification.
+  3. *Downstream Invariant*: Strictly zero usage ledger implementation, zero confirmation arbitration, zero trade entry signals.
+  4. *Core Ambiguities Preserved*: Upstream $c_1 == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
+  5. *Branch Boundary*: Committed and pushed strictly on `requirements/activation-dashboard-acceptance`. No merging into `main`.
+
