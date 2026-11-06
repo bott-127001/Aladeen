@@ -634,3 +634,39 @@ Last Updated: 2026-11-05 (MSM Dashboard Milestone Accepted — Transition to CHO
   2. *Downstream Invariant*: Strictly zero usage ledger implementation, zero confirmation arbitration, zero trade entry signals.
   3. *Core Ambiguities Preserved*: Upstream $c_1 == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
   4. *Branch Boundary*: Committed and pushed strictly on `feature/activation-engine`. No merging into `main`.
+
+
+### Milestone 17 (Activation Engine): Invariant & Adapter Hardening (HANDOFF-054)
+- **Active Branch**: eature/activation-engine
+- **Parent Commit**: 6a34bdc48be632ac554fe41104056c10c92017c9 (HANDOFF-053)
+- **Root Baseline Commit**: 535af1434ed9a6b93328202039db7f1d4f4be410 (Accepted TJL Dashboard Integration)
+- **Objective**: Complete adapter state-integrity hardening, full semantic transition history validation, transactional context binding, lagged cancellation processing for unresolved snapshots, and caller-retained public synchronization API.
+- **Completed Deliverables**:
+  1. **Complete Semantic Transition History Verification**:
+     - TJLSynchronizer validates consumed transition prefix using complete TJLTransitionRecord value equality.
+     - Detects and rejects altered transition timestamps, altered resulting set geometry, altered fingerprints, or altered cancellation intent with InvalidEvidenceError before any state mutation.
+  2. **Caller-Retained Synchronization API**:
+     - sync_tjl_snapshot_to_activation_engine strictly requires a persistent TJLSynchronizer instance. Passing a bare ActivationEngine raises a descriptive TypeError.
+     - Preserves continuous transition cursors and prefix history across successive invocations.
+  3. **Transactional Context Binding**:
+     - Context binding (_bound_engine_id, _bound_symbol_feed_id, _bound_source_timeframe) is staged inside the transaction.
+     - A failing first sync completely rolls back and leaves all binding fields None.
+  4. **Unresolved Snapshot Cancellation Processing**:
+     - Authoritative cancellation history is processed and applied to the engine even when snapshot.is_unresolved is True.
+     - Prevents lingering active memberships from surviving when an engine consumer lags behind a finalized cancellation.
+     - Fresh eligibility registration is cleanly suppressed for unresolved snapshots.
+  5. **Focused Adapter Regressions**:
+     - 	est_tjl_synchronizer_rejects_altered_transition_timestamp: rejects altered transition time.
+     - 	est_tjl_synchronizer_rejects_altered_resulting_set_geometry: rejects altered zone prices in resulting set.
+     - 	est_tjl_synchronizer_failed_first_sync_leaves_binding_unmutated: asserts pristine state on first sync failure.
+     - 	est_tjl_synchronizer_processes_cancellation_from_unresolved_snapshot: validates lagged cancellation applied and fresh eligibility suppressed.
+     - 	est_sync_tjl_snapshot_to_activation_engine_requires_retained_synchronizer: enforces retained synchronizer requirement.
+- **Verification Summary**:
+  - Activation engine execution suite: 35/35 passed in 1.69s (pytest tests/test_activation_engine.py -v).
+  - Activation fixture integrity suite: 28/28 passed in 0.69s (pytest tests/test_activation_fixture_integrity.py -v).
+  - Full offline repository test suite: 483/483 passed in 21.05s (pytest -q tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py).
+- **Scope Compliance & Standing Invariants**:
+  1. *Offline Only*: Strictly zero UI order execution, zero MT5 trading calls, zero live account modification.
+  2. *Downstream Invariant*: Strictly zero usage ledger implementation, zero confirmation arbitration, zero trade entry signals.
+  3. *Core Ambiguities Preserved*: Upstream  == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
+  4. *Branch Boundary*: Committed and pushed strictly on eature/activation-engine. No merging into main.

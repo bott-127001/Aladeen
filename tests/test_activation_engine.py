@@ -715,7 +715,8 @@ class TestActivationTJLAdapter:
             is_unresolved=True, unresolved_diagnostic="Unresolved ambiguity c1 == p2",
             last_processed_index=10, last_received_index=15,
         )
-        snap = sync_tjl_snapshot_to_activation_engine(sync_engine, unresolved_snap, sequence_ref=100)
+        synchronizer = TJLSynchronizer(engine=sync_engine)
+        snap = sync_tjl_snapshot_to_activation_engine(synchronizer, unresolved_snap, sequence_ref=100)
         assert len(snap.current_members) == 0
         assert len(snap.active_activations) == 0
 
@@ -959,7 +960,7 @@ class TestActivationTJLAdapter:
 
         pre_fail_cursor = synchronizer.last_synced_transition_index
         pre_fail_usage = dict(synchronizer._usage_cache)
-        pre_fail_fps = list(synchronizer._consumed_transition_fingerprints)
+        pre_fail_transitions = list(synchronizer._consumed_transitions)
         pre_fail_engine_snap = adapter_engine.get_snapshot()
 
         # Construct snap2 with cancellation AND invalid set whose member symbol does not match engine
@@ -982,7 +983,7 @@ class TestActivationTJLAdapter:
         # 100% COMPLETE ROLLBACK VERIFICATION
         assert synchronizer.last_synced_transition_index == pre_fail_cursor
         assert synchronizer._usage_cache == pre_fail_usage
-        assert synchronizer._consumed_transition_fingerprints == pre_fail_fps
+        assert synchronizer._consumed_transitions == pre_fail_transitions
         assert adapter_engine.get_snapshot().active_activations == pre_fail_engine_snap.active_activations
         assert adapter_engine.get_snapshot().current_members == pre_fail_engine_snap.current_members
         assert adapter_engine.get_snapshot().terminal_activations == pre_fail_engine_snap.terminal_activations
@@ -1021,8 +1022,156 @@ class TestActivationTJLAdapter:
         t1 = TJLTransitionRecord(TJLTransitionType.CONTINUATION_RETAINED, False, cset, (), 13, datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc))
         snap_rewritten = TJLSnapshot("ENGINE_EURUSD_H1", "FEED_EURUSD_H1", "H1", Direction.UPWARD, cset, (), (), False, t1, (t0_rewritten, t1), False, None, 13, 13)
 
-        with pytest.raises(InvalidEvidenceError, match="Consumed transition history prefix mismatch"):
+        with pytest.raises(InvalidEvidenceError, match="Consumed transition history mismatch"):
             synchronizer.sync(snap_rewritten, sequence_ref_start=1002)
+
+    def test_tjl_synchronizer_rejects_altered_transition_timestamp(self, default_domain: SequenceDomain) -> None:
+        """Directive 1 & 5: Synchronizer rejects snapshot when only transition timestamp is altered."""
+        adapter_engine = ActivationEngine(ActivationEngineConfig("ENGINE_EURUSD_H1", "FEED_EURUSD_H1", "H1", default_domain, PriceBasis.BID))
+        synchronizer = TJLSynchronizer(engine=adapter_engine)
+
+        lvl1 = StableLevelId("FEED_EURUSD_H1", "H1", datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc), TJLSide.HIGH)
+        lvl2 = StableLevelId("FEED_EURUSD_H1", "H1", datetime(2026, 10, 1, 3, 0, tzinfo=timezone.utc), TJLSide.LOW)
+        z1 = TJLZone(lvl1, TJLLabel.TJL1, 1.1350, 1.1400, False, 10, datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc), 12)
+        z2 = TJLZone(lvl2, TJLLabel.TJL2_A_PLUS, 1.1040, 1.1050, False, 8, datetime(2026, 10, 1, 3, 0, tzinfo=timezone.utc), 12)
+        cset = CurrentEligibleSet("SET_1", TJLFingerprint("ENGINE_EURUSD_H1", Direction.UPWARD, 10, 8, 11), Direction.UPWARD, "ENGINE_EURUSD_H1", "FEED_EURUSD_H1", "H1", z1, z2, 11, datetime(2026, 10, 1, 5, 0, tzinfo=timezone.utc), 1.1040, datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc), 12)
+
+        t0 = TJLTransitionRecord(TJLTransitionType.FIRST_CREATION, False, cset, (), 12, datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc))
+        snap1 = TJLSnapshot("ENGINE_EURUSD_H1", "FEED_EURUSD_H1", "H1", Direction.UPWARD, cset, (), (), False, t0, (t0,), False, None, 12, 12)
+        synchronizer.sync(snap1, sequence_ref_start=1001)
+
+        # Retain identical (type, candle_index, outgoing_set), but alter transition_time
+        t0_altered_time = TJLTransitionRecord(TJLTransitionType.FIRST_CREATION, False, cset, (), 12, datetime(2026, 10, 2, 8, 5, tzinfo=timezone.utc))
+        t1 = TJLTransitionRecord(TJLTransitionType.CONTINUATION_RETAINED, False, cset, (), 13, datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc))
+        snap_altered = TJLSnapshot("ENGINE_EURUSD_H1", "FEED_EURUSD_H1", "H1", Direction.UPWARD, cset, (), (), False, t1, (t0_altered_time, t1), False, None, 13, 13)
+
+        with pytest.raises(InvalidEvidenceError, match="Consumed transition history mismatch"):
+            synchronizer.sync(snap_altered, sequence_ref_start=1002)
+
+    def test_tjl_synchronizer_rejects_altered_resulting_set_geometry(self, default_domain: SequenceDomain) -> None:
+        """Directive 1 & 5: Synchronizer rejects snapshot when only resulting set geometry is altered."""
+        adapter_engine = ActivationEngine(ActivationEngineConfig("ENGINE_EURUSD_H1", "FEED_EURUSD_H1", "H1", default_domain, PriceBasis.BID))
+        synchronizer = TJLSynchronizer(engine=adapter_engine)
+
+        lvl1 = StableLevelId("FEED_EURUSD_H1", "H1", datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc), TJLSide.HIGH)
+        lvl2 = StableLevelId("FEED_EURUSD_H1", "H1", datetime(2026, 10, 1, 3, 0, tzinfo=timezone.utc), TJLSide.LOW)
+        z1 = TJLZone(lvl1, TJLLabel.TJL1, 1.1350, 1.1400, False, 10, datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc), 12)
+        z2 = TJLZone(lvl2, TJLLabel.TJL2_A_PLUS, 1.1040, 1.1050, False, 8, datetime(2026, 10, 1, 3, 0, tzinfo=timezone.utc), 12)
+        cset = CurrentEligibleSet("SET_1", TJLFingerprint("ENGINE_EURUSD_H1", Direction.UPWARD, 10, 8, 11), Direction.UPWARD, "ENGINE_EURUSD_H1", "FEED_EURUSD_H1", "H1", z1, z2, 11, datetime(2026, 10, 1, 5, 0, tzinfo=timezone.utc), 1.1040, datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc), 12)
+
+        t0 = TJLTransitionRecord(TJLTransitionType.FIRST_CREATION, False, cset, (), 12, datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc))
+        snap1 = TJLSnapshot("ENGINE_EURUSD_H1", "FEED_EURUSD_H1", "H1", Direction.UPWARD, cset, (), (), False, t0, (t0,), False, None, 12, 12)
+        synchronizer.sync(snap1, sequence_ref_start=1001)
+
+        # Alter zone geometry in resulting set (e.g. 1.1350 -> 1.1360)
+        z1_altered = TJLZone(lvl1, TJLLabel.TJL1, 1.1360, 1.1400, False, 10, datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc), 12)
+        cset_altered = CurrentEligibleSet("SET_1", TJLFingerprint("ENGINE_EURUSD_H1", Direction.UPWARD, 10, 8, 11), Direction.UPWARD, "ENGINE_EURUSD_H1", "FEED_EURUSD_H1", "H1", z1_altered, z2, 11, datetime(2026, 10, 1, 5, 0, tzinfo=timezone.utc), 1.1040, datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc), 12)
+        t0_altered_geom = TJLTransitionRecord(TJLTransitionType.FIRST_CREATION, False, cset_altered, (), 12, datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc))
+        t1 = TJLTransitionRecord(TJLTransitionType.CONTINUATION_RETAINED, False, cset, (), 13, datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc))
+        snap_altered = TJLSnapshot("ENGINE_EURUSD_H1", "FEED_EURUSD_H1", "H1", Direction.UPWARD, cset, (), (), False, t1, (t0_altered_geom, t1), False, None, 13, 13)
+
+        with pytest.raises(InvalidEvidenceError, match="Consumed transition history mismatch"):
+            synchronizer.sync(snap_altered, sequence_ref_start=1002)
+
+    def test_tjl_synchronizer_failed_first_sync_leaves_binding_unmutated(self, default_domain: SequenceDomain) -> None:
+        """Directive 3 & 5: Failure on first sync leaves binding, cursor, cache, and history 100% unmutated."""
+        adapter_engine = ActivationEngine(ActivationEngineConfig("ENGINE_EURUSD_H1", "FEED_EURUSD_H1", "H1", default_domain, PriceBasis.BID))
+        synchronizer = TJLSynchronizer(engine=adapter_engine)
+
+        assert synchronizer._bound_engine_id is None
+        assert synchronizer._bound_symbol_feed_id is None
+        assert synchronizer._bound_source_timeframe is None
+        assert synchronizer.last_synced_transition_index == -1
+        assert len(synchronizer._consumed_transitions) == 0
+
+        # Snapshot with bad member symbol triggers error during member registration
+        lvl1_bad = StableLevelId("FEED_WRONG", "H1", datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc), TJLSide.HIGH)
+        lvl2_bad = StableLevelId("FEED_WRONG", "H1", datetime(2026, 10, 1, 3, 0, tzinfo=timezone.utc), TJLSide.LOW)
+        z1_bad = TJLZone(lvl1_bad, TJLLabel.TJL1, 1.1350, 1.1400, False, 10, datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc), 12)
+        z2_bad = TJLZone(lvl2_bad, TJLLabel.TJL2_A_PLUS, 1.1040, 1.1050, False, 8, datetime(2026, 10, 1, 3, 0, tzinfo=timezone.utc), 12)
+        cset_bad = CurrentEligibleSet("SET_1", TJLFingerprint("ENGINE_EURUSD_H1", Direction.UPWARD, 10, 8, 11), Direction.UPWARD, "ENGINE_EURUSD_H1", "FEED_WRONG", "H1", z1_bad, z2_bad, 11, datetime(2026, 10, 1, 5, 0, tzinfo=timezone.utc), 1.1040, datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc), 12)
+        t0 = TJLTransitionRecord(TJLTransitionType.FIRST_CREATION, False, cset_bad, (), 12, datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc))
+        snap_failing = TJLSnapshot("ENGINE_EURUSD_H1", "FEED_EURUSD_H1", "H1", Direction.UPWARD, cset_bad, (), (), False, t0, (t0,), False, None, 12, 12)
+
+        with pytest.raises(InvalidEvidenceError):
+            synchronizer.sync(snap_failing, sequence_ref_start=1001)
+
+        # Assert every single synchronizer field remains pristine
+        assert synchronizer._bound_engine_id is None
+        assert synchronizer._bound_symbol_feed_id is None
+        assert synchronizer._bound_source_timeframe is None
+        assert synchronizer.last_synced_transition_index == -1
+        assert len(synchronizer._consumed_transitions) == 0
+        assert len(synchronizer._usage_cache) == 0
+
+    def test_tjl_synchronizer_processes_cancellation_from_unresolved_snapshot(self, default_domain: SequenceDomain) -> None:
+        """Directive 4 & 5: Consumer lagging behind finalized cancellation applies it even if latest snapshot is unresolved."""
+        adapter_engine = ActivationEngine(ActivationEngineConfig("ENGINE_EURUSD_H1", "FEED_EURUSD_H1", "H1", default_domain, PriceBasis.BID))
+        synchronizer = TJLSynchronizer(engine=adapter_engine)
+
+        lvl1 = StableLevelId("FEED_EURUSD_H1", "H1", datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc), TJLSide.HIGH)
+        lvl2 = StableLevelId("FEED_EURUSD_H1", "H1", datetime(2026, 10, 1, 3, 0, tzinfo=timezone.utc), TJLSide.LOW)
+        z1 = TJLZone(lvl1, TJLLabel.TJL1, 1.1350, 1.1400, False, 10, datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc), 12)
+        z2 = TJLZone(lvl2, TJLLabel.TJL2_A_PLUS, 1.1040, 1.1050, False, 8, datetime(2026, 10, 1, 3, 0, tzinfo=timezone.utc), 12)
+        cset1 = CurrentEligibleSet("SET_1", TJLFingerprint("ENGINE_EURUSD_H1", Direction.UPWARD, 10, 8, 11), Direction.UPWARD, "ENGINE_EURUSD_H1", "FEED_EURUSD_H1", "H1", z1, z2, 11, datetime(2026, 10, 1, 5, 0, tzinfo=timezone.utc), 1.1040, datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc), 12)
+
+        t0 = TJLTransitionRecord(TJLTransitionType.FIRST_CREATION, False, cset1, (), 12, datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc))
+        snap1 = TJLSnapshot("ENGINE_EURUSD_H1", "FEED_EURUSD_H1", "H1", Direction.UPWARD, cset1, (), (), False, t0, (t0,), False, None, 12, 12)
+        usage = {lvl1: UsageEvidenceStatus.UNUSED, lvl2: UsageEvidenceStatus.UNUSED}
+        synchronizer.sync(snap1, sequence_ref_start=1001, usage_evidence=usage)
+
+        # In-zone print activates TJL1 to PENDING_ACTIVATION
+        adapter_engine.process_event(ExactPricePrint(
+            observation_id="OBS_1",
+            price=1.1370,
+            price_basis=PriceBasis.BID,
+            timestamp=datetime(2026, 10, 2, 8, 15, tzinfo=timezone.utc),
+            sequence_domain=default_domain,
+            sequence_ref=1002,
+        ))
+        assert adapter_engine.get_snapshot().active_activations["SET_1::TJL1"].state == ActivationState.PENDING_ACTIVATION
+        assert adapter_engine.get_snapshot().active_activations["SET_1::TJL2_A_PLUS"].state == ActivationState.INACTIVE_ELIGIBLE
+        assert len(adapter_engine.get_snapshot().active_activations) == 2
+
+        # Finalized CHOCH invalidation transition occurs in market, but engine becomes unresolved
+        t1 = TJLTransitionRecord(
+            TJLTransitionType.CHOCH_INVALIDATION, True, None, (), 14,
+            datetime(2026, 10, 2, 9, 0, tzinfo=timezone.utc),
+            outgoing_cancelled_set_id="SET_1",
+            outgoing_cancelled_fingerprint=cset1.fingerprint,
+        )
+        unresolved_snap = TJLSnapshot(
+            "ENGINE_EURUSD_H1", "FEED_EURUSD_H1", "H1", Direction.UPWARD,
+            None, (), (), True, t1, (t0, t1),
+            is_unresolved=True, unresolved_diagnostic="Frozen on c1 == p2 ambiguity",
+            last_processed_index=14, last_received_index=15,
+        )
+
+        snap_res = synchronizer.sync(unresolved_snap, sequence_ref_start=1003)
+
+        # 1. Finalized cancellation WAS processed: SET_1 removed from current_members
+        assert len(snap_res.current_members) == 0
+        # 2. In-flight activation was terminalized cleanly with CANCELLED_SOURCE_CHOCH
+        assert len(snap_res.active_activations) == 0
+        assert len(snap_res.terminal_activations) == 1
+        assert snap_res.terminal_activations[0].state == ActivationState.CANCELLED_SOURCE_CHOCH
+        # 3. Synchronizer cursor advanced and transition consumed
+        assert synchronizer.last_synced_transition_index == 1
+        assert len(synchronizer._consumed_transitions) == 2
+
+    def test_sync_tjl_snapshot_to_activation_engine_requires_retained_synchronizer(self, default_domain: SequenceDomain) -> None:
+        """Directive 2 & 5: sync_tjl_snapshot_to_activation_engine requires retained TJLSynchronizer."""
+        adapter_engine = ActivationEngine(ActivationEngineConfig("ENGINE_EURUSD_H1", "FEED_EURUSD_H1", "H1", default_domain, PriceBasis.BID))
+        snap = TJLSnapshot("ENGINE_EURUSD_H1", "FEED_EURUSD_H1", "H1", Direction.UPWARD, None, (), (), False, None, (), False, None, 1, 1)
+
+        # Passing bare engine raises TypeError
+        with pytest.raises(TypeError, match="requires a persistent, retained TJLSynchronizer"):
+            sync_tjl_snapshot_to_activation_engine(adapter_engine, snap, sequence_ref=100)
+
+        # Passing retained synchronizer succeeds
+        synchronizer = TJLSynchronizer(engine=adapter_engine)
+        res = sync_tjl_snapshot_to_activation_engine(synchronizer, snap, sequence_ref=100)
+        assert res.engine_id == "ENGINE_EURUSD_H1"
 
     def test_tjl_synchronizer_rejects_cross_context_snapshot(self, default_domain: SequenceDomain) -> None:
         """Directive 2: Synchronizer strictly rejects snapshots from different engine/symbol/timeframe."""
