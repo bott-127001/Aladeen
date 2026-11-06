@@ -3074,35 +3074,35 @@ Last Updated: 2026-11-07 (Milestone 33 Interleaved Chronological Schedules & Spl
 
 ---
 
-## 54. Milestone 34 — Offline Authority-Propagation Requirements & Acceptance Specification (HANDOFF-109)
+## 54. Milestone 34 — Offline Authority-Propagation Requirements & Acceptance Specification (HANDOFF-110)
 - **Active Branch**: `feature/confirmation-monitor`
-- **Parent Commit**: `b18810127f830eff7807e86e0786e881e68a90e9` (HANDOFF-108)
+- **Parent Commit**: `c97737c5cb48b6d25d64f01b72dac300124219d6` (HANDOFF-109)
 - **Accepted Milestone 33 Baseline Commit**: `b05a391554c73f80652d4dada5310510ba20fbf5` (HANDOFF-106)
 - **Documentation Closeout Commit**: `b18810127f830eff7807e86e0786e881e68a90e9` (HANDOFF-108)
 - **Accepted Milestone 32 Baseline Commit**: `3f7de9d7da935b3e05fcc4233a28555796486fb3`
 - **Requirements Baseline Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d`
 - **Scope**: Documentation, contract schemas expressed in documentation/types, and acceptance-fixture planning only. Zero runtime layer additions, zero candidate arbitration/ranking, zero usage writes, zero final signal publication, zero network ingestion, zero broker activity.
-- **Key Deliverables in HANDOFF-109**:
+- **Key Deliverables in HANDOFF-110**:
   1. *Comprehensive Offline Authority Specification (`docs/requirements/offline-authority-propagation.md`)*:
-     - Formally defined 6 authority domains with evidence origin, identity, scope, availability time, validation rules, frozen/unresolved representations, and fail-closed behaviors:
-       * **Source Resolution**: Backed by `TJLCoordinator` snapshot / synchronizer; identified by `SourceMemberKey` / `StableLevelId`; availability at `eligibility_available_time`; unproven/frozen status represented via `source_resolution_status == False` or `UnresolvedSourceNotice`; fail-closed rejection as `BLOCKED_UNRESOLVED_SOURCE_DEPENDENCY`.
-       * **Usage Authority**: Backed by explicit ledger `UsageEvidenceRecord`; identified by physical level `StableLevelId` (persisting across set replacement and role relabeling); explicit statuses (`UNUSED`, `USED`, `UNKNOWN`); strictly no negative proof (absence of record defaults to `UNKNOWN`); fail-closed rejection as `USAGE_UNCERTAIN`.
-       * **Coverage Authority**: Backed by `FeedCoverageRecord` audit certificate; bound to exact feed, timeframe, config, and interval; availability certified until $T_{	ext{cert}} \ge T_{	ext{eval}}$; absence of detected gap does not prove completeness; fail-closed rejection as `INCOMPLETE_COVERAGE`.
-       * **Touch Ordering Authority**: Backed by `ExactPricePrint` stream with integer `sequence_ref` within single `SequenceDomain`; timestamp ties disambiguated strictly by sequence references; missing sequence rejects as `UNKNOWN_ORDER`; cross-domain rejects as `CROSS_DOMAIN_ORDERING_REJECTED`; earlier/equal sequence rejects as `PRE_ACTIVATION_CONFIRMATION`.
-       * **Confirmation Stream Authority**: Backed by confirmation detector closed candle bound in `ValidatedCandleStreamEnvelope`; availability strictly at `close_timestamp`; pre-close evaluation fails closed with `EVIDENCE_NOT_YET_AVAILABLE`.
-       * **Evaluation Boundary Authority**: Backed by caller point-in-time request $T_{	ext{eval}}$ in `MatchingContext`; strict visibility gating (`availability_time <= T_eval`); full result dataclass equality and context immutability.
-  2. *Decisive Unknowns & Temporal Validity Rules*:
-     - Specified explicit fail-closed behaviors for missing evidence, stale evidence, contradictory authority (`CONTRADICTORY_AUTHORITY`), duplicate identities with conflicting payloads (`CONFLICTING_RECORD_PAYLOAD`), equal unsequenced timestamps, and physical level usage surviving set replacements.
-  3. *Comprehensive Acceptance Inventory*:
-     - Structured 30 test cases across 4 categories:
-       * **Existing Executable Evidence**: INT-01..04, ACT-01..04, ORD-01..04, BND-A..D (all 16 verified executable in test suite).
-       * **Proposed Synthetic Authority Contracts**: AUT-SYN-01..08 (contradictory usage, expired coverage, config mismatch, conflicting payloads, persistent usage across replacement, premature evaluation, unresolved source notice).
-       * **Proposed Traceable Offline Integration Cases**: AUT-INT-01..06 (traceable usage ledger audit, feed coverage audit, end-to-end multi-candle replay, multi-level concurrent activation, lingering usage invalidation, rearm cycle audit).
-       * **Blocked Cases**: AUT-BLK-01..04 (multi-broker cross-feed tick authority, broker calendar holidays/weekends, automated usage ledger writes, live event-bus propagation).
+     - Formally defined 6 authority domains with evidence origin, identity, scope, availability time, validation rules, and fail-closed behaviors:
+       * **Source Resolution**: Backed by `TJLCoordinator.get_snapshot()` / `TJLSynchronizer`; identified by `SourceMemberKey` / `StableLevelId`; availability at `eligibility_available_time`; missing key rejects as `UNKNOWN_SOURCE_RESOLUTION_AUTHORITY`; explicit False blocks as `BLOCKED_UNRESOLVED_SOURCE_DEPENDENCY`. Honest disclosure: upstream cursor synchronization link remains pending reconciliation.
+       * **Usage Authority**: Backed by explicit ledger `ProposedUsageEvidenceRecord`; identified by physical level `StableLevelId(symbol_feed_id, source_timeframe, bar_time, side)` (persisting across set replacement and role relabeling); explicit statuses (`UNUSED`, `USED`, `UNKNOWN`); strictly no negative proof (absence of record defaults to `UNKNOWN`); `UNKNOWN` rejects as `UNKNOWN_USAGE`; `USED` rejects as `STALE_EVIDENCE_FOR_GENERATION` (active) or `INELIGIBLE_ACTIVATION_STATE` (terminal).
+       * **Coverage Authority**: Strictly separated coverage extent ($[T_{	ext{start}}, T_{	ext{end}}]$) from knowledge availability time ($T_{	ext{issued}}$); required interval $[T_{	ext{req\_start}}, T_{	ext{req\_end}}]$ must be fully covered AND $T_{	ext{issued}} \le T_{	ext{eval}}$; retroactive authorization prohibited; uncertified/incomplete/uncertain intervals reject as `INCOMPLETE_COVERAGE`.
+       * **Touch Ordering Authority**: Backed by `ExactPricePrint` stream with integer `sequence_ref` within single `SequenceDomain`; timestamp ties disambiguated strictly by sequence references; missing sequence rejects as `UNKNOWN_ORDER`; cross-domain rejects as `CROSS_DOMAIN_ORDERING_REJECTED`; earlier/equal sequence rejects as `PRE_ACTIVATION_CONFIRMATION`; rearm controller reaches `OUT_OF_ZONE_ARMED`; fresh retouch active activation reaches `REARMED_PENDING`.
+       * **Confirmation Stream Authority**: Backed by confirmation detector closed candle bound in `ValidatedCandleStreamEnvelope`; confirming candle must have `is_forming == False` and `bar_status == "CONFIRMED_COMPLETED"`; incomplete evidence rejects as `INCOMPLETE_EVIDENCE`; pre-close evaluation fails closed with `EVIDENCE_NOT_YET_AVAILABLE`.
+       * **Evaluation Boundary Authority**: Backed by caller point-in-time request $T_{	ext{eval}}$ in `MatchingContext`; strict visibility gating ($	ext{availability\_time} \le T_{	ext{eval}}$); full result dataclass equality and context immutability.
+  2. *Concrete Proposed Authority Record Schemas*:
+     - Defined explicit dataclass schemas `ProposedUsageEvidenceRecord` and `ProposedFeedCoverageRecord` with record IDs, schema versions, issuer trust boundaries, scopes, availability times, and conflicting identity handling (`CONFLICTING_IDENTITY`). Removed hashing as an authority requirement (labeled as optional integrity metadata only).
+  3. *Repaired 34-Case Acceptance Inventory*:
+     - Cataloged 34 discrete cases across 4 discrete categories:
+       * **Existing Executable Evidence (16 Cases)**: INT-01 (bearish CHOCH matching), INT-02 (bearish ISS matching), INT-03 (interleaved CHOCH schedule), INT-04 (interleaved ISS schedule), ACT-01 (rearm Path A), ACT-02 (replacement cancellation non-revival), ACT-03 (main CHOCH invalidation non-revival), ACT-04 (rearm Path B), ORD-01 (equal-time missing sequence), ORD-02 (cross-domain), ORD-03 (equal/earlier sequence), ORD-04 (causal sequence), BND-A (`UNKNOWN_USAGE`), BND-B (`INCOMPLETE_COVERAGE`), BND-C (`BLOCKED_UNRESOLVED_SOURCE_DEPENDENCY`), BND-D (`UNRESOLVED_DEPENDENCY`). All 16 verified executable in test suite.
+       * **Proposed Synthetic Authority Contracts (8 Cases)**: AUT-SYN-01 (contradictory usage), AUT-SYN-02 (retroactive coverage rejection), AUT-SYN-03 (coverage config mismatch), AUT-SYN-04 (conflicting activation payloads), AUT-SYN-05 (conflicting confirmation payloads), AUT-SYN-06 (persistent usage across set replacement), AUT-SYN-07 (evaluation preceding availability), AUT-SYN-08 (incomplete confirmation candle).
+       * **Proposed Traceable Offline Integration Cases (6 Cases)**: AUT-INT-01 (traceable usage ledger audit), AUT-INT-02 (traceable feed coverage audit), AUT-INT-03 (point-in-time multi-step replay), AUT-INT-04 (concurrent multi-level gating), AUT-INT-05 (lingering usage proof), AUT-INT-06 (rearm audit trail).
+       * **Blocked Cases (4 Cases)**: AUT-BLK-01 (live MT5 tick authority), AUT-BLK-02 (broker calendar session reconciliation), AUT-BLK-03 (automated usage writes), AUT-BLK-04 (distributed event-bus).
   4. *Authority-to-Origin Mapping*:
-     - Mapped each domain to originating layer, canonical schema, and runtime representation.
+     - Mapped each domain to originating layer, canonical schema, and accepted runtime representation.
   5. *Unresolved Decisions & Open Questions*:
-     - Formally recorded broker calendar session reconciliation, persistent usage storage contract, and multi-feed disambiguation authority as pending reconciliation per `AGENTS.md`.
+     - Formally recorded broker calendar session reconciliation, persistent usage storage contract, upstream cursor synchronization proof, and multi-feed disambiguation authority as pending reconciliation per `AGENTS.md`.
 - **Verification Summary**:
   - Modular integration proof suites: **9 / 9 passed** in 0.67s across all 6 modules on commit `b188101`.
   - Full offline repository test suite: **652 / 652 passed** in 8.40s on commit `b188101`.
