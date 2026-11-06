@@ -31,6 +31,10 @@ def create_candlestick_chart(
     last_fetch_time: str | None = None,
     candle_count: int | None = None,
     msm_result: Any | None = None,
+    show_tjl_zones: bool | None = None,
+    show_tjl_current_set: bool | None = None,
+    show_tjl_historical_sets: bool | None = None,
+    show_tjl_labels: bool | None = None,
 ) -> go.Figure:
     """Create a Plotly candlestick figure from OHLC *df* with optional MSM overlays.
 
@@ -359,7 +363,9 @@ def create_candlestick_chart(
                     f"<span style='color: #ff9800;'>⚠️ INTEGRATED UNRESOLVED — Last authoritative state (Bar #{last_proc}, received through Bar #{last_rec})</span>"
                 )
                 if unres_diag is not None:
-                    unres_time = unres_diag.candle_open_time
+                    unres_time = getattr(unres_diag, 'candle_open_time', None)
+                    if unres_time is None and unres_idx is not None and 0 <= unres_idx < len(df):
+                        unres_time = df.index[unres_idx]
                     if unres_time in df.index:
                         shapes.append(
                             dict(
@@ -739,7 +745,17 @@ def create_candlestick_chart(
                                 )
 
             # TJL Overlays (Trend Joining Levels)
-            apply_tjl_overlays(fig, df, msm_result, shapes, last_chart_time)
+            apply_tjl_overlays(
+                fig,
+                df,
+                msm_result,
+                shapes,
+                last_chart_time,
+                show_tjl_zones=show_tjl_zones,
+                show_tjl_current_set=show_tjl_current_set,
+                show_tjl_historical_sets=show_tjl_historical_sets,
+                show_tjl_labels=show_tjl_labels,
+            )
 
     fig.update_layout(
         title=" | ".join(title_parts),

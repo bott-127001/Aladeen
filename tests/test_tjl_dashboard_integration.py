@@ -726,7 +726,7 @@ class TestTJLProductionServiceLifecycleAndPresentation:
         # Inspection panel remains inspectable and explicitly reports Unknown availability
         panel = render_msm_inspection_table(res.snapshot, ctx, "rev-unknown-avail", msm_result=res)
         panel_str = str(panel)
-        assert "Unknown (Pending candle completion — no retroactive eligible interval plotted)" in panel_str
+        assert "Unknown (Availability timestamp unknown — no retroactive eligible interval plotted)" in panel_str
 
     def test_unresolved_last_authoritative_presentation(self, tjl_fixtures: Dict[str, Any]) -> None:
         """Directive 3.5 & 4: Unresolved ambiguity is prominently labeled as last authoritative evidence."""
@@ -809,4 +809,283 @@ class TestTJLProductionServiceLifecycleAndPresentation:
         assert snap.revision_id == "rev-immutable-999"
         assert new_applied["calculation_mode"] == "INTEGRATED_MSM_CHOCH_TJL"
         assert new_applied["show_tjl_current_set"] is False
+
+    def test_one_current_set_produces_no_historical_duplicate(self, tjl_fixtures: Dict[str, Any]) -> None:
+        """Directive 2.1: Initial single set creation produces no duplicate historical shapes or markers."""
+        fix = tjl_fixtures["tjl_01_bullish_basic_end_to_end"]
+        snap = _make_snapshot_from_fixture(fix, candle_slice=8)
+        df = snap.to_dataframe()
+
+        ctx = MSMContext(
+            data_source="demo",
+            symbol="EURUSD",
+            timeframe="H1",
+            start_candle_time=fix["start_candle_time"],
+            direction=Direction.UPWARD,
+            enabled=True,
+            calculation_mode=CalculationMode.INTEGRATED_MSM_CHOCH_TJL.value,
+        )
+        res = calculate_msm(df, ctx)
+        assert res.is_valid
+        assert res.tjl_snapshot is not None
+        assert res.tjl_snapshot.current_eligible_set is not None
+        assert res.tjl_snapshot.current_eligible_set.set_id == "SET_1"
+
+        # Render chart with ALL toggles ON (including historical sets)
+        fig = create_candlestick_chart(
+            df,
+            symbol="EURUSD",
+            timeframe="H1",
+            msm_result=res,
+            show_tjl_zones=True,
+            show_tjl_current_set=True,
+            show_tjl_historical_sets=True,
+            show_tjl_labels=True,
+        )
+
+        hist_shapes = [s for s in fig.layout.shapes if getattr(s, "name", None) and s.name.startswith("tjl_zone_historical_")]
+        assert len(hist_shapes) == 0, "Current Set 1 must not be duplicated into historical shapes"
+
+        hist_traces = [t for t in fig.data if getattr(t, "name", None) and "Historical TJL" in t.name]
+        assert len(hist_traces) == 0, "Current Set 1 must not be duplicated into historical traces"
+
+    def test_after_replacement_only_outgoing_set1_is_historical(self, tjl_fixtures: Dict[str, Any]) -> None:
+        """Directive 2.2: After replacement, only Set 1 receives historical shapes; Set 2 is strictly current."""
+        fix = tjl_fixtures["tjl_06_pullback_t2_replacement_and_cancellation_intent"]
+        snap = _make_snapshot_from_fixture(fix)
+        df = snap.to_dataframe()
+
+        ctx = MSMContext(
+            data_source="demo",
+            symbol="EURUSD",
+            timeframe="H1",
+            start_candle_time=fix["start_candle_time"],
+            direction=Direction.DOWNWARD,
+            enabled=True,
+            calculation_mode=CalculationMode.INTEGRATED_MSM_CHOCH_TJL.value,
+        )
+        res = calculate_msm(df, ctx)
+        assert res.is_valid
+        assert res.tjl_snapshot.current_eligible_set.set_id == "SET_2"
+
+        fig = create_candlestick_chart(
+            df,
+            symbol="EURUSD",
+            timeframe="H1",
+            msm_result=res,
+            show_tjl_zones=True,
+            show_tjl_current_set=True,
+            show_tjl_historical_sets=True,
+            show_tjl_labels=True,
+        )
+
+        # Historical shapes exist and traces belong only to SET_1
+        hist_shapes = [s for s in fig.layout.shapes if getattr(s, "name", None) and s.name.startswith("tjl_zone_historical_")]
+        assert len(hist_shapes) == 2
+
+        hist_traces = [t for t in fig.data if getattr(t, "name", None) and "Historical TJL:" in t.name]
+        assert len(hist_traces) == 2
+        for t in hist_traces:
+            assert "SET_1" in t.name
+            assert "SET_2" not in t.name
+            assert "SET_1" in t.hovertext[0]
+            assert "SET_2" not in t.hovertext[0]
+
+        # Current shapes exist and traces belong only to SET_2
+        curr_shapes = [s for s in fig.layout.shapes if getattr(s, "name", None) and s.name.startswith("tjl_zone_current_")]
+        assert len(curr_shapes) == 2
+
+        curr_traces = [t for t in fig.data if getattr(t, "name", None) and "Current TJL Set" in t.name]
+        assert len(curr_traces) == 2
+        for t in curr_traces:
+            assert "SET_2" in t.name
+            assert "SET_1" not in t.name
+            assert "SET_2" in t.hovertext[0]
+            assert "SET_1" not in t.hovertext[0]
+
+    def test_current_off_historical_on_hides_current_set2(self, tjl_fixtures: Dict[str, Any]) -> None:
+        """Directive 2.3: Current OFF and Historical ON renders historical Set 1 while suppressing current Set 2."""
+        fix = tjl_fixtures["tjl_06_pullback_t2_replacement_and_cancellation_intent"]
+        snap = _make_snapshot_from_fixture(fix)
+        df = snap.to_dataframe()
+
+        ctx = MSMContext(
+            data_source="demo",
+            symbol="EURUSD",
+            timeframe="H1",
+            start_candle_time=fix["start_candle_time"],
+            direction=Direction.DOWNWARD,
+            enabled=True,
+            calculation_mode=CalculationMode.INTEGRATED_MSM_CHOCH_TJL.value,
+        )
+        res = calculate_msm(df, ctx)
+
+        fig = create_candlestick_chart(
+            df,
+            symbol="EURUSD",
+            timeframe="H1",
+            msm_result=res,
+            show_tjl_zones=True,
+            show_tjl_current_set=False,
+            show_tjl_historical_sets=True,
+            show_tjl_labels=True,
+        )
+
+        curr_shapes = [s for s in fig.layout.shapes if getattr(s, "name", None) and s.name.startswith("tjl_zone_current_")]
+        assert len(curr_shapes) == 0, "Current set must be hidden when show_tjl_current_set is False"
+
+        hist_shapes = [s for s in fig.layout.shapes if getattr(s, "name", None) and s.name.startswith("tjl_zone_historical_")]
+        assert len(hist_shapes) == 2, "Historical Set 1 shapes must still be displayed"
+
+    def test_known_start_unknown_cancellation_produces_no_misleading_interval(self, tjl_fixtures: Dict[str, Any]) -> None:
+        """Directive 2.4: Known start but unknown cancellation timestamp omits time-extended interval shape."""
+        from dataclasses import replace
+        fix = tjl_fixtures["tjl_06_pullback_t2_replacement_and_cancellation_intent"]
+        snap = _make_snapshot_from_fixture(fix)
+        df = snap.to_dataframe()
+
+        ctx = MSMContext(
+            data_source="demo",
+            symbol="EURUSD",
+            timeframe="H1",
+            start_candle_time=fix["start_candle_time"],
+            direction=Direction.DOWNWARD,
+            enabled=True,
+            calculation_mode=CalculationMode.INTEGRATED_MSM_CHOCH_TJL.value,
+        )
+        res = calculate_msm(df, ctx)
+        tjl_snap = res.tjl_snapshot
+
+        # Synthesize a transition history where replacement transition_time is None
+        new_transitions = []
+        for tr in tjl_snap.transition_history:
+            if tr.outgoing_cancelled_set_id == "SET_1":
+                new_transitions.append(replace(tr, transition_time=None))
+            else:
+                new_transitions.append(tr)
+
+        synth_snap = replace(tjl_snap, transition_history=tuple(new_transitions))
+        res_synth = replace(res, tjl_snapshot=synth_snap)
+
+        fig = create_candlestick_chart(
+            df,
+            symbol="EURUSD",
+            timeframe="H1",
+            msm_result=res_synth,
+            show_tjl_zones=True,
+            show_tjl_current_set=True,
+            show_tjl_historical_sets=True,
+            show_tjl_labels=True,
+        )
+
+        # Historical interval shapes must be omitted
+        hist_shapes = [s for s in fig.layout.shapes if getattr(s, "name", None) and s.name.startswith("tjl_zone_historical_")]
+        assert len(hist_shapes) == 0, "Unknown termination timestamp must omit time-extended historical shapes"
+
+        # Rendered as compact source reference marker instead
+        hist_traces = [t for t in fig.data if getattr(t, "name", None) and "Historical TJL Source:" in t.name]
+        assert len(hist_traces) == 2
+        for t in hist_traces:
+            assert "Termination Timestamp Unknown" in t.hovertext[0]
+            # Must NOT span across time
+            assert len(t.x) == 1
+
+    def test_unresolved_retained_set_not_displayed_as_fresh_current_eligibility(self, tjl_fixtures: Dict[str, Any]) -> None:
+        """Directive 2.5: Unresolved ambiguity freezes chart boundary at processed index and labels hover with warning."""
+        from dataclasses import replace
+        fix = tjl_fixtures["tjl_01_bullish_basic_end_to_end"]
+        candles = list(fix["candles"][:9])
+        # Append a 10th candle at index 9 that continues without triggering CHOCH
+        candles.append({
+            "time": "2026-10-02T12:00:00Z",
+            "open": 1.152,
+            "high": 1.156,
+            "low": 1.150,
+            "close": 1.153,
+            "is_forming": False,
+            "bar_status": "CONFIRMED_COMPLETED",
+            "close_time": "2026-10-02T16:00:00Z",
+        })
+        records = [
+            MarketCandleRecord(
+                time=c["time"],
+                open=float(c["open"]),
+                high=float(c["high"]),
+                low=float(c["low"]),
+                close=float(c["close"]),
+                is_forming=c.get("is_forming", False),
+                bar_status=c.get("bar_status", "CONFIRMED_COMPLETED"),
+                index=i,
+                close_time=c.get("close_time"),
+            )
+            for i, c in enumerate(candles)
+        ]
+        snap = MarketDataSnapshot(
+            revision_id="rev-unres-test-bounds",
+            data_source="demo",
+            symbol="EURUSD",
+            timeframe="H1",
+            candle_count=len(records),
+            fetch_status="SUCCESS",
+            timestamp_utc=records[-1].time,
+            candles_data=records,
+        )
+        df = snap.to_dataframe()
+
+        ctx = MSMContext(
+            data_source="demo",
+            symbol="EURUSD",
+            timeframe="H1",
+            start_candle_time=fix["start_candle_time"],
+            direction=Direction.UPWARD,
+            enabled=True,
+            calculation_mode=CalculationMode.INTEGRATED_MSM_CHOCH_TJL.value,
+        )
+        res = calculate_msm(df, ctx)
+
+        # Synthesize unresolved condition at bar index 8 while input received index is 9
+        synth_snap = replace(
+            res.tjl_snapshot,
+            is_unresolved=True,
+            unresolved_diagnostic="Simultaneous c1 == p2 close detected",
+            last_processed_index=8,
+            last_received_index=9,
+        )
+        res_unres = replace(
+            res,
+            tjl_snapshot=synth_snap,
+            is_unresolved=True,
+            unresolved_diagnostic="Simultaneous c1 == p2 close detected",
+            last_processed_index=8,
+            last_received_index=9,
+        )
+
+        fig = create_candlestick_chart(
+            df,
+            symbol="EURUSD",
+            timeframe="H1",
+            msm_result=res_unres,
+            show_tjl_zones=True,
+            show_tjl_current_set=True,
+            show_tjl_historical_sets=True,
+            show_tjl_labels=True,
+        )
+
+        # Check current set shapes: x1 must be frozen at processed bar index 8, NOT last chart time (bar index 9)
+        curr_shapes = [s for s in fig.layout.shapes if getattr(s, "name", None) and s.name.startswith("tjl_zone_current_")]
+        assert len(curr_shapes) == 2
+        processed_bar_time = df.index[8]
+        latest_bar_time = df.index[9]
+        assert processed_bar_time < latest_bar_time
+
+        for s in curr_shapes:
+            assert s.x1 == processed_bar_time, "Frozen unresolved set boundary must bound at last_processed_index"
+
+        # Check hover text in traces: contains freeze warning
+        curr_traces = [t for t in fig.data if getattr(t, "name", None) and "Current TJL Set" in t.name]
+        assert len(curr_traces) == 2
+        for t in curr_traces:
+            assert "[Last Authoritative Evidence — Frozen Pending Resolution]" in t.hovertext[0]
+            assert "Availability: Frozen at Bar #8" in t.hovertext[0]
+
 

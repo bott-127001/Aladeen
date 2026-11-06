@@ -143,7 +143,7 @@ def build_tjl_inspection_elements(msm_result: Any) -> list[html.Div]:
             avail_str = curr_set.eligibility_available_time.strftime("%Y-%m-%d %H:%M UTC")
             avail_color = "#80d8ff"
         else:
-            avail_str = "Unknown (Pending candle completion — no retroactive eligible interval plotted)"
+            avail_str = "Unknown (Availability timestamp unknown — no retroactive eligible interval plotted)"
             avail_color = "#ffb74d"
 
         fp_tuple = curr_set.fingerprint.to_tuple()

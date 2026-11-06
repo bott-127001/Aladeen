@@ -410,7 +410,65 @@ Last Updated: 2026-11-05 (MSM Dashboard Milestone Accepted — Transition to CHO
 
 ---
 
-## 13. Milestone Implementation & Verification: Read-Only TJL Dashboard Integration (HANDOFF-045)
+## 14. Milestone Implementation & Verification: Read-Only TJL Dashboard Integration Hardening (HANDOFF-046)
+- **Active Branch**: `feature/tjl-dashboard`
+- **Parent Commit**: `3c31e9584d3ec572afa884f0a42a0e37f8c6c363` (HANDOFF-045)
+- **Objective**: Harden read-only TJL dashboard historical set presentation, chart boundary semantics under unresolved ambiguity, same-run CHOCH recovery, and executed unresolved browser verification addressing all review directives from HANDOFF-045.
+- **Scope Boundary**: Pure read-only dashboard presentation. Strictly zero UI order execution, zero MT5 trading calls, zero zone activations, zero usage ledger, zero tap tracking, zero trade entry signals, zero automated trading, and zero merging into `main`.
+- **Delivered Implementations (Per Review Directives)**:
+  1. **Historical Sets Filtering & Presentation (`src/aladeen/ui/tjl_chart.py`)**:
+     - *Exclusion of Active Set*: Current eligible set is strictly excluded by identity (`curr_set is not None and h_set.set_id == curr_set.set_id`), preventing duplicate shapes/markers.
+     - *Lifecycle Termination Filtering*: Only sets with an actual outgoing replacement or CHOCH invalidation record (`outgoing_cancelled_set_id == h_set.set_id`) are rendered as historical.
+     - *Unknown Termination Handling*: If termination timestamp is `None`, never falls back to chart end as eligibility interval; omits time-extended shape and renders compact source-reference marker labeled `[Historical Structural Set — Superseded by Replacement — Termination Timestamp Unknown]`.
+  2. **Unresolved Chart Boundaries (`src/aladeen/ui/tjl_chart.py`, `src/aladeen/ui/chart.py`)**:
+     - When `tjl_snap.is_unresolved` is True, current set eligibility shape `x1` is bounded at `df.index[tjl_snap.last_processed_index]`, never extending across unresolved receipts to `last_chart_time`.
+     - Hover tooltips and traces prominently labeled `[Last Authoritative Evidence — Frozen Pending Resolution]`.
+     - Hardened `chart.py` and callbacks to safely handle diagnostic objects or strings.
+  3. **Coordinator Observation Event Position Monotonicity (`src/aladeen/strategy/tjl_coordinator.py`)**:
+     - Corrected observation event position calculation in `TJLCoordinator` to use `len(candle_lookup_copy) - 1`, ensuring strictly increasing observation event positions across all ingested completed candles even when underlying MSM/CHOCH coordinator freezes authoritative progress during an unresolved ambiguity.
+  4. **Focused Presentation Regressions Added (`tests/test_tjl_dashboard_integration.py`)**:
+     - `test_one_current_set_produces_no_historical_duplicate`: Asserts 0 historical shapes or traces when only SET_1 is active.
+     - `test_after_replacement_only_outgoing_set1_is_historical`: Asserts only outgoing SET_1 receives historical shapes/traces; SET_2 is strictly current.
+     - `test_current_off_historical_on_hides_current_set2`: Asserts toggling current set OFF and historical ON renders SET_1 while suppressing SET_2.
+     - `test_known_start_unknown_cancellation_produces_no_misleading_interval`: Asserts unknown cancellation timestamp omits time-extended historical shape.
+     - `test_unresolved_retained_set_not_displayed_as_fresh_current_eligibility`: Asserts unresolved current set shape bounds at `last_processed_index` (#8) rather than latest chart time (#9) and carries freeze warning tooltip.
+     - **Result**: 25/25 passed in 1.48s.
+  5. **Deterministic Browser Controlled Verification Suite (`tests/test_tjl_browser_controlled.py`)**:
+     - Expanded to 11 deterministic scenarios in real Chromium via Playwright:
+       - Scenario 1: Bullish First Set Creation (`EURUSD / H1`).
+       - Scenario 2: Continuation t1 Retention (`EURUSD / M1`).
+       - Scenario 3: Pullback t2 Replacement (`GBPUSD / H1`).
+       - Scenario 4: **Same-Run CHOCH Invalidation & Recovery (`EURUSD / H4`, 17 candles)**:
+         - Same fixture history running through CHOCH and recovery.
+         - `SET_1` invalidated via `CHOCH_INVALIDATION`, gap passed, direction reverses to `DOWNWARD` (Epoch 1), and new `SET_2` is qualified.
+         - Verified `SET_2` active shapes and bounded `SET_1` historical shapes on Plotly chart.
+       - Scenario 5: Standalone Bearish First Creation (`GBPUSD / H4`).
+       - Scenario 6: Unknown Availability (`GBPUSD / M5`, stripped close times) -> updated wording `"Unknown (Availability timestamp unknown — no retroactive eligible interval plotted)"`.
+       - Scenario 7: Labels-Only Prefix (`EURUSD / M5`).
+       - Scenario 8: Unapplied Draft Edits Guard.
+       - Scenario 9: Display Toggles Independence.
+       - Scenario 10: **Executed Unresolved Ambiguity (`EURUSD / D1`, $c_1 == p_2$ boundary)**:
+         - Simultaneous close freezes authoritative state at bar #6 while input is received through bar #9.
+         - Prominent status badge: `UNRESOLVED AMBIGUITY (LAST AUTHORITATIVE EVIDENCE)`.
+         - Non-green edit status and chart title warning banner.
+       - Scenario 11: Comprehensive Error Accounting:
+         - Total raw console messages logged: 32.
+         - Total console error-level messages: 0.
+         - Itemized environmental exclusions (favicon 404): 0.
+         - Total actionable console errors: 0.
+         - Total page errors (uncaught JS exceptions): 0.
+     - **Result**: 1/1 passed in 63.79s with **0 actionable console errors and 0 page errors**.
+- **Verification Summary**:
+  - Full TJL dashboard integration suite: 25/25 passed in 1.48s (`pytest tests/test_tjl_dashboard_integration.py -v`).
+  - Controlled browser verification suite: 1/1 passed in 63.79s (`pytest tests/test_tjl_browser_controlled.py -s -v`).
+  - Full offline repository test suite: 413/413 passed in 10.75s (`pytest -q tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py`).
+- **Scope Compliance & Recorded Evidence Boundaries**:
+  1. *Presentation Only*: Pure read-only dashboard presentation. Zero UI order execution, zero MT5 trading calls, zero account modification.
+  2. *Non-Execution Invariant*: All hover tooltips, status banners, and inspection tables explicitly display `[Structural Set Only — Downstream activation/ledger not present]`.
+  3. *Downstream Engine Absence*: Zero zone activation logic, zero usage accounting/ledger, zero tap tracking, zero trade entry signals.
+  4. *Adapter Disclosure*: Deterministic mock adapter clearly documented as simulating broker-connected state.
+  5. *Branch Boundary*: All work committed strictly on `feature/tjl-dashboard`. No merging into `main`.
+
 - **Active Branch**: `feature/tjl-dashboard`
 - **Parent Commit**: `ffe1e829d30febf2d789ce8d9951ccd914873105`
 - **Objective**: Complete read-only TJL dashboard integration addressing all review findings from HANDOFF-044.

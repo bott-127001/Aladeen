@@ -183,7 +183,7 @@ class TJLCoordinator:
 
         # 4. Extract current-epoch confirmed high, low, and tentative P3 with authoritative event positions
         candle_positions = {c.index: i for i, c in enumerate(main_coord_copy._completed_candles)}
-        observation_event_pos = len(main_coord_copy._completed_candles) - 1
+        observation_event_pos = len(candle_lookup_copy) - 1
         epoch_choch_event_pos = (
             coord_snap.confirmed_choch_events[-1].c2_chronological_pos
             if coord_snap.confirmed_choch_events

@@ -3,7 +3,7 @@
 NOTE ON VERIFICATION EVIDENCE SCOPE & ARCHITECTURE:
 - Environment: Real Chromium browser controlled via Playwright against Dash application.
 - Calculation Path: Production application service (`calculate_msm`) and `TJLCoordinator.process_candles()`.
-- Data Adapter: Deterministic fixture-backed mock adapter (`ControllableTJLMockAdapter`) reporting broker-connected state.
+- Data Adapter: Deterministic fixture-backed mock adapter (`ControllableTJLMockAdapter`) simulating broker-connected state.
 - Lifecycle Scenarios Executed (Full Matrix):
   1. Scenario 1 (Bullish First Set Creation — EURUSD / H1 / tjl_01):
      - Active SET_1 with TJL1 (HIGH side) and TJL2_A_PLUS (LOW side).
@@ -15,14 +15,16 @@ NOTE ON VERIFICATION EVIDENCE SCOPE & ARCHITECTURE:
   3. Scenario 3 (Pullback t2 Replacement — GBPUSD / H1 / tjl_06):
      - SET_REPLACEMENT transition with explicit outgoing cancellation of SET_1 (CANCEL SET_1).
      - SET_2 active. Historical SET_1 interval terminates at replacement time.
-  4. Scenario 4 (CHOCH Invalidation & Gap — EURUSD / H4 / tjl_09):
+  4. Scenario 4 (Same-Run CHOCH Invalidation & Recovery — EURUSD / H4 / 17 candles):
+     - Same fixture history running through CHOCH and recovery.
      - CHOCH_INVALIDATION transition emitting CANCEL SET_1.
-     - Post-CHOCH gap: Current Eligible Set: None, zero current-set shapes on chart.
-  5. Scenario 5 (New Direction Recovery — GBPUSD / H4 / tjl_02):
-     - Structural recovery in DOWNWARD direction forming new SET_1.
+     - Direction reverses to DOWNWARD (Epoch 1) and qualifies new Bearish SET_2.
+     - Chart renders active SET_2 shapes and bounded historical SET_1 shapes.
+  5. Scenario 5 (Standalone Bearish First Creation — GBPUSD / H4 / tjl_02):
+     - Structural creation in DOWNWARD direction forming new SET_1.
   6. Scenario 6 (Unknown Availability — GBPUSD / M5 / tjl_01 stripped close times):
      - Unknown set availability omits time-extended eligible-set shapes on chart.
-     - Inspection panel displays explicit 'Unknown (Pending candle completion)' notice.
+     - Inspection panel displays explicit 'Unknown (Availability timestamp unknown)' notice.
      - Compact source geometry markers rendered at source candle.
   7. Scenario 7 (Labels-Only Prefix — EURUSD / M5 / tjl_04):
      - Confirmed labels exist before eligible set formation.
@@ -31,12 +33,17 @@ NOTE ON VERIFICATION EVIDENCE SCOPE & ARCHITECTURE:
      - Modifying controls without Apply enters yellow warning; applied state preserved.
   9. Scenario 9 (Display Toggles Independence):
      - Toggling zones suppresses shapes from chart DOM without recomputation.
-  10. Scenario 10 (Comprehensive Error Accounting):
-     - Collects all browser console and page errors with explicit itemization of exclusions.
+  10. Scenario 10 (Executed Unresolved Ambiguity — EURUSD / D1 / c1 == p2 boundary):
+     - Simultaneous c1 == p2 close freezes authoritative state at bar #6 while input is received through bar #9.
+     - Prominent status badge: UNRESOLVED AMBIGUITY (LAST AUTHORITATIVE EVIDENCE).
+     - Non-green edit status and chart title warning banner.
+  11. Scenario 11 (Comprehensive Error Accounting):
+     - Collects all browser console and page errors with unfiltered total and explicit itemization of exclusions.
 """
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 import functools
 import json
 import logging
@@ -68,6 +75,12 @@ def _load_tjl_fixtures() -> dict[str, Any]:
         return json.load(f)["fixtures"]
 
 
+def _load_choch_fixtures() -> dict[str, Any]:
+    fixtures_dir = Path(__file__).parent / "fixtures"
+    with open(fixtures_dir / "choch_acceptance.json", "r", encoding="utf-8") as f:
+        return json.load(f)["fixtures"]
+
+
 def _make_df_from_candles(candles: list[dict[str, Any]], strip_close_time: bool = False) -> pd.DataFrame:
     df = pd.DataFrame(candles)
     df["time"] = pd.to_datetime(df["time"], utc=True)
@@ -79,11 +92,49 @@ def _make_df_from_candles(candles: list[dict[str, Any]], strip_close_time: bool 
     return df
 
 
-class ControllableTJLMockAdapter:
-    """Deterministic mock adapter delivering acceptance fixtures per symbol/timeframe selector."""
+def _make_same_run_choch_recovery_candles(fix: dict[str, Any]) -> list[dict[str, Any]]:
+    candles = [dict(c) for c in fix["candles"]]
+    last_t = datetime.fromisoformat(candles[-1]["time"].replace("Z", "+00:00"))
+    recovery_specs = [
+        (10, last_t + timedelta(hours=1), 1.095, 1.098, 1.070, 1.075, last_t + timedelta(hours=2)),
+        (11, last_t + timedelta(hours=2), 1.075, 1.078, 1.050, 1.055, last_t + timedelta(hours=3)),
+        (12, last_t + timedelta(hours=3), 1.055, 1.070, 1.052, 1.065, last_t + timedelta(hours=4)),
+        (13, last_t + timedelta(hours=4), 1.065, 1.080, 1.062, 1.075, last_t + timedelta(hours=5)),
+        (14, last_t + timedelta(hours=5), 1.075, 1.076, 1.040, 1.045, last_t + timedelta(hours=6)),
+        (15, last_t + timedelta(hours=6), 1.045, 1.060, 1.042, 1.055, last_t + timedelta(hours=7)),
+        (16, last_t + timedelta(hours=7), 1.055, 1.070, 1.052, 1.065, last_t + timedelta(hours=8)),
+    ]
+    for idx, ot, o, h, l, c, ct in recovery_specs:
+        candles.append({
+            "time": ot.isoformat(),
+            "open": o,
+            "high": h,
+            "low": l,
+            "close": c,
+            "is_forming": False,
+            "bar_status": "CONFIRMED_COMPLETED",
+            "close_time": ct.isoformat(),
+        })
+    return candles
 
-    def __init__(self, tjl_fixtures: dict[str, Any]) -> None:
+
+def _make_unresolved_boundary_candles(choch_fix: dict[str, Any]) -> list[dict[str, Any]]:
+    candles = [dict(c) for c in choch_fix["candles"]]
+    c7 = dict(candles[7])
+    c7["open"] = 1.130
+    c7["high"] = 1.132
+    c7["low"] = 1.085
+    c7["close"] = 1.090
+    candles[7] = c7
+    return candles
+
+
+class ControllableTJLMockAdapter:
+    """Deterministic mock adapter delivering acceptance fixtures simulating broker-connected state."""
+
+    def __init__(self, tjl_fixtures: dict[str, Any], choch_fixtures: dict[str, Any]) -> None:
         self.tjl_fixtures = tjl_fixtures
+        self.choch_fixtures = choch_fixtures
         self.connection_state = MT5ConnectionState.CONNECTED_TO_BROKER
         self.symbols = ["EURUSD", "GBPUSD"]
         self.disconnect_called = False
@@ -125,12 +176,19 @@ class ControllableTJLMockAdapter:
             return _make_df_from_candles(fix["candles"])
 
         elif symbol == "EURUSD" and timeframe == "H4":
-            # Scenario 4: CHOCH invalidation and post-CHOCH gap
+            # Scenario 4: Same-run CHOCH invalidation and recovery (17 candles from tjl_09 + recovery)
             fix = self.tjl_fixtures["tjl_09_source_choch_eligibility_invalidation_and_gap"]
-            return _make_df_from_candles(fix["candles"])
+            raw_candles = _make_same_run_choch_recovery_candles(fix)
+            return _make_df_from_candles(raw_candles)
+
+        elif symbol == "EURUSD" and timeframe == "D1":
+            # Scenario 10: Deterministic Unresolved boundary fixture (c1 == p2 at candle 7)
+            choch_fix = self.choch_fixtures["choch_bearish_basic_end_to_end"]
+            raw_candles = _make_unresolved_boundary_candles(choch_fix)
+            return _make_df_from_candles(raw_candles)
 
         elif symbol == "GBPUSD" and timeframe == "H4":
-            # Scenario 5: New-direction recovery (Bearish Set 1)
+            # Scenario 5: Standalone Bearish First Creation
             fix = self.tjl_fixtures["tjl_02_bearish_basic_end_to_end"]
             return _make_df_from_candles(fix["candles"])
 
@@ -151,9 +209,10 @@ class ControllableTJLMockAdapter:
 
 def test_tjl_browser_controlled() -> None:
     """Run full deterministic browser verification for TJL Dashboard across all lifecycle scenarios."""
-    print("=== STARTING DETERMINISTIC TJL BROWSER VERIFICATION (10 SCENARIOS) ===")
+    print("=== STARTING DETERMINISTIC TJL BROWSER VERIFICATION (11 SCENARIOS) ===")
     tjl_fixtures = _load_tjl_fixtures()
-    mock_adapter = ControllableTJLMockAdapter(tjl_fixtures)
+    choch_fixtures = _load_choch_fixtures()
+    mock_adapter = ControllableTJLMockAdapter(tjl_fixtures, choch_fixtures)
 
     app = create_app(adapter=mock_adapter)
 
@@ -174,7 +233,7 @@ def test_tjl_browser_controlled() -> None:
         page.on("console", lambda msg: raw_console_messages.append({"type": msg.type, "text": msg.text}))
         page.on("pageerror", lambda err: page_errors.append(str(err)))
 
-        print("1. Loading dashboard and connecting deterministic mock adapter...")
+        print("1. Loading dashboard and connecting deterministic mock adapter (simulating broker-connected state)...")
         page.goto(SERVER_URL, wait_until="networkidle")
         time.sleep(1.0)
 
@@ -304,28 +363,36 @@ def test_tjl_browser_controlled() -> None:
         print("   [PASS] Scenario 3: t2 replacement verified with SET_REPLACEMENT, CANCEL SET_1, and bounded historical interval.")
 
         # -------------------------------------------------------------
-        # Scenario 4: CHOCH Invalidation & Gap (EURUSD / H4 / tjl_09)
+        # Scenario 4: Same-Run CHOCH Invalidation & Recovery (EURUSD / H4)
         # -------------------------------------------------------------
-        print("\n--- SCENARIO 4: CHOCH Invalidation & Gap (EURUSD / H4) ---")
+        print("\n--- SCENARIO 4: Same-Run CHOCH Invalidation & Recovery (EURUSD / H4) ---")
         select_symbol_and_timeframe("EURUSD", "H4")
         apply_parameters("UPWARD")
 
         insp_text = page.locator("#msm-inspection-panel").inner_text()
-        assert "Current Eligible Set: None" in insp_text
+        assert "ELIGIBLE SET ACTIVE (SET_2)" in insp_text
         assert "CHOCH_INVALIDATION" in insp_text
         assert "CANCEL SET_1" in insp_text
+        assert "FIRST_CREATION" in insp_text
+        assert "DOWNWARD" in insp_text
 
-        # Chart: zero current set shapes
+        # Verify chart: SET_2 current shapes and SET_1 historical shapes
         plot_info = get_plotly_element()
         shapes = (plot_info.get("layout") or {}).get("shapes", [])
         curr_shapes = [s for s in shapes if str(s.get("name", "")).startswith("tjl_zone_current_")]
-        assert len(curr_shapes) == 0, f"Expected 0 current shapes in post-CHOCH gap, got {len(curr_shapes)}"
-        print("   [PASS] Scenario 4: CHOCH invalidation and transition gap verified with zero current shapes.")
+        assert len(curr_shapes) == 2, f"Expected 2 current shapes for SET_2, got {len(curr_shapes)}"
+
+        hist_shapes = [s for s in shapes if str(s.get("name", "")).startswith("tjl_zone_historical_")]
+        assert len(hist_shapes) == 2, f"Expected 2 historical shapes for SET_1, got {len(hist_shapes)}"
+        for hs in hist_shapes:
+            assert hs.get("line", {}).get("color") == "#78909c"
+            assert hs.get("line", {}).get("dash") == "dot"
+        print("   [PASS] Scenario 4: Same-run CHOCH invalidation and recovery verified (SET_1 cancelled -> Bearish SET_2 active).")
 
         # -------------------------------------------------------------
-        # Scenario 5: New Direction Recovery (GBPUSD / H4 / tjl_02)
+        # Scenario 5: Standalone Bearish First Creation (GBPUSD / H4 / tjl_02)
         # -------------------------------------------------------------
-        print("\n--- SCENARIO 5: New Direction Recovery (GBPUSD / H4) ---")
+        print("\n--- SCENARIO 5: Standalone Bearish First Creation (GBPUSD / H4) ---")
         select_symbol_and_timeframe("GBPUSD", "H4")
         apply_parameters("DOWNWARD")
 
@@ -337,7 +404,7 @@ def test_tjl_browser_controlled() -> None:
         shapes = (plot_info.get("layout") or {}).get("shapes", [])
         assert any(s.get("name") == "tjl_zone_current_tjl1" for s in shapes)
         assert any(s.get("name") == "tjl_zone_current_tjl2_a_plus" for s in shapes)
-        print("   [PASS] Scenario 5: New direction recovery successfully qualified new SET_1.")
+        print("   [PASS] Scenario 5: Standalone bearish creation successfully qualified new SET_1.")
 
         # -------------------------------------------------------------
         # Scenario 6: Unknown Availability (GBPUSD / M5 / tjl_01 stripped)
@@ -348,7 +415,7 @@ def test_tjl_browser_controlled() -> None:
 
         insp_text = page.locator("#msm-inspection-panel").inner_text()
         assert "ELIGIBLE SET ACTIVE (SET_1)" in insp_text
-        assert "Unknown (Pending candle completion — no retroactive eligible interval plotted)" in insp_text
+        assert "Unknown (Availability timestamp unknown — no retroactive eligible interval plotted)" in insp_text
 
         # Chart: time-extended eligible shapes must be OMITTED
         plot_info = get_plotly_element()
@@ -427,9 +494,32 @@ def test_tjl_browser_controlled() -> None:
         print("   [PASS] Scenario 9: Display toggles suppress and restore shapes without recomputing.")
 
         # -------------------------------------------------------------
-        # Scenario 10: Comprehensive Error Accounting
+        # Scenario 10: Executed Unresolved Ambiguity (EURUSD / D1, c1 == p2)
         # -------------------------------------------------------------
-        print("\n--- SCENARIO 10: Comprehensive Error Accounting ---")
+        print("\n--- SCENARIO 10: Executed Unresolved Ambiguity (EURUSD / D1, c1 == p2) ---")
+        select_symbol_and_timeframe("EURUSD", "D1")
+        apply_parameters("UPWARD")
+
+        insp_text_unres = page.locator("#msm-inspection-panel").inner_text()
+        assert "UNRESOLVED AMBIGUITY (LAST AUTHORITATIVE EVIDENCE)" in insp_text_unres
+        assert "Authoritative Processed Bar: #6" in insp_text_unres
+        assert "Latest Received Input: Bar #9" in insp_text_unres
+
+        # Status text & color (non-green warning)
+        status_color = page.locator("#msm-edit-status").evaluate("el => el.style.color")
+        assert status_color not in ("rgb(0, 230, 118)", "#00e676"), f"Unresolved status must not be green: {status_color}"
+
+        # Chart title: includes unresolved warning
+        plot_info = get_plotly_element()
+        title_obj = (plot_info.get("layout") or {}).get("title", "")
+        chart_title = title_obj.get("text", "") if isinstance(title_obj, dict) else str(title_obj)
+        assert "INTEGRATED UNRESOLVED — Last authoritative state" in chart_title
+        print("   [PASS] Scenario 10: Executed unresolved ambiguity verified: badge, progress bars (#6 vs #9), and chart title warning.")
+
+        # -------------------------------------------------------------
+        # Scenario 11: Comprehensive Error Accounting
+        # -------------------------------------------------------------
+        print("\n--- SCENARIO 11: Comprehensive Error Accounting ---")
         console_errors = [m for m in raw_console_messages if m["type"] == "error"]
         favicon_errors = [m for m in console_errors if "favicon" in m["text"].lower()]
         actionable_console_errors = [m for m in console_errors if "favicon" not in m["text"].lower()]
@@ -442,8 +532,8 @@ def test_tjl_browser_controlled() -> None:
 
         assert len(actionable_console_errors) == 0, f"Actionable console errors detected: {actionable_console_errors}"
         assert len(page_errors) == 0, f"Page errors detected: {page_errors}"
-        print("   [PASS] Scenario 10: Zero actionable console errors and zero page errors.")
+        print("   [PASS] Scenario 11: Zero actionable console errors and zero page errors.")
 
-        print("\n=== ALL 10 DETERMINISTIC TJL BROWSER SCENARIOS VERIFIED SUCCESSFULLY ===")
+        print("\n=== ALL 11 DETERMINISTIC TJL BROWSER SCENARIOS VERIFIED SUCCESSFULLY ===")
 
         browser.close()
