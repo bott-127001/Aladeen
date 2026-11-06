@@ -835,6 +835,7 @@ def evaluate_msm_for_snapshot(
     draft_start_candle: Optional[str] = None,
     current_context: Optional[Dict[str, Any]] = None,
     active_request_token: Optional[str] = None,
+    session_id: Optional[str] = None,
 ) -> Tuple[Optional[MSMServiceResult], str, Dict[str, str], Any]:
     """Evaluates applied MSM configuration against the coherent market data snapshot.
 
@@ -946,9 +947,15 @@ def evaluate_msm_for_snapshot(
         return None, status_text, status_style, panel
 
     # Execute MSM calculation
+    effective_session_id = session_id or (applied_data.get("session_id") if isinstance(applied_data, dict) else None)
     try:
-        act_coord = get_activation_session_registry().get_or_create('dashboard_ui_session')
-        res = calculate_msm(df, ctx, activation_coordinator=act_coord)
+        if effective_session_id and isinstance(effective_session_id, str) and effective_session_id.strip():
+            with get_activation_session_registry().session_operation(effective_session_id) as act_coord:
+                res = calculate_msm(df, ctx, activation_coordinator=act_coord)
+        else:
+            import uuid
+            ephemeral_coord = ActivationSessionCoordinator(sequence_domain_run_id=f"EPHEMERAL_{uuid.uuid4().hex[:8]}")
+            res = calculate_msm(df, ctx, activation_coordinator=ephemeral_coord)
     except Exception as e:
         status_text = f"❌ MSM Engine Calculation Error: {e} (rev: {snapshot.revision_id})"
         status_style = {"marginTop": "10px", "fontSize": "12px", "color": "#ff5252", "fontWeight": "bold"}
@@ -1037,12 +1044,14 @@ def process_msm_controls_update(
     display_toggles_val: list[str] | None = None,
     iss_display_toggles_val: list[str] | None = None,
     tjl_display_toggles_val: list[str] | None = None,
+    session_id: Optional[str] = None,
 ) -> tuple[dict | None, str, dict, Any]:
     """Pure coordinator function for MSM controls, application, and unapplied edit detection.
 
     R12.1: Zero consumer-side fallback fetching.
     R12.3, R13.1: Active request-generation and current-context publication guards.
     """
+    effective_session_id = session_id or (applied_data.get("session_id") if isinstance(applied_data, dict) else None)
     if active_req_data:
         active_token = active_req_data.get("token")
         active_ctx = active_req_data.get("context", {})
@@ -1146,6 +1155,7 @@ def process_msm_controls_update(
             draft_start_candle=start_candle_val,
             current_context=active_ctx,
             active_request_token=active_token,
+            session_id=effective_session_id,
         )
         new_applied = applied_data if is_context_compatible(applied_data, snapshot.data_source, snapshot.symbol, snapshot.timeframe) else None
         return new_applied, status_text, status_style, panel
@@ -1165,6 +1175,7 @@ def process_msm_controls_update(
                 draft_start_candle=start_candle_val,
                 current_context=active_ctx,
                 active_request_token=active_token,
+                session_id=effective_session_id,
             )
             return updated_applied, status_text, status_style, panel
 
@@ -1184,6 +1195,7 @@ def process_msm_controls_update(
                 draft_start_candle=start_candle_val,
                 current_context=active_ctx,
                 active_request_token=active_token,
+                session_id=effective_session_id,
             )
             return updated_applied, status_text, status_style, panel
 
@@ -1206,6 +1218,7 @@ def process_msm_controls_update(
                 draft_start_candle=start_candle_val,
                 current_context=active_ctx,
                 active_request_token=active_token,
+                session_id=effective_session_id,
             )
             return updated_applied, status_text, status_style, panel
 
@@ -1302,8 +1315,13 @@ def process_msm_controls_update(
                 show_tjl_labels=show_tjl_l,
             )
             df = snapshot.to_dataframe()
-            act_coord = get_activation_session_registry().get_or_create('dashboard_ui_session')
-            res = calculate_msm(df, msm_ctx, activation_coordinator=act_coord, force_recalculation=True)
+            if effective_session_id and isinstance(effective_session_id, str) and effective_session_id.strip():
+                with get_activation_session_registry().session_operation(effective_session_id) as act_coord:
+                    res = calculate_msm(df, msm_ctx, activation_coordinator=act_coord, force_recalculation=True)
+            else:
+                import uuid
+                ephemeral_coord = ActivationSessionCoordinator(sequence_domain_run_id=f"EPHEMERAL_{uuid.uuid4().hex[:8]}")
+                res = calculate_msm(df, msm_ctx, activation_coordinator=ephemeral_coord, force_recalculation=True)
             if res.is_valid and res.snapshot is not None:
                 pair_cnt = len(res.snapshot.confirmed_pairs)
                 choch_cnt = len(res.confirmed_choch_events)
@@ -1344,8 +1362,11 @@ def process_msm_controls_update(
                         f"{msm_ctx.start_candle_time.strftime('%Y-%m-%d %H:%M UTC')} | "
                         f"{pair_cnt} pairs confirmed{extra_info} | {res.snapshot.trend_status} (rev: {snapshot.revision_id})"
                     )
+                applied_dict = msm_ctx.to_dict()
+                if effective_session_id:
+                    applied_dict["session_id"] = effective_session_id
                 panel = render_msm_inspection_table(res.snapshot, msm_ctx, snapshot.revision_id, msm_result=res)
-                return (msm_ctx.to_dict(), status_text, status_style, panel)
+                return (applied_dict, status_text, status_style, panel)
             else:
                 status_style = {"marginTop": "10px", "fontSize": "12px", "color": "#ff5252", "fontWeight": "bold"}
                 panel = html.Div(f"Calculation failed: {res.error}", style={"color": "#ff5252"})
@@ -1399,6 +1420,17 @@ def register_msm_callbacks(app: Dash, adapter: Any = None) -> tuple[Any, Any]:
             triggered_id=triggered_id,
         )
 
+    # Callback: Ensure unique per-session identifier for dashboard isolation
+    @app.callback(
+        Output("dashboard-session-id-store", "data"),
+        Input("dashboard-session-id-store", "data"),
+    )
+    def ensure_dashboard_session_id(current_session_id: str | None) -> str:
+        if current_session_id and isinstance(current_session_id, str) and current_session_id.strip():
+            return current_session_id
+        import uuid
+        return f"session_{uuid.uuid4().hex[:16]}"
+
     # Callback 4: Handle MSM Controls, Application, and Inspection Panel
     @app.callback(
         Output("msm-applied-store", "data"),
@@ -1416,6 +1448,7 @@ def register_msm_callbacks(app: Dash, adapter: Any = None) -> tuple[Any, Any]:
         Input("market-data-store", "data"),
         Input("active-request-store", "data"),
         State("msm-applied-store", "data"),
+        State("dashboard-session-id-store", "data"),
     )
     def handle_msm_controls(
         apply_clicks: int,
@@ -1429,6 +1462,7 @@ def register_msm_callbacks(app: Dash, adapter: Any = None) -> tuple[Any, Any]:
         market_snapshot_data: dict | None,
         active_req_data: dict | None,
         applied_data: dict | None,
+        session_id_data: str | None = None,
     ) -> tuple[dict | None, str, dict, Any]:
         triggered_id = _get_triggered_id()
 
@@ -1444,6 +1478,7 @@ def register_msm_callbacks(app: Dash, adapter: Any = None) -> tuple[Any, Any]:
             display_toggles_val=display_toggles_val,
             iss_display_toggles_val=iss_display_toggles_val,
             tjl_display_toggles_val=tjl_display_toggles_val,
+            session_id=session_id_data,
         )
 
     return update_msm_dropdown_options, handle_msm_controls

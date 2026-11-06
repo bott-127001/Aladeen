@@ -1323,3 +1323,53 @@ Last Updated: 2026-11-06 (Activation Engine Pure Offline Milestone Accepted — 
   3. *Engine Integrity*: Strictly zero modification to accepted strategy engines (`msm_engine`, `choch_engine`, `iss_engine`, `tjl_coordinator`, `activation_engine`, `activation_adapter`).
   4. *Core Ambiguities Preserved*: Upstream $c_1 == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
   5. *Branch Boundary*: Committed and pushed strictly on `feature/activation-dashboard`. No merging into `main`.
+
+### HANDOFF-071: Real Per-Session Dashboard Boundary Identity, Protected Operational Leasing, Run Incarnation Tracking, and Concurrency Regressions
+- **Active Branch**: `feature/activation-dashboard`
+- **Immediate Parent Commit**: `7e32320ad4125c58ba636c47bcf635645e6fcd0d` (HANDOFF-070)
+- **Requirements Baseline Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d` (Milestone 26 / HANDOFF-066 accepted)
+- **Root Baseline Engine Commit**: `0867c740352297fb43e781fb654706218771d533` (Milestone 25 / HANDOFF-061)
+- **Objective**: Deliver complete closure of all items from Perplexity's review of HANDOFF-070:
+  1. *Real Per-Session Identity at Dashboard Boundary*:
+     - Replaced hardcoded `"dashboard_ui_session"` constant with genuine per-session identification.
+     - Added `dcc.Store(id="dashboard-session-id-store", storage_type="session")` in `src/aladeen/ui/layout.py`. Layout builder initializes a unique session UUID per browser connection, persisted across refreshes in browser `sessionStorage`.
+     - Added `ensure_dashboard_session_id` callback in `src/aladeen/ui/msm_callbacks.py`.
+     - Wired `State("dashboard-session-id-store", "data")` into `handle_msm_controls` callback, propagating genuine `session_id` into `process_msm_controls_update` and `evaluate_msm_for_snapshot`.
+     - Missing session identity never selects shared mutable state: creates an isolated, single-use unshared ephemeral coordinator (`EPHEMERAL_<uuid>`) that never enters the registry and cannot be shared across calls.
+  2. *Protected Operational Leasing (`session_operation`)*:
+     - Implemented `session_operation(session_id)` context manager on `ActivationSessionRegistry`:
+       * Serializes concurrent mutations within the same session using per-session `RLock`.
+       * Increments active lease counter, protecting in-use sessions against LRU capacity eviction or reset (`active_leases > 0`).
+       * Evaluates bounded capacity cleanup of idle sessions upon lease release.
+       * Independent sessions acquire distinct locks, operating completely concurrently without cross-session lock contention.
+       * Pure HTML rendering functions execute purely outside the operational lease context, holding zero locks.
+  3. *Eviction/Recreation Fresh Run Incarnation*:
+     - Added session incarnation tracking `_session_incarnations: Dict[str, int]` in `ActivationSessionRegistry`.
+     - Evicted/recreated sessions advance their incarnation counter (`INC1`, `INC2`, etc.) with sequence domain prefix `f"SESSION_{session_id}_INC{incarnation}"`.
+     - Ensures recreated coordinators establish a brand-new sequence/run domain without sequence collisions or run reuse.
+  4. *Decisive Concurrency & Isolation Regressions (17 / 17 passed)*:
+     - `test_callback_facing_isolated_sessions_with_identical_context`: Two callback-facing sessions with identical contexts remain isolated with independent run domains.
+     - `test_recalculation_in_session_a_cannot_reset_session_b`: Recalculation in Session A advances Session A's run domain while Session B's state, checkpoints, sequence refs, and observations remain 100% untouched.
+     - `test_same_session_overlapping_operations_are_serialized`: Concurrent threads targeting the same session ID are strictly serialized via per-session locking without overlap.
+     - `test_capacity_pressure_cannot_reset_in_use_session`: Capacity pressure cannot evict or reset an in-use pinned session while its operational lease is held.
+     - `test_recreated_session_advances_run_incarnation_and_does_not_reuse_old_sequence_domain`: Recreated sessions advance to `INC2` and start cleanly at zero in the fresh sequence domain.
+- **Completed Deliverables**:
+  1. [`src/aladeen/strategy/service.py`](file:///src/aladeen/strategy/service.py): `ActivationSessionRegistry.session_operation()` lease manager, per-session locking, in-use eviction protection, bounded release cleanup, session incarnation tracking, and lease-protected TJL synchronization in `calculate_msm()`.
+  2. [`src/aladeen/ui/layout.py`](file:///src/aladeen/ui/layout.py): `dashboard-session-id-store` with `storage_type="session"` and dynamic UUID initialization in `build_layout()`.
+  3. [`src/aladeen/ui/msm_callbacks.py`](file:///src/aladeen/ui/msm_callbacks.py): Eradicated `"dashboard_ui_session"` constant. Added `ensure_dashboard_session_id` callback, wired session store into `handle_msm_controls`, propagated session identity through `process_msm_controls_update` and `evaluate_msm_for_snapshot`, and wrapped mutations in `session_operation`.
+  4. [`tests/test_activation_dashboard_integration.py`](file:///tests/test_activation_dashboard_integration.py): 17 comprehensive integration tests (+5 new regressions covering identical-context isolation, recalculation immunity, concurrent operation serialization, capacity eviction protection, and incarnation advancement).
+  5. [`docs/development/status.md`](file:///docs/development/status.md): HANDOFF-071 documentation.
+- **Verification Summary**:
+  - Activation dashboard integration suite: **17 / 17 passed** in 0.93s (`pytest tests/test_activation_dashboard_integration.py -q`).
+  - Activation dashboard fixture integrity suite: **11 / 11 passed** in 0.50s (`pytest tests/test_activation_dashboard_fixture_integrity.py -q`).
+  - TJL dashboard integration suite: **32 / 32 passed** in 3.09s (`pytest tests/test_tjl_dashboard_integration.py -q`).
+  - Full offline repository test suite: **537 / 537 passed** in 14.63s (`pytest -q tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py`).
+  - Reconciled Test Inventory: 520 baseline tests + 17 integration tests = 537 passing offline tests.
+  - Runtime Engine Modification Audit: Exactly zero modifications to strategy engines (`msm_engine`, `choch_engine`, `iss_engine`, `tjl_coordinator`, `activation_engine`, `activation_adapter`).
+  - Visual Limitation: Offline test suite verifies HTML DOM tree structure and Dash component properties; visual browser acceptance remains unverified until live browser testing.
+- **Scope Compliance & Standing Invariants**:
+  1. *Pure Read-Only Presentation*: Strictly zero UI order execution, zero MT5 trading calls, zero live account modification.
+  2. *Downstream Invariant*: Strictly zero confirmation arbitration/selection, zero usage ledger writes, zero trade entry signals.
+  3. *Engine Integrity*: Strictly zero modification to accepted strategy engines (`msm_engine`, `choch_engine`, `iss_engine`, `tjl_coordinator`, `activation_engine`, `activation_adapter`).
+  4. *Core Ambiguities Preserved*: Upstream $c_1 == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
+  5. *Branch Boundary*: Committed and pushed strictly on `feature/activation-dashboard`. No merging into `main`.

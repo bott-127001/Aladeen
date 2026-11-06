@@ -1347,3 +1347,296 @@ class TestActivationDashboardIntegration:
 
         assert coord.engine.create_checkpoint() == cp_before
         assert coord.next_sequence_ref == next_seq_before
+
+    def test_callback_facing_isolated_sessions_with_identical_context(self) -> None:
+        """Directive HANDOFF-071: Two callback-facing sessions with identical contexts remain isolated."""
+        from aladeen.strategy.service import get_activation_session_registry, reset_activation_session_registry
+        from aladeen.ui.msm_callbacks import evaluate_msm_for_snapshot, process_msm_controls_update
+        from aladeen.data.fixtures import DEMO_SYMBOL
+        from aladeen.data.market_snapshot import fetch_market_snapshot
+
+        reset_activation_session_registry()
+        reg = get_activation_session_registry()
+
+        market_snap, _ = fetch_market_snapshot("demo", DEMO_SYMBOL, "H4", 20, False)
+        start_candle = market_snap.candles_data[2].time
+
+        applied_data = {
+            "data_source": "demo",
+            "symbol": DEMO_SYMBOL,
+            "timeframe": "H4",
+            "start_candle_time": start_candle,
+            "direction": "UPWARD",
+            "enabled": True,
+            "calculation_mode": "INTEGRATED_MSM_CHOCH_TJL",
+            "show_tjl_zones": True,
+            "show_tjl_current_set": True,
+            "show_tjl_historical_sets": True,
+            "show_tjl_labels": True,
+        }
+
+        # 1. User Alpha executes configuration apply via process_msm_controls_update
+        applied_alpha, status_alpha, _, panel_alpha = process_msm_controls_update(
+            triggered_id="msm-apply-btn",
+            enable_toggle_val=["enabled"],
+            direction_val="UPWARD",
+            start_candle_val=start_candle,
+            market_snapshot_data=market_snap,
+            applied_data=applied_data,
+            calculation_mode_val="INTEGRATED_MSM_CHOCH_TJL",
+            session_id="user_tab_alpha",
+        )
+        assert applied_alpha is not None
+        assert applied_alpha.get("session_id") == "user_tab_alpha"
+
+        # 2. User Beta executes configuration apply with IDENTICAL market context
+        applied_beta, status_beta, _, panel_beta = process_msm_controls_update(
+            triggered_id="msm-apply-btn",
+            enable_toggle_val=["enabled"],
+            direction_val="UPWARD",
+            start_candle_val=start_candle,
+            market_snapshot_data=market_snap,
+            applied_data=applied_data,
+            calculation_mode_val="INTEGRATED_MSM_CHOCH_TJL",
+            session_id="user_tab_beta",
+        )
+        assert applied_beta is not None
+        assert applied_beta.get("session_id") == "user_tab_beta"
+
+        # 3. Assert separate coordinators with isolated run identities in registry
+        coord_alpha = reg.get_or_create("user_tab_alpha")
+        coord_beta = reg.get_or_create("user_tab_beta")
+        assert coord_alpha is not coord_beta
+        assert coord_alpha.engine is not coord_beta.engine
+        assert coord_alpha.synchronizer is not coord_beta.synchronizer
+        assert coord_alpha.current_run_id == "SESSION_user_tab_alpha_INC1_2"
+        assert coord_beta.current_run_id == "SESSION_user_tab_beta_INC1_2"
+
+        # 4. Steady refresh on Session Alpha retains Session Alpha coordinator without touching Beta
+        res_steady_alpha, _, _, _ = evaluate_msm_for_snapshot(
+            snapshot=market_snap,
+            applied_data=applied_alpha,
+            session_id="user_tab_alpha",
+        )
+        assert res_steady_alpha is not None
+        assert coord_alpha.current_run_id == "SESSION_user_tab_alpha_INC1_2"
+        assert coord_beta.current_run_id == "SESSION_user_tab_beta_INC1_2"
+
+        # 5. Missing session identity does not fall back to shared mutable state
+        res_ephemeral, _, _, _ = evaluate_msm_for_snapshot(
+            snapshot=market_snap,
+            applied_data=applied_data,
+            session_id=None,
+        )
+        assert res_ephemeral is not None
+        # Assert registry count did not increase with any shared key
+        assert reg.active_session_count == 2
+        assert "dashboard_ui_session" not in reg._sessions
+
+    def test_recalculation_in_session_a_cannot_reset_session_b(self) -> None:
+        """Directive HANDOFF-071: Explicit recalculation in Session A does not reset Session B."""
+        from aladeen.strategy.service import get_activation_session_registry, reset_activation_session_registry
+        from aladeen.ui.msm_callbacks import process_msm_controls_update
+        from aladeen.data.fixtures import DEMO_SYMBOL
+        from aladeen.data.market_snapshot import fetch_market_snapshot
+
+        reset_activation_session_registry()
+        reg = get_activation_session_registry()
+
+        market_snap, _ = fetch_market_snapshot("demo", DEMO_SYMBOL, "H4", 20, False)
+        start_candle = market_snap.candles_data[2].time
+
+        applied_data = {
+            "data_source": "demo",
+            "symbol": DEMO_SYMBOL,
+            "timeframe": "H4",
+            "start_candle_time": start_candle,
+            "direction": "UPWARD",
+            "enabled": True,
+            "calculation_mode": "INTEGRATED_MSM_CHOCH_TJL",
+        }
+
+        # Initialize Session A and Session B
+        process_msm_controls_update(
+            triggered_id="msm-apply-btn",
+            enable_toggle_val=["enabled"],
+            direction_val="UPWARD",
+            start_candle_val=start_candle,
+            market_snapshot_data=market_snap,
+            applied_data=applied_data,
+            calculation_mode_val="INTEGRATED_MSM_CHOCH_TJL",
+            session_id="user_A",
+        )
+        process_msm_controls_update(
+            triggered_id="msm-apply-btn",
+            enable_toggle_val=["enabled"],
+            direction_val="UPWARD",
+            start_candle_val=start_candle,
+            market_snapshot_data=market_snap,
+            applied_data=applied_data,
+            calculation_mode_val="INTEGRATED_MSM_CHOCH_TJL",
+            session_id="user_B",
+        )
+
+        coord_a = reg.get_or_create("user_A")
+        coord_b = reg.get_or_create("user_B")
+
+        # Advance Session B with an exact price print
+        domain_b = coord_b.engine.sequence_domain
+        obs_b = ExactPricePrint(
+            observation_id="OBS_B_01",
+            price=1.1355,
+            price_basis=PriceBasis.BID,
+            timestamp=datetime(2026, 10, 1, 10, 0, tzinfo=timezone.utc),
+            sequence_domain=domain_b,
+            sequence_ref=coord_b.next_sequence_ref,
+        )
+        coord_b.process_exact_price_print(obs_b)
+
+        # Record complete baseline state of Session B
+        cp_b_before = coord_b.engine.create_checkpoint()
+        run_b_before = coord_b.current_run_id
+        seq_b_before = coord_b.next_sequence_ref
+        obs_cnt_b_before = coord_b.exact_observation_count
+        assert run_b_before == "SESSION_user_B_INC1_2"
+        assert obs_cnt_b_before == 1
+
+        # Explicit recalculation triggered in Session A
+        process_msm_controls_update(
+            triggered_id="msm-apply-btn",
+            enable_toggle_val=["enabled"],
+            direction_val="UPWARD",
+            start_candle_val=start_candle,
+            market_snapshot_data=market_snap,
+            applied_data=applied_data,
+            calculation_mode_val="INTEGRATED_MSM_CHOCH_TJL",
+            session_id="user_A",
+        )
+
+        # Assert Session A advanced its causal run domain
+        assert coord_a.current_run_id == "SESSION_user_A_INC1_3"
+
+        # Assert Session B is 100% UNTOUCHED and PRESERVED
+        assert coord_b.current_run_id == run_b_before
+        assert coord_b.next_sequence_ref == seq_b_before
+        assert coord_b.exact_observation_count == obs_cnt_b_before
+        assert coord_b.engine.create_checkpoint() == cp_b_before
+
+    def test_same_session_overlapping_operations_are_serialized(self) -> None:
+        """Directive HANDOFF-071: Concurrent operations on the same session are serialized via per-session lock."""
+        import threading
+        import time
+        from aladeen.strategy.service import ActivationSessionRegistry
+
+        reg = ActivationSessionRegistry(max_sessions=10)
+        session_id = "session_concurrent_test"
+
+        execution_log = []
+        barrier = threading.Barrier(2)
+
+        def worker(worker_id: int) -> None:
+            barrier.wait()  # Synchronize start of both threads
+            with reg.session_operation(session_id) as coord:
+                execution_log.append((worker_id, "enter", time.perf_counter()))
+                time.sleep(0.05)  # Simulate active operational work
+                execution_log.append((worker_id, "exit", time.perf_counter()))
+
+        t1 = threading.Thread(target=worker, args=(1,))
+        t2 = threading.Thread(target=worker, args=(2,))
+
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+
+        assert len(execution_log) == 4
+        # Verify that thread 1 and thread 2 were strictly serialized:
+        # One thread must enter and exit BEFORE the other thread enters.
+        w1_enter = [t for w, action, t in execution_log if w == 1 and action == "enter"][0]
+        w1_exit = [t for w, action, t in execution_log if w == 1 and action == "exit"][0]
+        w2_enter = [t for w, action, t in execution_log if w == 2 and action == "enter"][0]
+        w2_exit = [t for w, action, t in execution_log if w == 2 and action == "exit"][0]
+
+        serialized = (w1_exit <= w2_enter) or (w2_exit <= w1_enter)
+        assert serialized, f"Operations overlapped: w1=({w1_enter:.3f}, {w1_exit:.3f}), w2=({w2_enter:.3f}, {w2_exit:.3f})"
+
+    def test_capacity_pressure_cannot_reset_in_use_session(self) -> None:
+        """Directive HANDOFF-071: Active in-use sessions are protected from LRU capacity eviction and reset."""
+        import threading
+        import time
+        from aladeen.strategy.service import ActivationSessionRegistry
+
+        reg = ActivationSessionRegistry(max_sessions=2)
+        pinned_session = "session_pinned"
+
+        lease_active = threading.Event()
+        can_release = threading.Event()
+        worker_done = threading.Event()
+        pinned_coord = None
+
+        def active_worker() -> None:
+            nonlocal pinned_coord
+            with reg.session_operation(pinned_session) as coord:
+                pinned_coord = coord
+                lease_active.set()
+                can_release.wait(timeout=5.0)
+            worker_done.set()
+
+        t = threading.Thread(target=active_worker)
+        t.start()
+
+        assert lease_active.wait(timeout=2.0)
+        assert reg.is_in_use(pinned_session) is True
+        assert pinned_coord is not None
+
+        # Record state of pinned coordinator before capacity pressure
+        pinned_run = pinned_coord.current_run_id
+
+        # Insert 3 additional sessions exceeding max_sessions=2
+        reg.get_or_create("extra_1")
+        reg.get_or_create("extra_2")
+        reg.get_or_create("extra_3")
+
+        # Pinned session must NOT be evicted while lease is active
+        assert pinned_session in reg._sessions
+        assert reg.is_in_use(pinned_session) is True
+        assert pinned_coord.current_run_id == pinned_run
+
+        # Release lease and allow bounded cleanup to run
+        can_release.set()
+        assert worker_done.wait(timeout=2.0)
+        t.join()
+
+        # After lease release, session is idle
+        assert reg.is_in_use(pinned_session) is False
+
+    def test_recreated_session_advances_run_incarnation_and_does_not_reuse_old_sequence_domain(self) -> None:
+        """Directive HANDOFF-071: Recreated session advances incarnation and starts in a fresh sequence domain."""
+        from aladeen.strategy.service import ActivationSessionRegistry
+
+        reg = ActivationSessionRegistry(max_sessions=5)
+        sid = "sess_lifecycle"
+
+        # 1. First creation -> Incarnation 1
+        c1 = reg.get_or_create(sid)
+        assert reg.get_session_incarnation(sid) == 1
+        assert c1.current_run_id == f"SESSION_{sid}_INC1"
+        assert c1.next_sequence_ref == 0
+
+        # Simulate work advancing run and sequence ref
+        c1._next_sequence_ref = 5
+        c1.start_new_run()
+        assert c1.current_run_id == f"SESSION_{sid}_INC1_2"
+
+        # 2. Evict / remove session
+        reg.remove_session(sid)
+        assert sid not in reg._sessions
+
+        # 3. Recreate session -> MUST advance to Incarnation 2
+        c2 = reg.get_or_create(sid)
+        assert c2 is not c1
+        assert reg.get_session_incarnation(sid) == 2
+        assert c2.current_run_id == f"SESSION_{sid}_INC2"
+        # Sequence allocation starts cleanly at zero in the brand new domain
+        assert c2.next_sequence_ref == 0
+        assert c2.current_run_id != c1.current_run_id

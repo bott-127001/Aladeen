@@ -12,6 +12,7 @@ import logging
 from typing import Any, Dict, List, Optional, Tuple
 import dash
 from dash import Dash, Input, Output, State, callback_context, dcc, html
+import uuid
 import pandas as pd
 import plotly.graph_objects as go
 
@@ -481,8 +482,9 @@ def _build_msm_inspection_panel() -> html.Div:
     )
 
 
-def build_layout() -> html.Div:
+def build_layout(session_id: Optional[str] = None) -> html.Div:
     """Return the complete dashboard layout."""
+    sess_id = session_id or f"session_{uuid.uuid4().hex[:16]}"
     return html.Div(
         style={"fontFamily": "Segoe UI, sans-serif", "background": "#14141f", "minHeight": "100vh"},
         children=[
@@ -518,6 +520,11 @@ def build_layout() -> html.Div:
             dcc.Store(
                 id="msm-applied-store",
                 data=None,
+                storage_type="session",
+            ),
+            dcc.Store(
+                id="dashboard-session-id-store",
+                data=sess_id,
                 storage_type="session",
             ),
             # Title bar

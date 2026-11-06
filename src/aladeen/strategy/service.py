@@ -13,10 +13,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from contextlib import contextmanager
 import math
 from enum import Enum
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, Iterator, List, Optional, Set, Tuple, Union
 import threading
+import uuid
 import numpy as np
 import pandas as pd
 
@@ -519,6 +521,14 @@ class ActivationSessionRegistry:
     -----------------
     - Provides isolated ActivationSessionCoordinator instances per session_id.
     - Prevents cross-session interference (two sessions with same or different contexts never share state).
+    - Tracks session incarnations across evictions: evicted/recreated sessions receive a fresh run incarnation (INC1, INC2, etc.)
+      ensuring no reuse of previously used sequence/run domains.
+    - Exclusive operational leasing via `session_operation(session_id)`:
+      * Serializes mutations within the same session using a per-session lock.
+      * Protects in-use sessions against eviction or reset (`active_leases > 0`).
+      * Bounds retained sessions after lease release via LRU cleanup of idle sessions.
+      * Allows independent operations across distinct sessions to run concurrently without lock contention.
+      * Keeps locks out of pure rendering: pure HTML rendering functions never hold operational locks.
     - Enforces bounded capacity with LRU eviction to prevent unbounded memory growth in long-running processes.
     - Supports explicit eviction, inspection, and clearing.
     """
@@ -527,6 +537,9 @@ class ActivationSessionRegistry:
         self._max_sessions = max_sessions
         self._sessions: Dict[str, ActivationSessionCoordinator] = {}
         self._access_order: List[str] = []
+        self._session_locks: Dict[str, threading.RLock] = {}
+        self._active_leases: Dict[str, int] = {}
+        self._session_incarnations: Dict[str, int] = {}
         self._lock = threading.Lock()
 
     @property
@@ -538,35 +551,97 @@ class ActivationSessionRegistry:
         with self._lock:
             return len(self._sessions)
 
+    def is_in_use(self, session_id: str) -> bool:
+        with self._lock:
+            return self._active_leases.get(session_id, 0) > 0
+
+    def get_session_incarnation(self, session_id: str) -> int:
+        with self._lock:
+            return self._session_incarnations.get(session_id, 0)
+
+    def _get_or_create_locked(self, session_id: str, run_id_prefix: Optional[str] = None) -> ActivationSessionCoordinator:
+        """Internal helper: must be called with self._lock held."""
+        if session_id in self._sessions:
+            if session_id in self._access_order:
+                self._access_order.remove(session_id)
+            self._access_order.append(session_id)
+            return self._sessions[session_id]
+
+        # Evict oldest idle session if at capacity
+        self._enforce_capacity_locked(allow_count=self._max_sessions - 1)
+
+        incarnation = self._session_incarnations.get(session_id, 0) + 1
+        self._session_incarnations[session_id] = incarnation
+        prefix = run_id_prefix or f"SESSION_{session_id}_INC{incarnation}"
+
+        coord = ActivationSessionCoordinator(sequence_domain_run_id=prefix)
+        self._sessions[session_id] = coord
+        self._access_order.append(session_id)
+        if session_id not in self._session_locks:
+            self._session_locks[session_id] = threading.RLock()
+        return coord
+
+    def _enforce_capacity_locked(self, allow_count: Optional[int] = None) -> None:
+        """Evicts idle sessions in LRU order when total sessions exceed target capacity.
+        Never evicts or resets an in-use session (active_leases > 0).
+        """
+        target = self._max_sessions if allow_count is None else allow_count
+        while len(self._sessions) > target:
+            evict_candidate = None
+            for sid in self._access_order:
+                if self._active_leases.get(sid, 0) == 0:
+                    evict_candidate = sid
+                    break
+            if evict_candidate is None:
+                # All active sessions are in use; cannot evict without violating in-use protection
+                break
+            self._access_order.remove(evict_candidate)
+            evicted = self._sessions.pop(evict_candidate, None)
+            if evicted is not None:
+                evicted.reset()
+
     def get_or_create(self, session_id: str, run_id_prefix: Optional[str] = None) -> ActivationSessionCoordinator:
         """Returns the isolated ActivationSessionCoordinator for session_id, creating one if absent."""
         if not isinstance(session_id, str) or not session_id.strip():
             raise ValueError(f"session_id must be a non-empty string, got {session_id!r}")
 
         with self._lock:
-            if session_id in self._sessions:
-                # Move to end of LRU access order
-                if session_id in self._access_order:
-                    self._access_order.remove(session_id)
-                self._access_order.append(session_id)
-                return self._sessions[session_id]
+            return self._get_or_create_locked(session_id, run_id_prefix=run_id_prefix)
 
-            # Bounded LRU eviction
-            while len(self._sessions) >= self._max_sessions and self._access_order:
-                lru_id = self._access_order.pop(0)
-                evicted = self._sessions.pop(lru_id, None)
-                if evicted is not None:
-                    evicted.reset()
+    @contextmanager
+    def session_operation(self, session_id: str, run_id_prefix: Optional[str] = None) -> Iterator[ActivationSessionCoordinator]:
+        """Context manager providing exclusive, protected operational access to a session coordinator.
 
-            prefix = run_id_prefix or f"SESSION_{session_id}"
-            coord = ActivationSessionCoordinator(sequence_domain_run_id=prefix)
-            self._sessions[session_id] = coord
-            self._access_order.append(session_id)
-            return coord
+        - Obtains or creates the session coordinator under registry lock.
+        - Increments in-use active lease count, protecting coordinator from LRU eviction/reset.
+        - Acquires per-session lock, serializing concurrent mutations on the same session.
+        - Releases per-session lock on exit, decrements lease count, and enforces bounded capacity cleanup.
+        - Distinct sessions acquire distinct locks, operating completely concurrently.
+        """
+        if not isinstance(session_id, str) or not session_id.strip():
+            raise ValueError(f"session_id must be a non-empty string, got {session_id!r}")
+
+        with self._lock:
+            coord = self._get_or_create_locked(session_id, run_id_prefix=run_id_prefix)
+            self._active_leases[session_id] = self._active_leases.get(session_id, 0) + 1
+            if session_id not in self._session_locks:
+                self._session_locks[session_id] = threading.RLock()
+            session_lock = self._session_locks[session_id]
+
+        session_lock.acquire()
+        try:
+            yield coord
+        finally:
+            session_lock.release()
+            with self._lock:
+                self._active_leases[session_id] = max(0, self._active_leases.get(session_id, 1) - 1)
+                self._enforce_capacity_locked()
 
     def remove_session(self, session_id: str) -> None:
-        """Explicitly evicts and resets a session."""
+        """Explicitly evicts and resets an idle session. Fails if session is currently in use."""
         with self._lock:
+            if self._active_leases.get(session_id, 0) > 0:
+                raise RuntimeError(f"Cannot remove session {session_id!r}: session is currently in use")
             coord = self._sessions.pop(session_id, None)
             if coord is not None:
                 coord.reset()
@@ -580,6 +655,8 @@ class ActivationSessionRegistry:
                 coord.reset()
             self._sessions.clear()
             self._access_order.clear()
+            self._active_leases.clear()
+            self._session_locks.clear()
 
 
 _default_session_registry: Optional[ActivationSessionRegistry] = None
@@ -824,29 +901,34 @@ def calculate_msm(
             last_sync_idx = None
             exact_obs_count = None
             act_error = None
+
+            def _do_sync(coord: ActivationSessionCoordinator) -> None:
+                nonlocal act_snap, last_sync_idx, exact_obs_count, act_error
+                try:
+                    act_snap = coord.sync_tjl_snapshot(
+                        tjl_snapshot=tjl_snap,
+                        context=context,
+                        usage_evidence=usage_evidence,
+                        force_recalculation=force_recalculation,
+                        run_id=run_id,
+                    )
+                    last_sync_idx = coord.last_synced_transition_index
+                    exact_obs_count = coord.exact_observation_count
+                    act_error = coord.last_sync_error
+                except Exception as e:
+                    act_error = str(e)
+                    act_snap = coord.engine.get_snapshot() if coord.engine else None
+                    last_sync_idx = coord.last_synced_transition_index
+                    exact_obs_count = coord.exact_observation_count
+
             if activation_coordinator is not None:
-                act_coordinator = activation_coordinator
+                _do_sync(activation_coordinator)
             elif session_id is not None:
-                act_coordinator = get_activation_session_registry().get_or_create(session_id)
+                with get_activation_session_registry().session_operation(session_id) as act_coordinator:
+                    _do_sync(act_coordinator)
             else:
-                act_coordinator = get_default_activation_coordinator()
-            try:
-                act_snap = act_coordinator.sync_tjl_snapshot(
-                    tjl_snapshot=tjl_snap,
-                    context=context,
-                    usage_evidence=usage_evidence,
-                    force_recalculation=force_recalculation,
-                    run_id=run_id,
-                )
-                last_sync_idx = act_coordinator.last_synced_transition_index
-                exact_obs_count = act_coordinator.exact_observation_count
-                act_error = act_coordinator.last_sync_error
-            except Exception as e:
-                act_error = str(e)
-                # Preserve prior valid snapshot if available
-                act_snap = act_coordinator.engine.get_snapshot() if act_coordinator.engine else None
-                last_sync_idx = act_coordinator.last_synced_transition_index
-                exact_obs_count = act_coordinator.exact_observation_count
+                ephemeral_coord = ActivationSessionCoordinator(sequence_domain_run_id=f"EPHEMERAL_{uuid.uuid4().hex[:8]}")
+                _do_sync(ephemeral_coord)
 
             return MSMServiceResult(
                 context=context,
