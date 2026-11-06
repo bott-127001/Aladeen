@@ -398,5 +398,26 @@ Last Updated: 2026-11-05 (MSM Dashboard Milestone Accepted — Transition to CHO
 - **Verification Summary**:
   - Full TJL suite: 58/58 tests passing in 0.82s.
   - Full repository offline suite: 388/388 tests passing in 5.90s (0 failures, 1 deselected).
+- **Reviewer Status**: **ACCEPTED** by Perplexity for the bounded offline TJL strategy engine milestone.
+- **Accepted Commit Hash**: `5b46185853075b45f18d618dd385ce853dddcfc8`
+- **Recorded Evidence Boundaries & Qualifications**:
+  1. *Provenance Trust Boundary*: Standalone reducer validates internal consistency of supplied metadata (strictly increasing event positions, structural epoch match, horizon limits, exact body edges); candle coordinator derives authoritative event positions directly from underlying completed candle and MSM/CHOCH event history.
+  2. *Specification vs Implementation Evidence*: Monday / weekly fixture assertions remain specification-level validation; no live calendar or external usage ledger subsystem is implemented in this phase.
+  3. *Batch Failure Scope*: Fresh-batch test verifies preservation of the exposed TJL snapshot upon invalid input without corrupting prior state.
+  4. *Unresolved Receipt Semantics*: Unresolved receipts leave authoritative calculation state frozen, but update received-position metadata and diagnostics.
+  5. *Strategy Limitations*: Existing CHOCH identification-close ($c_1 == p_2$) and ISS reconciliation limitations remain unchanged.
 - **Scope Compliance**: Pure offline TJL calculations. Strictly zero UI, zero chart overlays, zero taps, zero activation engine, zero usage ledger, zero signals, zero order execution, and zero merging to `main`.
+
+---
+
+## 13. Current Milestone: Read-Only TJL Dashboard Integration
+- **Active Branch**: `feature/tjl-dashboard` (created from `5b46185853075b45f18d618dd385ce853dddcfc8`)
+- **Objective**: Integrate the accepted pure offline TJL engine into the Aladeen / TopG read-only dashboard with deterministic browser verification.
+- **Scope Boundary**: Pure read-only dashboard presentation. Strictly zero UI order execution, zero MT5 trading calls, zero zone activations, zero usage ledger, zero tap tracking, zero trade entry signals, zero automated trading, and zero merging into `main`.
+- **Target Deliverables**:
+  1. Route calculations through `TJLCoordinator` via `src/aladeen/strategy/service.py`.
+  2. Visual distinction between labeled zones, current eligible sets, replacement sets, and CHOCH gaps.
+  3. Exact zone geometry (`[UB, H]` / `[L, LB]`) and zero-width price lines.
+  4. Dedicated TJL inspection panel displaying roles, fingerprints, availability, transitions, and unresolved diagnostics.
+  5. Offline integration test suite and controlled Playwright browser verification suite.
 
