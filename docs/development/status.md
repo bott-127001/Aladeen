@@ -3005,50 +3005,68 @@ Last Updated: 2026-11-07 (Milestone 33 Interleaved Chronological Schedules & Spl
 
 ---
 
-## 53. Milestone 33 Closeout — Evidence Reconciliation, Tracked-Path Engine Purity & Case Inventory (HANDOFF-107)
+## 53. Milestone 33 Closeout — Evidence Reconciliation, Tracked-Path Engine Purity & Case Inventory (HANDOFF-108)
 - **Active Branch**: `feature/confirmation-monitor`
-- **Parent Commit**: `b05a391554c73f80652d4dada5310510ba20fbf5` (HANDOFF-106 / Milestone 33 Accepted Baseline)
-- **Accepted Milestone 33 Baseline Commit**: `b05a391554c73f80652d4dada5310510ba20fbf5`
+- **Parent Commit**: `ecf898d4aad3bb7f6efaa6bb9add17a203c16f14` (HANDOFF-107)
+- **Accepted Milestone 33 Baseline Commit**: `b05a391554c73f80652d4dada5310510ba20fbf5` (HANDOFF-106)
 - **Accepted Milestone 32 Baseline Commit**: `3f7de9d7da935b3e05fcc4233a28555796486fb3`
 - **Accepted Milestone 31 Baseline Commit**: `083d8df43c71ed0a56c6b020178dbdfdd3bf23d0`
 - **Accepted Milestone 30 Baseline Commit**: `411f49f884fbcf417a531ad1ac75a52779ce0d7a`
 - **Accepted Milestone 29 Baseline Commit**: `0144ddb8150b4132a7b60d24698105d897514cb2`
 - **Requirements Baseline Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d`
-- **HANDOFF-107 Closeout Items**:
-  1. *Metadata & Evidence Description Reconciliation*:
-     - **Canonical Setup Key Identity**: Formatted strictly via pure `format_candidate_setup_key()` yielding canonical seven-component length-prefixed strings:
-       * CHOCH: `14:FEED_EURUSD_D1:2:D1:5:SET_1:4:TJL1:2:H1:5:CHOCH:15:20261011_100000`
-       * ISS: `14:FEED_EURUSD_D1:2:D1:5:SET_1:4:TJL1:2:H1:3:ISS:15:20261012_210000`
-     - **Envelope Construction**: `ValidatedCandleStreamEnvelope` takes strictly `timeframe` and `candles`; neither `session_id` nor `source_type` are parameters of the envelope. `MatchingContext` explicitly provides `domain_session_id="SESS_01"`.
-     - **ISS Chronological Boundary Schedule Times**:
-       * Day 9 (close `2026-10-11 00:00 UTC`): Pre-formation.
-       * Day 10 (close `2026-10-12 00:00 UTC`): `SET_1` formed.
-       * Boundary 1 (Pre-touch): `2026-10-12 12:00 UTC`. Candles 0..11 stepped. 0 candidates.
-       * Boundary 2 (At touch): `2026-10-12 15:00 UTC` (touch at 14:30 UTC price 1.1825). Candles 12..14 stepped. Record in `PENDING_ACTIVATION`. 0 candidates.
-       * Boundary 3 (Pre-close state): `2026-10-12 20:30 UTC`. Candles 15..19 stepped (completing candle 20 closing at 21:00 UTC NOT stepped). 0 candidates.
-       * Boundary 4 (At confirmation close): Candle 20 closes at `2026-10-12 21:00 UTC` confirming ISS. Evaluated at `2026-10-12 22:00 UTC`. Exactly 1 SELL candidate formed at price 1.1120.
-       * Boundary 5 (Repeated evaluation): Evaluated at `2026-10-12 22:00 UTC`, asserting full dataclass equality `res_repeat == res_b4`.
-  2. *Cancellation-Context Rebuilding and Full-Result Ordering Patches*:
-     - Documented verbatim source snippets from `tests/test_source_candidate_cancellation.py` (rebuilding `MatchingContext` dynamically from `snap_post_out` and `snap_post_in`) and `tests/test_source_candidate_ordering.py` (strictly earlier sequence ref 1001 < 1002, equal sequence ref 1002 == 1002, full `ConfirmationMatchResult` equality across repeated evaluations, and immutability under external caller dictionary mutations).
-  3. *Core Strategy Engine Purity Across Full Repository Tracked Paths*:
-     - Verified zero diff across all tracked strategy engine paths against requirements baseline `3f6689c194c95ca3761833f8831bb8a3f5b4740d`:
-       * `src/aladeen/strategy/engine.py` (MSM Engine)
-       * `src/aladeen/strategy/choch_detector.py`
-       * `src/aladeen/strategy/iss_engine.py`
-       * `src/aladeen/strategy/tjl_coordinator.py`
-       * `src/aladeen/strategy/activation_engine.py`
-       * `src/aladeen/strategy/activation_adapter.py`
-       * `src/aladeen/strategy/types.py`
-       * `src/aladeen/strategy/validator.py`
-  4. *Concise Case Inventory*:
-     - **Source-Reviewed**: CHOCH/ISS interleaved chronological schedules, terminal cancellation non-revival, context rebuilding, rearm transitions, sequence tie-breakers, repeated evaluation equality, and synthetic authority boundaries.
-     - **Author-Executed**: 9/9 focused integration tests in 0.68s, 652/652 offline repository tests in 8.55s, 0 diff across core engines.
-     - **Synthetic-Authority Contracts**: Supplied usage evidence, supplied source resolution, supplied coverage status, supplied sequence domains.
-     - **Still-Unproven Properties**: Live MT5 tick streaming, broker calendars/holidays, live-feed pipeline authority, candidate arbitration/ranking, trade order execution.
-- **Verification Summary**:
-  - Modular integration proof suites: **9 / 9 passed** in 0.68s across all 6 modules.
-  - Full offline repository test suite: **652 / 652 passed** in 8.55s.
-  - Core strategy engine purity: **0 diff** against `3f6689c194c95ca3761833f8831bb8a3f5b4740d` across tracked repository paths.
+- **Evidence Reconciliation from Accepted Source**:
+  1. *Canonical Setup Key Formatting*:
+     - In both accepted chain modules (`tests/test_source_candidate_choch_chain.py` L318-326 and `tests/test_source_candidate_iss_chain.py` L318-326), setup keys are generated via keyword call:
+       ```python
+       exp_setup_key = format_candidate_setup_key(
+           domain_session_id=ctx_b4.domain_session_id,
+           revision_id=ctx_b4.revision_id,
+           activation_id=act_rec_b2.activation_id,
+           source_member_key=act_rec_b2.member_key,
+           confirmation_config_id=evidence.confirmation_config_id,
+           confirmation_candle_id=evidence.confirmation_candle_id,
+           confirmation_close_iso=evidence.close_timestamp.isoformat(),
+       )
+       assert cand.setup_key == exp_setup_key
+       ```
+     - Components are strictly: session ID, revision ID, activation ID, source member key, confirmation configuration ID, confirmation candle ID, and ISO close timestamp.
+  2. *Stream Envelope vs Matching Context*:
+     - `ValidatedCandleStreamEnvelope` is constructed with confirming candle and stream metadata:
+       ```python
+       envelope = ValidatedCandleStreamEnvelope(
+           candle=confirming_candle,
+           symbol="FEED_EURUSD_D1",
+           feed_id="FEED_EURUSD_D1",
+           timeframe="H1",
+           price_basis=PriceBasis.BID,
+           confirmation_config_id="CONF_CFG_01",
+           confirmation_candle_id="CANDLE_09",
+           sequence_domain=DEFAULT_DOMAIN,
+       )
+       ```
+     - Distinctly, session and revision identifiers belong to `MatchingContext` (`domain_session_id="SESS_01"`, `revision_id="REV_01"`).
+  3. *ISS Chronological Schedule (October 11, 2026 Timeline)*:
+     - Source-set availability: October 11, 2026, 00:00 UTC (SET_1 formed).
+     - Pre-touch evaluation: October 11, 2026, 12:00 UTC (candles 0..11 processed; 0 candidates).
+     - Touch: October 11, 2026, 15:00 UTC on member `SET_1` / `TJL2_A_PLUS` at touch price 1.2025 inside `[1.2000, 1.2050]` (candles 12..14 processed; record in `PENDING_ACTIVATION`; 0 candidates).
+     - Pre-close evaluation: October 11, 2026, 20:30 UTC (candles 15..19 processed without completing candle 20; 0 candidates).
+     - Confirmation close: October 11, 2026, 21:00 UTC (candle 20 closes confirming ISS).
+     - Post-close / repeated evaluation: October 11, 2026, 22:00 UTC (1 SELL candidate at 1.1120; full dataclass equality `res_repeat == res_b4`).
+  4. *Exact Test Function Names*:
+     - Cancellation context dynamic rebuilding:
+       * `test_act_02_source_set_replacement_terminal_non_revival` in `tests/test_source_candidate_cancellation.py`
+       * `test_act_03_source_main_choch_invalidation_terminal_non_revival` in `tests/test_source_candidate_cancellation.py`
+     - Ordering, sequence references, and immutability:
+       * `test_equal_time_causal_ordering_matrix` in `tests/test_source_candidate_ordering.py` (ORD-01, ORD-02, ORD-03 equal & strictly earlier sequence ref, ORD-04)
+       * `test_repeated_evaluation_and_input_immutability` in `tests/test_source_candidate_ordering.py` (dataclass equality `assert res1 == res2 == res3` and frozen context immutability)
+  5. *Case Inventory & Verification Categorization*:
+     - **Source-Reviewed**: CHOCH and ISS interleaved chronological schedules at `b05a391554c73f80652d4dada5310510ba20fbf5`.
+     - **Author-Executed (Fresh Execution)**:
+       * 9 / 9 focused integration tests in 0.68s across all 6 modules.
+       * 652 / 652 offline repository tests in 8.55s.
+       * Core strategy engine purity: author-executed `git diff 3f6689c194c95ca3761833f8831bb8a3f5b4740d -- src/aladeen/strategy/engine.py src/aladeen/strategy/choch_detector.py src/aladeen/strategy/iss_engine.py src/aladeen/strategy/tjl_coordinator.py src/aladeen/strategy/activation_engine.py src/aladeen/strategy/activation_adapter.py src/aladeen/strategy/types.py src/aladeen/strategy/validator.py` (0 diff).
+     - **Synthetic-Authority Contracts**: Supplied usage evidence (`UsageEvidenceStatus.UNUSED`), supplied source resolution (`source_resolution_status={...: True}`), supplied coverage (`CoverageStatus.COMPLETE`), supplied sequence domains.
+     - **Still-Unproven Properties**: Live MT5 market-data ingestion, broker-calendar session/holiday boundaries, production live-feed authority, candidate arbitration/ranking, trade order execution.
 - **Safety Boundary Maintained**:
   - Pure offline read-only closeout. Zero MT5 live trading calls, zero order execution, zero account modification.
   - Zero candidate arbitration, zero usage ledger writes, zero final signal publication, zero automated trading.
