@@ -4,19 +4,11 @@ Validates:
 1. Schema, authorities, version, and non-execution disclaimer.
 2. Complete inventory of all 16 required dashboard acceptance scenarios.
 3. Evidence category compliance: strictly one of {"synthetic", "engine-derived", "candle-pipeline-derived"}.
-4. Structural completeness across all 8 required display groups:
-   - Context (G1)
-   - Membership (G2)
-   - Activation (G3)
-   - Evidence gating (G4)
-   - Cancellation (G5)
-   - Rearm controller (G6)
-   - Terminal history (G7)
-   - Synchronization (G8)
-5. Valid domain vocabulary: CoverageStatus values strictly in {"COMPLETE", "INCOMPLETE", "UNCERTAIN"}.
-6. Non-actionability invariant: is_actionable is strictly False across all scenarios.
-7. Strict UTC timestamp normalization and absence of fabricated times.
-8. Disambiguation of coarse timestamps by canonical IDs and sequence references.
+4. Structural completeness across all 8 required display groups (G1-G8).
+5. Valid sequence domain: feed_id and run_id present; domain_id absent.
+6. Valid domain vocabulary: CoverageStatus strictly in {"COMPLETE", "INCOMPLETE", "UNCERTAIN"}.
+7. Non-actionability invariant: is_actionable is strictly False across all scenarios.
+8. Raw domain blocked reason alignment: UNKNOWN_AVAILABILITY_TIMING.
 9. Delineation between frozen authoritative processed bars and latest received bars with canonical banner.
 10. Execution status labeling: "specified; not yet executed through the presentation implementation".
 
@@ -85,15 +77,13 @@ class TestActivationDashboardFixtureIntegrity:
 
     def test_schema_and_metadata(self, fixture_catalog: Dict[str, Any]) -> None:
         """Verifies top-level fixture metadata, authorities, and non-execution disclaimer."""
-        assert fixture_catalog.get("version") == "1.1"
+        assert fixture_catalog.get("version") == "1.2"
         assert len(fixture_catalog.get("authorities", [])) >= 3
 
-        # Verify non-execution disclaimer is explicit
         disclaimer = fixture_catalog.get("disclaimer", "")
         assert "FIXTURE INTEGRITY TEST ONLY" in disclaimer
         assert "Does not claim executable UI integration" in disclaimer
 
-        # Supported categories
         categories = set(fixture_catalog.get("supported_evidence_categories", []))
         assert categories == ALLOWED_CATEGORIES
 
@@ -136,13 +126,20 @@ class TestActivationDashboardFixtureIntegrity:
                 f"Scenario {scenario_id} assertions.is_actionable must be strictly False"
             )
 
-    def test_context_and_timeframe_mappings(self, fixture_catalog: Dict[str, Any]) -> None:
-        """Verifies context parameters and authoritative metadata timeframe mapping."""
+    def test_context_sequence_domain_and_timeframe_mappings(self, fixture_catalog: Dict[str, Any]) -> None:
+        """Verifies sequence domain fields (feed_id, run_id) and timeframe mapping."""
         for scenario_id, data in fixture_catalog["fixtures"].items():
             ctx = data["presentation_inputs"]["context"]
             assert ctx.get("engine_id")
             assert ctx.get("symbol")
             assert ctx.get("source_timeframe")
+
+            # Sequence domain: feed_id and run_id must be explicit; domain_id must NOT be present
+            seq_dom = ctx.get("sequence_domain", {})
+            assert "feed_id" in seq_dom, f"Scenario {scenario_id} missing feed_id in sequence_domain"
+            assert "run_id" in seq_dom, f"Scenario {scenario_id} missing run_id in sequence_domain"
+            assert "domain_id" not in seq_dom, f"Scenario {scenario_id} contains non-domain domain_id"
+
             src_tf = ctx["source_timeframe"]
             conf_tf = ctx.get("confirmation_timeframe")
             expected_conf_tf = TIMEFRAME_CONFIRMATION_MAP.get(src_tf)
@@ -180,10 +177,12 @@ class TestActivationDashboardFixtureIntegrity:
         assert sc3["assertions"]["first_touch_time_preserved"] == "2026-10-02T08:15:00+00:00"
         assert sc3["assertions"]["trigger_observation_id_preserved"] == "OBS_01"
 
-        # Scenario 4: Unknown Usage
+        # Scenario 4: Preserved pending provenance under usage uncertainty
         sc4 = fixtures["dash_act_04_unknown_usage"]
+        assert sc4["assertions"]["has_preserved_pending_provenance"] is True
         assert sc4["assertions"]["usage_evidence_status"] == "UNKNOWN"
-        assert sc4["assertions"]["blocked_reason_present"] is True
+        assert sc4["assertions"]["blocked_reason"] == "USAGE_EVIDENCE_UNCERTAIN_FAIL_CLOSED"
+        assert sc4["assertions"]["initial_unknown_usage_blocks_touch"] is True
 
         # Scenario 5: Coverage Incomplete / Uncertain
         sc5 = fixtures["dash_act_05_incomplete_coverage"]
@@ -191,8 +190,10 @@ class TestActivationDashboardFixtureIntegrity:
         assert sc5["assertions"]["coverage_status"] in ("INCOMPLETE", "UNCERTAIN")
         assert sc5["assertions"]["alternate_coverage_status"] in ("INCOMPLETE", "UNCERTAIN")
 
-        # Scenario 6: Unknown Availability
+        # Scenario 6: Unknown Availability blocks activation with raw domain reason
         sc6 = fixtures["dash_act_06_unknown_availability"]
+        assert sc6["assertions"]["raw_blocked_reason"] == "UNKNOWN_AVAILABILITY_TIMING"
+        assert sc6["expected_view"]["raw_blocked_reason_display"] == "UNKNOWN_AVAILABILITY_TIMING"
         assert sc6["assertions"]["inferred_time_used"] is False
 
         # Scenario 7: Source Cancellation

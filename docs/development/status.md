@@ -1034,3 +1034,38 @@ Last Updated: 2026-11-06 (Activation Engine Pure Offline Milestone Accepted — 
   4. *Core Ambiguities Preserved*: Upstream $c_1 == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
   5. *Branch Boundary*: Committed and pushed strictly on `requirements/activation-dashboard-acceptance`. No merging into `main`.
 
+### HANDOFF-064: Domain Mapping Alignment, Provenance Preservation Invariants, and Non-Truncating Requirements Baseline
+- **Active Branch**: `requirements/activation-dashboard-acceptance`
+- **Immediate Parent Commit**: `eabb813738b77d612e34fa5ef59f23788eb59c03` (HANDOFF-063)
+- **Root Baseline Engine Commit**: `0867c740352297fb43e781fb654706218771d533` (Milestone 25 / HANDOFF-061)
+- **Objective**: Address Perplexity's review of HANDOFF-063:
+  1. Replace non-domain `sequence_domain.domain_id` with explicit domain attributes `feed_id` and `run_id` across matrix, fixtures, and tests.
+  2. Correct Scenario 4 construction and assertions: `UNUSED -> exact touch -> UNKNOWN` preserves pending activation provenance while applying fail-closed gating; add separate assertion proving initial `UNKNOWN` usage blocks touch from creating activations.
+  3. Align Scenario 6 with the raw domain blocked reason `UNKNOWN_AVAILABILITY_TIMING` while separating friendly presentation text (`"Unknown Availability Timing"`).
+  4. Separate missing activation context (`"Awaiting activation context"`), valid context without observations (`"No intraday observations processed for this session"`), and existing evidence with no newly supplied observations. Untouched member with default missing usage defaults to `INACTIVE_INELIGIBLE` (`USAGE_EVIDENCE_UNCERTAIN_FAIL_CLOSED`).
+  5. Replace fabricated `"0.0"` numeric missing bounds with `"Unknown"` or `"—"`; define precision-preserving price formatting.
+  6. Restructure requirements document into a concise, non-truncating format (119 lines) ensuring complete retrieval across all connectors.
+- **Completed Deliverables**:
+  1. [`docs/requirements/activation-dashboard-acceptance.md`](file:///docs/requirements/activation-dashboard-acceptance.md) (119 lines):
+     - Exact domain sequence domain attributes (`feed_id`, `run_id`).
+     - Aligned raw domain blocked reason `UNKNOWN_AVAILABILITY_TIMING` and friendly presentation label.
+     - Delineated context fallback, zero-observations notice, and existing evidence preservation.
+     - Precision-preserving price formatting without fabricated `"0.0"` defaults.
+     - Compact table format covering all 16 scenarios without truncation.
+  2. [`tests/fixtures/activation_dashboard_acceptance.json`](file:///tests/fixtures/activation_dashboard_acceptance.json):
+     - Version 1.2 with explicit `feed_id` and `run_id` in sequence domain.
+     - Corrected Scenario 4 construction and preserved pending provenance assertions.
+     - Raw blocked reason `UNKNOWN_AVAILABILITY_TIMING` in Scenario 6.
+  3. [`tests/test_activation_dashboard_fixture_integrity.py`](file:///tests/test_activation_dashboard_fixture_integrity.py) (215 lines):
+     - 8 automated integrity tests validating schema, domain feed/run IDs, execution status, domain coverage enum, canonical banner, timestamp/sequence separation, and immutability assertions.
+- **Verification Summary**:
+  - Activation dashboard fixture integrity suite: **8 / 8 passed** in 0.52s (`pytest tests/test_activation_dashboard_fixture_integrity.py -q`).
+  - Full offline repository test suite: **517 / 517 passed** in 19.26s (`pytest -q tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py`).
+  - Runtime modification audit: Exactly zero runtime files modified (`git diff src/` is empty).
+- **Scope Compliance & Standing Invariants**:
+  1. *Requirements Phase Only*: Zero runtime modifications to strategy engine, adapter, or UI files.
+  2. *Offline Only*: Strictly zero UI order execution, zero MT5 trading calls, zero live account modification.
+  3. *Downstream Invariant*: Strictly zero usage ledger implementation, zero confirmation arbitration, zero trade entry signals.
+  4. *Core Ambiguities Preserved*: Upstream $c_1 == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
+  5. *Branch Boundary*: Committed and pushed strictly on `requirements/activation-dashboard-acceptance`. No merging into `main`.
+
