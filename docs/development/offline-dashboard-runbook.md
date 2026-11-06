@@ -136,7 +136,7 @@ To ensure fully reproducible and verifiable execution, the reproduction suite is
 # Default execution against retained reproduction worktree
 python scripts/run_reproduction_m29.py
 
-# Injected failure propagation gate verification (runs 5-case failure & CLI suite)
+# Injected failure propagation gate verification (runs comprehensive 8-scenario failure & CLI suite)
 python scripts/run_reproduction_m29.py --test-failure-gate
 
 # Parameterized paths for alternative environments
@@ -144,9 +144,9 @@ python scripts/run_reproduction_m29.py --worktree <path_to_worktree> --python-ex
 ```
 
 #### Fail-Closed Architecture, Evaluator & Retained Failure Evidence:
-1. **Failure Propagation & Non-Empty Input Enforcement**: The runner monitors all step return codes and exits immediately with nonzero status (`sys.exit(1)`) if any required test or provenance check fails. Evaluator requires non-empty inputs and expected inventory of steps/checks.
+1. **Failure Propagation & Non-Empty Input Enforcement**: The runner monitors all step return codes and exits immediately with nonzero status (`sys.exit(1)`) if any required test or provenance check fails. Evaluator rejects empty inputs, duplicate step records, and malformed exit codes. Step requiredness is derived authoritatively from `MANDATORY_STEP_NAMES` (caller metadata cannot override).
 2. **Observed Browser Provenance Required**: Reproduction completeness requires five explicit checks: `valid_checkout_hash`, `clean_prerun_worktree`, `valid_python_interpreter`, `editable_install_matches_worktree`, and `observed_browser_binary`.
-3. **Controlled CLI Production Failure Testing**: `--test-failure-gate` exercises the production evaluation path by executing 5 failure scenarios, including a real CLI subprocess call with `--inject-failing-step` that produces nonzero exit code 1, writes a real failure manifest, and retains:
+3. **Controlled CLI Production Failure Testing**: `--test-failure-gate` exercises the shared production execution path (`run_step()`) across 8 failure scenarios, including a real CLI subprocess call with `--inject-failing-step` that produces nonzero exit code 1, writes a real failure manifest explicitly labeled as `SIMULATED_FAILURE_INJECTION_TEST` (`is_simulation_negative_control: true`, `browser_binary_launched: "NOT_LAUNCHED_IN_FAILURE_SIMULATION"`), and retains:
    - Child execution transcript: [`docs/development/evidence/reproduction_m29/controlled_cli_failure.log`](evidence/reproduction_m29/controlled_cli_failure.log).
    - Retained failure manifest: [`docs/development/evidence/reproduction_m29/controlled_cli_failure_evidence/provenance_manifest.json`](evidence/reproduction_m29/controlled_cli_failure_evidence/provenance_manifest.json).
    - Complete failure test summary: [`docs/development/evidence/reproduction_m29/failure_injection_test_results.json`](evidence/reproduction_m29/failure_injection_test_results.json).
@@ -158,16 +158,24 @@ To prevent vacuous validation, the reference validator directly parses Section 2
 # Run full matrix reference validation against real pytest collection
 python scripts/validate_matrix_references.py
 
-# Run simulated failure CLI negative control
-python scripts/validate_matrix_references.py --test-failing-cli
+# Parameterized matrix path and evidence output directory
+python scripts/validate_matrix_references.py --matrix <path_to_matrix.md> --output-dir <path_to_evidence_dir>
 ```
 
 #### Verification Rules & Negative Controls:
 1. **Strict 38-Row Inventory Enforcement**: Directly parses all 38 requirement rows (`MSM-01`..`04`, `CHOCH-01`..`04`, `ISS-01`..`04`, `TJL-01`..`04`, `ACT-G1`..`G8`, `ACT-SC13`, `ACT-MTF`, `SES-01`..`05`, `VIEW-01`..`04`, `SEC-01`..`03`). Any missing, duplicate, or empty row triggers an immediate validation failure and nonzero exit.
-2. **Required Evidence for Accepted Rows**: Every row marked `Accepted` must contain at least one valid implementation code span and at least one valid verification code span.
+2. **Required Evidence for Accepted Rows**: Every row marked `Accepted` must contain at least one valid implementation code span and at least one valid verification code span, verified via the shared `evaluate_matrix_row()` engine.
 3. **Exact Pytest Node Collection vs. Explicit Browser Helpers**: Pytest test references must strictly match the real collected test node set (544 nodes) from `pytest --collect-only -q` (retained in [`docs/development/evidence/reproduction_m29/pytest_collection.log`](evidence/reproduction_m29/pytest_collection.log)). Reflection is strictly restricted to explicitly designated browser runner functions (`EXPLICIT_ALLOWED_BROWSER_HELPERS`); uncollected `test_*` functions cannot be relabeled as browser helpers.
 4. **Nonzero Exit on Failure**: If any row or negative control fails, the script retains the reports and exits immediately with code 1.
 5. **Eight Passing Negative Controls**:
+   - `empty_matrix_rejected`: Empty matrix correctly rejected.
+   - `missing_row_rejected`: Missing requirement row correctly rejected.
+   - `duplicate_row_rejected`: Duplicate requirement ID correctly rejected.
+   - `accepted_row_without_evidence_rejected`: Evaluated via `evaluate_matrix_row()`; missing evidence spans correctly marked `INVALID`.
+   - `uncollected_test_helper_reflection_rejected`: Uncollected test function reflection strictly rejected.
+   - `wrong_class_node_rejected`: Wrong-class node strictly rejected.
+   - `collection_error_detection`: Nonzero pytest collection exit code detected and aborted.
+   - `failing_cli_produces_nonzero_exit`: Validator CLI executed against temporary invalid matrix (`--matrix`); verifies nonzero exit code 1, `VALIDATION_FAILED` status, and retains [`docs/development/evidence/reproduction_m29/cli_negative_test_validation.json`](evidence/reproduction_m29/cli_negative_test_validation.json).
    - `empty_matrix_rejected`: Empty matrix correctly rejected.
    - `missing_row_rejected`: Missing requirement row correctly rejected.
    - `duplicate_row_rejected`: Duplicate requirement ID correctly rejected.

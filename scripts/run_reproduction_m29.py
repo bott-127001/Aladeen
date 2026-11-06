@@ -18,9 +18,9 @@ import platform
 import subprocess
 import sys
 import time
-from typing import Any, Dict, List, Set, Tuple
+from typing import Any, Callable, Dict, List, Set, Tuple
 
-EXPECTED_PROVENANCE_KEYS: Set[str] = {
+MANDATORY_PROVENANCE_KEYS: Set[str] = {
     "valid_checkout_hash",
     "clean_prerun_worktree",
     "valid_python_interpreter",
@@ -28,7 +28,7 @@ EXPECTED_PROVENANCE_KEYS: Set[str] = {
     "observed_browser_binary",
 }
 
-EXPECTED_STEP_NAMES: List[str] = [
+MANDATORY_STEP_NAMES: List[str] = [
     "Package Inventory (pip list)",
     "Focused Activation & App Tests",
     "Full Offline Repository Suite",
@@ -61,15 +61,16 @@ def run_step(
     cmd: List[str],
     cwd: Path,
     log_path: Path,
-    required: bool = True
+    required: bool = True,
+    executor: Callable[[List[str], Path], Tuple[int, str, str, float]] = capture_command
 ) -> Dict[str, Any]:
-    """Run an individual execution step, write durable log, and return step record."""
+    """Run an individual execution step through shared logging path and return step record."""
     print(f"=== Running: {name} ===")
     print(f"   Command: {' '.join(cmd)}")
     print(f"   Working Dir: {cwd}")
-    rc, stdout, stderr, duration = capture_command(cmd, cwd)
+    rc, stdout, stderr, duration = executor(cmd, cwd)
 
-    # Write durable log
+    # Write durable log through shared path
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with open(log_path, "w", encoding="utf-8") as f:
         f.write(f"# Step: {name}\n")
@@ -105,12 +106,17 @@ def evaluate_reproduction_results(
 ) -> Tuple[str, str, str, int]:
     """Evaluates test results and provenance completeness separately.
 
-    Fail-closed: requires non-empty inputs and expected inventory of checks and steps.
+    Fail-closed:
+    - Rejects empty evaluation inputs.
+    - Rejects duplicate step records.
+    - Rejects malformed step records (missing or non-int exit code).
+    - Derives requiredness authoritatively from MANDATORY_STEP_NAMES (caller metadata cannot override).
+    - Requires all MANDATORY_PROVENANCE_KEYS.
 
     Returns:
         (overall_status, tests_status, provenance_status, exit_code)
     """
-    # 1. Input emptiness check
+    # 1. Reject empty inputs
     if not provenance_checks or not steps_records:
         return (
             "FAILED_EMPTY_EVALUATION_INPUT",
@@ -119,8 +125,56 @@ def evaluate_reproduction_results(
             1
         )
 
-    # 2. Check for missing required provenance keys
-    missing_prov_keys = EXPECTED_PROVENANCE_KEYS - set(provenance_checks.keys())
+    # 2. Check for duplicate step names
+    recorded_names = [s.get("name") for s in steps_records]
+    if len(recorded_names) != len(set(recorded_names)):
+        return (
+            "FAILED_DUPLICATE_STEP_NAMES",
+            "DUPLICATE_STEPS_DETECTED",
+            "PROVENANCE_EVALUATION_HALTED",
+            1
+        )
+
+    # 3. Check for malformed step records
+    for s in steps_records:
+        rc = s.get("exit_code")
+        if rc is None or not isinstance(rc, int):
+            return (
+                "FAILED_MALFORMED_STEP_RECORD",
+                f"MALFORMED_EXIT_CODE_IN_STEP ({s.get('name')})",
+                "PROVENANCE_EVALUATION_HALTED",
+                1
+            )
+
+    # 4. Check for missing mandatory steps
+    recorded_names_set = set(recorded_names)
+    missing_mandatory = [name for name in MANDATORY_STEP_NAMES if name not in recorded_names_set]
+    if missing_mandatory:
+        tests_status = f"REQUIRED_STEPS_MISSING ({', '.join(missing_mandatory)})"
+        return "REQUIRED_STEPS_MISSING", tests_status, "PROVENANCE_NOT_EVALUATED", 1
+
+    # 5. Check for mandatory step failures (authoritative from MANDATORY_STEP_NAMES)
+    failed_mandatory = [
+        s["name"] for s in steps_records
+        if s["name"] in MANDATORY_STEP_NAMES and s["exit_code"] != 0
+    ]
+
+    # Optional extra steps may fail without tripping mandatory suite
+    failed_optional = [
+        s["name"] for s in steps_records
+        if s["name"] not in MANDATORY_STEP_NAMES and s["exit_code"] != 0 and s.get("required", False)
+    ]
+
+    tests_failed = bool(failed_mandatory or failed_optional)
+    if failed_mandatory:
+        tests_status = f"MANDATORY_STEPS_FAILED ({', '.join(failed_mandatory)})"
+    elif failed_optional:
+        tests_status = f"OPTIONAL_REQUIRED_STEPS_FAILED ({', '.join(failed_optional)})"
+    else:
+        tests_status = "ALL_TESTS_PASSED"
+
+    # 6. Evaluate provenance completeness
+    missing_prov_keys = MANDATORY_PROVENANCE_KEYS - set(provenance_checks.keys())
     failed_prov_checks = [k for k, v in provenance_checks.items() if not v]
     prov_failed = bool(missing_prov_keys or failed_prov_checks)
 
@@ -131,24 +185,11 @@ def evaluate_reproduction_results(
     else:
         provenance_status = "CLEAN_PROVENANCE_VERIFIED"
 
-    # 3. Check for missing expected required steps
-    recorded_step_names = {s.get("name") for s in steps_records}
-    missing_steps = [name for name in EXPECTED_STEP_NAMES if name not in recorded_step_names]
-    failed_steps = [s["name"] for s in steps_records if s.get("exit_code", 1) != 0 and s.get("required", True)]
-    required_failed = bool(missing_steps or failed_steps)
-
-    if missing_steps:
-        tests_status = f"REQUIRED_STEPS_MISSING ({', '.join(missing_steps)})"
-    elif failed_steps:
-        tests_status = f"REQUIRED_STEPS_FAILED ({', '.join(failed_steps)})"
-    else:
-        tests_status = "ALL_TESTS_PASSED"
-
-    # 4. Overall aggregate verdict
-    if not required_failed and not prov_failed:
+    # 7. Aggregate overall verdict
+    if not tests_failed and not prov_failed:
         overall_status = "ALL_STEPS_PASSED_AND_CLEAN_PROVENANCE_VERIFIED"
         exit_code = 0
-    elif required_failed:
+    elif tests_failed:
         overall_status = "REQUIRED_STEP_FAILED"
         exit_code = 1
     else:
@@ -159,8 +200,8 @@ def evaluate_reproduction_results(
 
 
 def test_failure_propagation(output_dir: Path) -> bool:
-    """Comprehensive test verifying evaluator, provenance gating, and controlled CLI failure propagation."""
-    print("\n--- RUNNING INJECTED FAILURE PROPAGATION & CLI SUITE ---")
+    """Comprehensive test verifying authoritative step evaluation, provenance gating, and controlled CLI failure."""
+    print("\n--- RUNNING INJECTED FAILURE PROPAGATION & CONTROLLED CLI SUITE ---")
     results = {}
 
     clean_prov = {
@@ -173,55 +214,79 @@ def test_failure_propagation(output_dir: Path) -> bool:
 
     full_valid_steps = [
         {"name": name, "exit_code": 0, "required": True}
-        for name in EXPECTED_STEP_NAMES
+        for name in MANDATORY_STEP_NAMES
     ]
 
-    # Case 0: Empty evaluation input produces nonzero failure
+    # Case 0: Empty evaluation input rejected fail-closed
     st0, ts0, ps0, rc0 = evaluate_reproduction_results({}, [])
     assert rc0 != 0 and "EMPTY" in st0, "Case 0 failed: empty input passed vacuously!"
     results["case_0_empty_input_rejected"] = {"status": st0, "exit_code": rc0, "passed": True}
     print("   ✓ Case 0: Empty input rejected fail-closed (exit code 1).")
 
-    # Case 1: Required step failure produces nonzero status
+    # Case 1: Mandatory step failing with required=False cannot override authoritative requirement
     steps_c1 = [
         {"name": "Package Inventory (pip list)", "exit_code": 0, "required": True},
-        {"name": "Focused Activation & App Tests", "exit_code": 2, "required": True},
+        {"name": "Focused Activation & App Tests", "exit_code": 2, "required": False}, # caller attempts override
         {"name": "Full Offline Repository Suite", "exit_code": 0, "required": True},
         {"name": "Controlled Activation Browser Runner", "exit_code": 0, "required": True},
         {"name": "Post-Run Git Status", "exit_code": 0, "required": True},
     ]
     st1, ts1, ps1, rc1 = evaluate_reproduction_results(clean_prov, steps_c1)
-    assert rc1 != 0 and st1 == "REQUIRED_STEP_FAILED", "Case 1 failed!"
-    results["case_1_required_step_failure"] = {"status": st1, "exit_code": rc1, "passed": True}
-    print("   ✓ Case 1: Injected required-step failure successfully produces nonzero exit code.")
+    assert rc1 != 0 and st1 == "REQUIRED_STEP_FAILED", "Case 1 failed: caller overridden required flag bypassed failure!"
+    results["case_1_mandatory_step_caller_override_rejected"] = {"status": st1, "exit_code": rc1, "passed": True}
+    print("   ✓ Case 1: Mandatory step failure with caller metadata required=False correctly fails aggregate.")
 
-    # Case 2: Optional step failure passes overall gate per policy
+    # Case 2: Duplicate mandatory-step names rejected
     steps_c2 = list(full_valid_steps)
-    steps_c2.append({"name": "Optional Diagnostic Step", "exit_code": 1, "required": False})
+    steps_c2.append({"name": "Post-Run Git Status", "exit_code": 0, "required": True})
     st2, ts2, ps2, rc2 = evaluate_reproduction_results(clean_prov, steps_c2)
-    assert rc2 == 0 and st2 == "ALL_STEPS_PASSED_AND_CLEAN_PROVENANCE_VERIFIED", "Case 2 failed!"
-    results["case_2_optional_step_failure"] = {"status": st2, "exit_code": rc2, "passed": True}
-    print("   ✓ Case 2: Injected optional-step failure follows documented policy (exit code 0).")
+    assert rc2 != 0 and "DUPLICATE" in st2, "Case 2 failed: duplicate step allowed!"
+    results["case_2_duplicate_steps_rejected"] = {"status": st2, "exit_code": rc2, "passed": True}
+    print("   ✓ Case 2: Duplicate mandatory-step names strictly rejected (exit code 1).")
 
-    # Case 3: Missing browser observation trips provenance gate
+    # Case 3: Missing exit code in step record rejected
+    steps_c3 = [
+        {"name": "Package Inventory (pip list)", "exit_code": 0, "required": True},
+        {"name": "Focused Activation & App Tests", "exit_code": None, "required": True}, # malformed
+        {"name": "Full Offline Repository Suite", "exit_code": 0, "required": True},
+        {"name": "Controlled Activation Browser Runner", "exit_code": 0, "required": True},
+        {"name": "Post-Run Git Status", "exit_code": 0, "required": True},
+    ]
+    st3, ts3, ps3, rc3 = evaluate_reproduction_results(clean_prov, steps_c3)
+    assert rc3 != 0 and "MALFORMED" in st3, "Case 3 failed: malformed exit code allowed!"
+    results["case_3_malformed_step_exit_code_rejected"] = {"status": st3, "exit_code": rc3, "passed": True}
+    print("   ✓ Case 3: Missing or non-int exit code in step record strictly rejected (exit code 1).")
+
+    # Case 4: Missing mandatory step rejected
+    steps_c4 = [
+        {"name": "Package Inventory (pip list)", "exit_code": 0, "required": True},
+        {"name": "Focused Activation & App Tests", "exit_code": 0, "required": True},
+        # Missing Full Offline Repository Suite
+        {"name": "Controlled Activation Browser Runner", "exit_code": 0, "required": True},
+        {"name": "Post-Run Git Status", "exit_code": 0, "required": True},
+    ]
+    st4, ts4, ps4, rc4 = evaluate_reproduction_results(clean_prov, steps_c4)
+    assert rc4 != 0 and "MISSING" in st4, "Case 4 failed: missing mandatory step passed!"
+    results["case_4_missing_mandatory_step_rejected"] = {"status": st4, "exit_code": rc4, "passed": True}
+    print("   ✓ Case 4: Missing mandatory step name strictly rejected (exit code 1).")
+
+    # Case 5: Unobserved browser binary trips provenance gate
     unobserved_browser_prov = dict(clean_prov)
     unobserved_browser_prov["observed_browser_binary"] = False
-    st3, ts3, ps3, rc3 = evaluate_reproduction_results(unobserved_browser_prov, full_valid_steps)
-    assert rc3 != 0 and st3 == "TESTS_PASSED_BUT_PROVENANCE_INCOMPLETE_OR_DIRTY", "Case 3 failed!"
-    results["case_3_unobserved_browser_provenance_failure"] = {"status": st3, "exit_code": rc3, "passed": True}
-    print("   ✓ Case 3: Unobserved browser binary fails reproduction completeness gate (exit code 1).")
+    st5, ts5, ps5, rc5 = evaluate_reproduction_results(unobserved_browser_prov, full_valid_steps)
+    assert rc5 != 0 and st5 == "TESTS_PASSED_BUT_PROVENANCE_INCOMPLETE_OR_DIRTY", "Case 5 failed!"
+    results["case_5_unobserved_browser_provenance_failure"] = {"status": st5, "exit_code": rc5, "passed": True}
+    print("   ✓ Case 5: Unobserved browser binary fails reproduction completeness gate (exit code 1).")
 
-    # Case 4: Missing expected provenance key fails gate
-    incomplete_keys_prov = {
-        "valid_checkout_hash": True,
-        "clean_prerun_worktree": True,
-    }
-    st4, ts4, ps4, rc4 = evaluate_reproduction_results(incomplete_keys_prov, full_valid_steps)
-    assert rc4 != 0 and st4 == "TESTS_PASSED_BUT_PROVENANCE_INCOMPLETE_OR_DIRTY", "Case 4 failed!"
-    results["case_4_missing_provenance_key_failure"] = {"status": st4, "exit_code": rc4, "passed": True}
-    print("   ✓ Case 4: Incomplete provenance key set fails reproduction gate (exit code 1).")
+    # Case 6: Optional extra diagnostic step failure passes per documented policy
+    steps_c6 = list(full_valid_steps)
+    steps_c6.append({"name": "Optional Benchmark Diagnostic", "exit_code": 1, "required": False})
+    st6, ts6, ps6, rc6 = evaluate_reproduction_results(clean_prov, steps_c6)
+    assert rc6 == 0 and st6 == "ALL_STEPS_PASSED_AND_CLEAN_PROVENANCE_VERIFIED", "Case 6 failed!"
+    results["case_6_optional_step_failure_passes"] = {"status": st6, "exit_code": rc6, "passed": True}
+    print("   ✓ Case 6: Optional extra diagnostic step failure follows policy (exit code 0).")
 
-    # Case 5: Controlled production CLI failure execution & artifact retention
+    # Case 7: Controlled production CLI failure execution & artifact retention
     controlled_failure_dir = output_dir / "controlled_cli_failure_evidence"
     controlled_failure_dir.mkdir(parents=True, exist_ok=True)
     cli_cmd = [
@@ -248,20 +313,24 @@ def test_failure_propagation(output_dir: Path) -> bool:
     assert cli_rc != 0, f"Expected CLI to exit nonzero on injected failure, got {cli_rc}!"
     assert failure_manifest_path.exists(), f"Expected failure manifest at {failure_manifest_path}!"
 
-    # Verify manifest recorded failure verdict
+    # Verify manifest is explicitly labeled simulation/failure-injection and records failure verdict
     with open(failure_manifest_path, "r", encoding="utf-8") as f:
         manifest_data = json.load(f)
+    assert manifest_data.get("is_simulation_negative_control") is True, "Manifest must be explicitly labeled as simulation!"
     assert manifest_data.get("aggregate_result") == "REQUIRED_STEP_FAILED", f"Unexpected manifest verdict: {manifest_data.get('aggregate_result')}!"
+    assert manifest_data["tested_environment"]["browser_binary_launched"] == "NOT_LAUNCHED_IN_FAILURE_SIMULATION", "Simulation must not claim browser launch!"
 
-    results["case_5_controlled_cli_production_failure"] = {
+    results["case_7_controlled_cli_production_failure"] = {
         "command": cli_cmd,
         "exit_code": cli_rc,
         "retained_child_log": str(child_log_path.name),
         "retained_failure_manifest": str(failure_manifest_path.name),
-        "manifest_aggregate_result": manifest_data.get("aggregate_result"),
+        "manifest_type": manifest_data.get("manifest_type"),
+        "is_simulation_negative_control": manifest_data.get("is_simulation_negative_control"),
+        "aggregate_result": manifest_data.get("aggregate_result"),
         "passed": True
     }
-    print(f"   ✓ Case 5: Controlled production CLI failure properly exited with code {cli_rc} and retained failure manifest.")
+    print(f"   ✓ Case 7: Controlled production CLI failure properly exited with code {cli_rc} and retained explicitly labeled simulation manifest.")
 
     # Retain complete failure injection test manifest
     manifest_path = output_dir / "failure_injection_test_results.json"
@@ -360,10 +429,8 @@ def main() -> None:
         if line.startswith("Editable project location:"):
             editable_location = line.split(":", 1)[1].strip()
 
-    # Dynamic platform inspection
     detected_os = f"{platform.system()} {platform.release()} (version {platform.version()}) {platform.machine()}"
 
-    # Evaluate explicit provenance requirements
     is_valid_hash = (rc_rev == 0 and len(checkout_hash) == 40 and all(c in "0123456789abcdef" for c in checkout_hash.lower()))
     is_clean_worktree = (rc_stat == 0 and pre_status == "")
     is_valid_interpreter = (rc_ver == 0 and python_version != "UNKNOWN")
@@ -376,127 +443,92 @@ def main() -> None:
     except Exception:
         is_editable_match = False
 
-    # Execution steps
+    # Execution steps through shared logging path
     steps_records: List[Dict[str, Any]] = []
 
+    # Step 1: Package inventory (pip list)
+    steps_records.append(
+        run_step(
+            "Package Inventory (pip list)",
+            [str(python_exe), "-m", "pip", "list"],
+            worktree,
+            output_dir / "01_pip_list.txt",
+            required=True
+        )
+    )
+
+    # Step 2: Focused activation & app tests (or injected failing step)
     if args.inject_failing_step:
-        # Controlled failure injection mode for CLI testing
-        print("\n[TEST MODE] Injecting controlled failing step into production pipeline...")
-        steps_records.append({
-            "name": "Package Inventory (pip list)",
-            "command": [str(python_exe), "-m", "pip", "list"],
-            "working_directory": str(worktree),
-            "exit_code": 0,
-            "duration_seconds": 0.1,
-            "status": "PASSED",
-            "required": True,
-            "log_file": "01_pip_list.txt"
-        })
-        steps_records.append({
-            "name": "Focused Activation & App Tests",
-            "command": [str(python_exe), "-m", "pytest", "mock_failing_test"],
-            "working_directory": str(worktree),
-            "exit_code": 2,
-            "duration_seconds": 0.2,
-            "status": "FAILED",
-            "required": True,
-            "log_file": "02_focused_tests.log"
-        })
-        steps_records.append({
-            "name": "Full Offline Repository Suite",
-            "command": [str(python_exe), "-m", "pytest", "-q", "tests/"],
-            "working_directory": str(worktree),
-            "exit_code": 0,
-            "duration_seconds": 0.1,
-            "status": "PASSED",
-            "required": True,
-            "log_file": "03_full_offline_suite.log"
-        })
-        steps_records.append({
-            "name": "Controlled Activation Browser Runner",
-            "command": [str(python_exe), "-u", "tests/activation_browser_runner.py"],
-            "working_directory": str(worktree),
-            "exit_code": 0,
-            "duration_seconds": 0.1,
-            "status": "PASSED",
-            "required": True,
-            "log_file": "04_browser_runner.log"
-        })
-        steps_records.append({
-            "name": "Post-Run Git Status",
-            "command": ["git", "status"],
-            "working_directory": str(worktree),
-            "exit_code": 0,
-            "duration_seconds": 0.05,
-            "status": "PASSED",
-            "required": True,
-            "log_file": "05_git_status_post_browser_run.txt"
-        })
-        browser_version = "Chromium 156.0.8078.4"
+        print("\n[TEST MODE] Executing injected failing subprocess through shared run_step path...")
+        step2_cmd = [str(python_exe), "-c", "import sys; print('Simulated injected test failure'); sys.exit(2)"]
     else:
-        # Step 1: Package inventory (pip list)
-        steps_records.append(
-            run_step(
-                "Package Inventory (pip list)",
-                [str(python_exe), "-m", "pip", "list"],
-                worktree,
-                output_dir / "01_pip_list.txt",
-                required=True
-            )
-        )
+        step2_cmd = [str(python_exe), "-m", "pytest", "tests/test_activation_dashboard_integration.py", "tests/test_app.py", "-v"]
 
-        # Step 2: Focused activation & app tests
-        steps_records.append(
-            run_step(
-                "Focused Activation & App Tests",
-                [str(python_exe), "-m", "pytest", "tests/test_activation_dashboard_integration.py", "tests/test_app.py", "-v"],
-                worktree,
-                output_dir / "02_focused_tests.log",
-                required=True
-            )
+    steps_records.append(
+        run_step(
+            "Focused Activation & App Tests",
+            step2_cmd,
+            worktree,
+            output_dir / "02_focused_tests.log",
+            required=True
         )
+    )
 
-        # Step 3: Full offline test suite
-        steps_records.append(
-            run_step(
-                "Full Offline Repository Suite",
-                [
-                    str(python_exe), "-m", "pytest", "-q", "tests/",
-                    "--ignore=tests/test_tjl_browser_controlled.py",
-                    "--ignore=tests/test_iss_browser_controlled.py",
-                    "--ignore=tests/test_activation_browser_controlled.py",
-                    "--ignore=tests/activation_browser_runner.py",
-                    "--ignore=tests/activation_browser_harness.py",
-                ],
-                worktree,
-                output_dir / "03_full_offline_suite.log",
-                required=True
-            )
+    # Step 3: Full offline test suite
+    if args.inject_failing_step:
+        step3_cmd = [str(python_exe), "-c", "print('Offline suite skipped in failure test')"]
+    else:
+        step3_cmd = [
+            str(python_exe), "-m", "pytest", "-q", "tests/",
+            "--ignore=tests/test_tjl_browser_controlled.py",
+            "--ignore=tests/test_iss_browser_controlled.py",
+            "--ignore=tests/test_activation_browser_controlled.py",
+            "--ignore=tests/activation_browser_runner.py",
+            "--ignore=tests/activation_browser_harness.py",
+        ]
+
+    steps_records.append(
+        run_step(
+            "Full Offline Repository Suite",
+            step3_cmd,
+            worktree,
+            output_dir / "03_full_offline_suite.log",
+            required=True
         )
+    )
 
-        # Step 4: Controlled browser validation runner
-        steps_records.append(
-            run_step(
-                "Controlled Activation Browser Runner",
-                [str(python_exe), "-u", "tests/activation_browser_runner.py"],
-                worktree,
-                output_dir / "04_browser_runner.log",
-                required=True
-            )
+    # Step 4: Controlled browser validation runner
+    if args.inject_failing_step:
+        step4_cmd = [str(python_exe), "-c", "print('Browser runner skipped in failure test')"]
+    else:
+        step4_cmd = [str(python_exe), "-u", "tests/activation_browser_runner.py"]
+
+    steps_records.append(
+        run_step(
+            "Controlled Activation Browser Runner",
+            step4_cmd,
+            worktree,
+            output_dir / "04_browser_runner.log",
+            required=True
         )
+    )
 
-        # Step 5: Post-run git status
-        steps_records.append(
-            run_step(
-                "Post-Run Git Status",
-                ["git", "status"],
-                worktree,
-                output_dir / "05_git_status_post_browser_run.txt",
-                required=True
-            )
+    # Step 5: Post-run git status
+    steps_records.append(
+        run_step(
+            "Post-Run Git Status",
+            ["git", "status"],
+            worktree,
+            output_dir / "05_git_status_post_browser_run.txt",
+            required=True
         )
+    )
 
-        # Extract browser version dynamically without hardcoded tested-looking default
+    # Extract browser version dynamically without fabricating launch in simulation
+    if args.inject_failing_step:
+        browser_version = "NOT_LAUNCHED_IN_FAILURE_SIMULATION"
+        is_browser_observed = False
+    else:
         browser_version = "UNKNOWN / NOT_OBSERVED"
         log_04 = output_dir / "04_browser_runner.log"
         if log_04.exists():
@@ -504,8 +536,7 @@ def main() -> None:
                 for line in f:
                     if "Browser launched:" in line:
                         browser_version = line.split("Browser launched:", 1)[1].strip()
-
-    is_browser_observed = (browser_version != "UNKNOWN / NOT_OBSERVED" and len(browser_version.strip()) > 0)
+        is_browser_observed = (browser_version != "UNKNOWN / NOT_OBSERVED" and len(browser_version.strip()) > 0)
 
     provenance_checks = {
         "valid_checkout_hash": is_valid_hash,
@@ -529,8 +560,10 @@ def main() -> None:
 
     # Build provenance manifest
     manifest: Dict[str, Any] = {
-        "manifest_version": "1.2",
+        "manifest_version": "1.3",
         "milestone": "Milestone 29 — Read-Only Dashboard Release-Readiness Audit and Reproducible Offline Runbook",
+        "manifest_type": "SIMULATED_FAILURE_INJECTION_TEST" if args.inject_failing_step else "OBSERVED_CLEAN_REPRODUCTION",
+        "is_simulation_negative_control": bool(args.inject_failing_step),
         "timestamp_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "tested_environment": {
             "operating_system": detected_os,
@@ -567,6 +600,8 @@ def main() -> None:
     manifest_md_path = output_dir / "provenance_manifest.md"
     with open(manifest_md_path, "w", encoding="utf-8") as f:
         f.write("# Durable Reproduction Provenance Manifest — Milestone 29\n\n")
+        f.write(f"**Manifest Type**: `{manifest['manifest_type']}`  \n")
+        f.write(f"**Simulation Control**: `{manifest['is_simulation_negative_control']}`  \n")
         f.write(f"**Timestamp (UTC)**: `{manifest['timestamp_utc']}`  \n")
         f.write(f"**Checkout Commit**: `{manifest['tested_environment']['checkout_commit']}`  \n")
         f.write(f"**Tests Status**: **{manifest['tests_execution']['status']}**  \n")
@@ -601,8 +636,9 @@ def main() -> None:
 
     print("\n" + "=" * 80)
     print(f"REPRODUCTION EVALUATION COMPLETED: {overall_status} (Exit Code: {exit_code})")
-    print(f"Tests:      {tests_status}")
-    print(f"Provenance: {prov_status}")
+    print(f"Manifest Type: {manifest['manifest_type']} (Simulation: {manifest['is_simulation_negative_control']})")
+    print(f"Tests:         {tests_status}")
+    print(f"Provenance:    {prov_status}")
     print(f"Manifest written to:\n- {manifest_json_path}\n- {manifest_md_path}")
     print("=" * 80)
 

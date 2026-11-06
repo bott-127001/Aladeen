@@ -4,27 +4,37 @@
     "exit_code": 1,
     "passed": true
   },
-  "case_1_required_step_failure": {
+  "case_1_mandatory_step_caller_override_rejected": {
     "status": "REQUIRED_STEP_FAILED",
     "exit_code": 1,
     "passed": true
   },
-  "case_2_optional_step_failure": {
+  "case_2_duplicate_steps_rejected": {
+    "status": "FAILED_DUPLICATE_STEP_NAMES",
+    "exit_code": 1,
+    "passed": true
+  },
+  "case_3_malformed_step_exit_code_rejected": {
+    "status": "FAILED_MALFORMED_STEP_RECORD",
+    "exit_code": 1,
+    "passed": true
+  },
+  "case_4_missing_mandatory_step_rejected": {
+    "status": "REQUIRED_STEPS_MISSING",
+    "exit_code": 1,
+    "passed": true
+  },
+  "case_5_unobserved_browser_provenance_failure": {
+    "status": "TESTS_PASSED_BUT_PROVENANCE_INCOMPLETE_OR_DIRTY",
+    "exit_code": 1,
+    "passed": true
+  },
+  "case_6_optional_step_failure_passes": {
     "status": "ALL_STEPS_PASSED_AND_CLEAN_PROVENANCE_VERIFIED",
     "exit_code": 0,
     "passed": true
   },
-  "case_3_unobserved_browser_provenance_failure": {
-    "status": "TESTS_PASSED_BUT_PROVENANCE_INCOMPLETE_OR_DIRTY",
-    "exit_code": 1,
-    "passed": true
-  },
-  "case_4_missing_provenance_key_failure": {
-    "status": "TESTS_PASSED_BUT_PROVENANCE_INCOMPLETE_OR_DIRTY",
-    "exit_code": 1,
-    "passed": true
-  },
-  "case_5_controlled_cli_production_failure": {
+  "case_7_controlled_cli_production_failure": {
     "command": [
       "D:\\DevTools\\python313\\python.exe",
       "D:\\Downloads\\TopG\\scripts\\run_reproduction_m29.py",
@@ -36,7 +46,9 @@
     "exit_code": 1,
     "retained_child_log": "controlled_cli_failure.log",
     "retained_failure_manifest": "provenance_manifest.json",
-    "manifest_aggregate_result": "REQUIRED_STEP_FAILED",
+    "manifest_type": "SIMULATED_FAILURE_INJECTION_TEST",
+    "is_simulation_negative_control": true,
+    "aggregate_result": "REQUIRED_STEP_FAILED",
     "passed": true
   }
 }

@@ -1,0 +1,9 @@
+# Step: Controlled Activation Browser Runner
+# Command: D:\Downloads\TopG-repro\.venv_repro\Scripts\python.exe -c print('Browser runner skipped in failure test')
+# Working Directory: D:\Downloads\TopG-repro
+# Exit Code: 0
+# Duration: 0.04s
+# Required Step: True
+
+=== STDOUT ===
+Browser runner skipped in failure test

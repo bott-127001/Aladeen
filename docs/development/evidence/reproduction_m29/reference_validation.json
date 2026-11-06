@@ -1,9 +1,9 @@
 {
   "report_version": "2.1",
   "milestone": "Milestone 29 \u2014 Read-Only Dashboard Release-Readiness Audit and Reproducible Offline Runbook",
-  "timestamp_utc": "2026-11-06T16:43:38Z",
+  "timestamp_utc": "2026-11-06T16:54:44Z",
   "validation_environment": {
-    "checkout_commit": "afb7457e82ba3dcdb23c4e3a20f7bc63001f214f",
+    "checkout_commit": "0938cf62ae657a1fd3fa908463ad26db003effd2",
     "python_interpreter": "D:\\DevTools\\python313\\python.exe",
     "python_version": "CPython 3.13.12",
     "operating_system": "Windows 11 AMD64",
@@ -45,9 +45,12 @@
     },
     "accepted_row_without_evidence_rejected": {
       "row": "MSM-01",
-      "has_evidence": false,
+      "row_status": "INVALID",
+      "unresolved_notes": [
+        "Accepted row missing required implementation or verification evidence spans!"
+      ],
       "rejected": true,
-      "detail": "Accepted row with empty evidence spans correctly detected as invalid."
+      "detail": "Accepted row with empty evidence spans evaluated by evaluate_matrix_row and correctly detected as INVALID."
     },
     "uncollected_test_helper_reflection_rejected": {
       "reference": "tests/test_activation_browser_controlled.py::test_uncollected_function_name",
@@ -70,11 +73,20 @@
       "command": [
         "D:\\DevTools\\python313\\python.exe",
         "D:\\Downloads\\TopG\\scripts\\validate_matrix_references.py",
-        "--test-failing-cli"
+        "--matrix",
+        "D:\\Downloads\\TopG\\docs\\development\\evidence\\reproduction_m29\\temp_cli_negative_test\\invalid_dashboard_matrix.md",
+        "--output-dir",
+        "D:\\Downloads\\TopG\\docs\\development\\evidence\\reproduction_m29\\temp_cli_negative_test\\evidence",
+        "--skip-negative-controls"
       ],
       "exit_code": 1,
+      "child_verdict": "VALIDATION_FAILED",
+      "inventory_errors": [
+        "Missing expected requirement rows: ['MSM-01']"
+      ],
+      "retained_evidence_artifact": "cli_negative_test_validation.json",
       "passed": true,
-      "detail": "Confirmed that validate_matrix_references.py exits nonzero on validation failure."
+      "detail": "Confirmed that validate_matrix_references.py executed normally against an invalid matrix detects inventory failure, writes VALIDATION_FAILED report, and exits nonzero."
     }
   },
   "matrix_rows_validated": [
@@ -101,7 +113,8 @@
         }
       ],
       "unresolved_notes": [],
-      "row_status": "VALIDATED"
+      "row_status": "VALIDATED",
+      "is_valid": true
     },
     {
       "section": "2.1 Market Structure Marking (MSM) Module",
@@ -120,7 +133,8 @@
       "unresolved_notes": [
         "Documented gap recorded in matrix: Strong/Weak level classification does not exist in source requirements (`docs/requirements/msm-acceptance.md`) or engine code; cited test verifies standard 2-pair trend status only."
       ],
-      "row_status": "DOCUMENTED_GAP"
+      "row_status": "DOCUMENTED_GAP",
+      "is_valid": true
     },
     {
       "section": "2.1 Market Structure Marking (MSM) Module",
@@ -151,7 +165,8 @@
         }
       ],
       "unresolved_notes": [],
-      "row_status": "VALIDATED"
+      "row_status": "VALIDATED",
+      "is_valid": true
     },
     {
       "section": "2.1 Market Structure Marking (MSM) Module",
@@ -196,7 +211,8 @@
         }
       ],
       "unresolved_notes": [],
-      "row_status": "VALIDATED"
+      "row_status": "VALIDATED",
+      "is_valid": true
     },
     {
       "section": "2.2 Change of Character (CHOCH) Module",
@@ -227,7 +243,8 @@
         }
       ],
       "unresolved_notes": [],
-      "row_status": "VALIDATED"
+      "row_status": "VALIDATED",
+      "is_valid": true
     },
     {
       "section": "2.2 Change of Character (CHOCH) Module",
@@ -252,7 +269,8 @@
         }
       ],
       "unresolved_notes": [],
-      "row_status": "VALIDATED"
+      "row_status": "VALIDATED",
+      "is_valid": true
     },
     {
       "section": "2.2 Change of Character (CHOCH) Module",
@@ -277,7 +295,8 @@
         }
       ],
       "unresolved_notes": [],
-      "row_status": "VALIDATED"
+      "row_status": "VALIDATED",
+      "is_valid": true
     },
     {
       "section": "2.2 Change of Character (CHOCH) Module",
@@ -310,7 +329,8 @@
       "unresolved_notes": [
         "Documented gap recorded in matrix: When candle close exactly equals prior swing extreme ($c_1 == p_2$), authoritative state freezes at `last_processed_index` without publishing downstream confirmation or restart; diagnostic logged. Awaiting formal strategy reconciliation."
       ],
-      "row_status": "DOCUMENTED_GAP"
+      "row_status": "DOCUMENTED_GAP",
+      "is_valid": true
     },
     {
       "section": "2.3 Inside Swing Structure (ISS) Module",
@@ -341,7 +361,8 @@
         }
       ],
       "unresolved_notes": [],
-      "row_status": "VALIDATED"
+      "row_status": "VALIDATED",
+      "is_valid": true
     },
     {
       "section": "2.3 Inside Swing Structure (ISS) Module",
@@ -368,7 +389,8 @@
       "unresolved_notes": [
         "Documented gap recorded in matrix: Internal swing tracking only. Isolated candidate tracking distinct from main trend continuation; multi-candle pullbacks remain unreconciled with strategy documents and are strictly excluded from downstream live activation gating."
       ],
-      "row_status": "DOCUMENTED_GAP"
+      "row_status": "DOCUMENTED_GAP",
+      "is_valid": true
     },
     {
       "section": "2.3 Inside Swing Structure (ISS) Module",
@@ -387,7 +409,8 @@
       "unresolved_notes": [
         "Documented gap recorded in matrix: Awaiting formal strategy reconciliation; strictly excluded from downstream live activation gating."
       ],
-      "row_status": "DOCUMENTED_GAP"
+      "row_status": "DOCUMENTED_GAP",
+      "is_valid": true
     },
     {
       "section": "2.3 Inside Swing Structure (ISS) Module",
@@ -418,7 +441,8 @@
         }
       ],
       "unresolved_notes": [],
-      "row_status": "VALIDATED"
+      "row_status": "VALIDATED",
+      "is_valid": true
     },
     {
       "section": "2.4 Trend Joint Levels (TJL) Module",
@@ -443,7 +467,8 @@
         }
       ],
       "unresolved_notes": [],
-      "row_status": "VALIDATED"
+      "row_status": "VALIDATED",
+      "is_valid": true
     },
     {
       "section": "2.4 Trend Joint Levels (TJL) Module",
@@ -474,7 +499,8 @@
         }
       ],
       "unresolved_notes": [],
-      "row_status": "VALIDATED"
+      "row_status": "VALIDATED",
+      "is_valid": true
     },
     {
       "section": "2.4 Trend Joint Levels (TJL) Module",
@@ -499,7 +525,8 @@
         }
       ],
       "unresolved_notes": [],
-      "row_status": "VALIDATED"
+      "row_status": "VALIDATED",
+      "is_valid": true
     },
     {
       "section": "2.4 Trend Joint Levels (TJL) Module",
@@ -524,7 +551,8 @@
         }
       ],
       "unresolved_notes": [],
-      "row_status": "VALIDATED"
+      "row_status": "VALIDATED",
+      "is_valid": true
     },
     {
       "section": "2.5 Activation Inspection Dashboard Module (Authoritative G1\u2013G8 Display Groups)",
@@ -549,7 +577,8 @@
         }
       ],
       "unresolved_notes": [],
-      "row_status": "VALIDATED"
+      "row_status": "VALIDATED",
+      "is_valid": true
     },
     {
       "section": "2.5 Activation Inspection Dashboard Module (Authoritative G1\u2013G8 Display Groups)",
@@ -574,7 +603,8 @@
         }
       ],
       "unresolved_notes": [],
-      "row_status": "VALIDATED"
+      "row_status": "VALIDATED",
+      "is_valid": true
     },
     {
       "section": "2.5 Activation Inspection Dashboard Module (Authoritative G1\u2013G8 Display Groups)",
@@ -599,7 +629,8 @@
         }
       ],
       "unresolved_notes": [],
-      "row_status": "VALIDATED"
+      "row_status": "VALIDATED",
+      "is_valid": true
     },
     {
       "section": "2.5 Activation Inspection Dashboard Module (Authoritative G1\u2013G8 Display Groups)",
@@ -624,7 +655,8 @@
         }
       ],
       "unresolved_notes": [],
-      "row_status": "VALIDATED"
+      "row_status": "VALIDATED",
+      "is_valid": true
     },
     {
       "section": "2.5 Activation Inspection Dashboard Module (Authoritative G1\u2013G8 Display Groups)",
@@ -649,7 +681,8 @@
         }
       ],
       "unresolved_notes": [],
-      "row_status": "VALIDATED"
+      "row_status": "VALIDATED",
+      "is_valid": true
     },
     {
       "section": "2.5 Activation Inspection Dashboard Module (Authoritative G1\u2013G8 Display Groups)",
@@ -674,7 +707,8 @@
         }
       ],
       "unresolved_notes": [],
-      "row_status": "VALIDATED"
+      "row_status": "VALIDATED",
+      "is_valid": true
     },
     {
       "section": "2.5 Activation Inspection Dashboard Module (Authoritative G1\u2013G8 Display Groups)",
@@ -699,7 +733,8 @@
         }
       ],
       "unresolved_notes": [],
-      "row_status": "VALIDATED"
+      "row_status": "VALIDATED",
+      "is_valid": true
     },
     {
       "section": "2.5 Activation Inspection Dashboard Module (Authoritative G1\u2013G8 Display Groups)",
@@ -730,7 +765,8 @@
         }
       ],
       "unresolved_notes": [],
-      "row_status": "VALIDATED"
+      "row_status": "VALIDATED",
+      "is_valid": true
     },
     {
       "section": "2.5 Activation Inspection Dashboard Module (Authoritative G1\u2013G8 Display Groups)",
@@ -761,7 +797,8 @@
         }
       ],
       "unresolved_notes": [],
-      "row_status": "VALIDATED"
+      "row_status": "VALIDATED",
+      "is_valid": true
     },
     {
       "section": "2.5 Activation Inspection Dashboard Module (Authoritative G1\u2013G8 Display Groups)",
@@ -786,7 +823,8 @@
         }
       ],
       "unresolved_notes": [],
-      "row_status": "VALIDATED"
+      "row_status": "VALIDATED",
+      "is_valid": true
     },
     {
       "section": "2.6 Multi-Context Session Isolation & Tab Ownership",
@@ -811,7 +849,8 @@
         }
       ],
       "unresolved_notes": [],
-      "row_status": "VALIDATED"
+      "row_status": "VALIDATED",
+      "is_valid": true
     },
     {
       "section": "2.6 Multi-Context Session Isolation & Tab Ownership",
@@ -836,7 +875,8 @@
         }
       ],
       "unresolved_notes": [],
-      "row_status": "VALIDATED"
+      "row_status": "VALIDATED",
+      "is_valid": true
     },
     {
       "section": "2.6 Multi-Context Session Isolation & Tab Ownership",
@@ -868,7 +908,8 @@
         }
       ],
       "unresolved_notes": [],
-      "row_status": "VALIDATED"
+      "row_status": "VALIDATED",
+      "is_valid": true
     },
     {
       "section": "2.6 Multi-Context Session Isolation & Tab Ownership",
@@ -893,7 +934,8 @@
         }
       ],
       "unresolved_notes": [],
-      "row_status": "VALIDATED"
+      "row_status": "VALIDATED",
+      "is_valid": true
     },
     {
       "section": "2.6 Multi-Context Session Isolation & Tab Ownership",
@@ -905,7 +947,8 @@
       "unresolved_notes": [
         "Documented gap recorded in matrix: Native right-click tab duplication cannot be automated via Playwright API without manual desktop interaction."
       ],
-      "row_status": "DOCUMENTED_GAP"
+      "row_status": "DOCUMENTED_GAP",
+      "is_valid": true
     },
     {
       "section": "2.7 Viewport Usability, Typography & Security Enforcement",
@@ -930,7 +973,8 @@
         }
       ],
       "unresolved_notes": [],
-      "row_status": "VALIDATED"
+      "row_status": "VALIDATED",
+      "is_valid": true
     },
     {
       "section": "2.7 Viewport Usability, Typography & Security Enforcement",
@@ -955,7 +999,8 @@
         }
       ],
       "unresolved_notes": [],
-      "row_status": "VALIDATED"
+      "row_status": "VALIDATED",
+      "is_valid": true
     },
     {
       "section": "2.7 Viewport Usability, Typography & Security Enforcement",
@@ -980,7 +1025,8 @@
         }
       ],
       "unresolved_notes": [],
-      "row_status": "VALIDATED"
+      "row_status": "VALIDATED",
+      "is_valid": true
     },
     {
       "section": "2.7 Viewport Usability, Typography & Security Enforcement",
@@ -1005,7 +1051,8 @@
         }
       ],
       "unresolved_notes": [],
-      "row_status": "VALIDATED"
+      "row_status": "VALIDATED",
+      "is_valid": true
     },
     {
       "section": "2.7 Viewport Usability, Typography & Security Enforcement",
@@ -1030,7 +1077,8 @@
         }
       ],
       "unresolved_notes": [],
-      "row_status": "VALIDATED"
+      "row_status": "VALIDATED",
+      "is_valid": true
     },
     {
       "section": "2.7 Viewport Usability, Typography & Security Enforcement",
@@ -1055,7 +1103,8 @@
         }
       ],
       "unresolved_notes": [],
-      "row_status": "VALIDATED"
+      "row_status": "VALIDATED",
+      "is_valid": true
     },
     {
       "section": "2.7 Viewport Usability, Typography & Security Enforcement",
@@ -1080,7 +1129,8 @@
         }
       ],
       "unresolved_notes": [],
-      "row_status": "VALIDATED"
+      "row_status": "VALIDATED",
+      "is_valid": true
     }
   ],
   "aggregate_validation_verdict": "ALL_MATRIX_REFERENCES_VERIFIED_OR_DOCUMENTED_AS_GAPS",

@@ -1,7 +1,7 @@
 # Step: Pytest Collection
 # Command: D:\DevTools\python313\python.exe -m pytest --collect-only -q
 # Exit Code: 0
-# Duration: 2.48s
+# Duration: 2.55s
 
 === STDOUT ===
 tests/test_activation_adapter.py::TestActivationTJLAdapter::test_tjl_synchronizer_continuity_and_cursor
@@ -549,4 +549,4 @@ tests/test_tjl_types.py::TestTJLTypes::test_current_eligible_set_invariants_and_
 tests/test_tjl_types.py::TestTJLTypes::test_transition_record_cancellation_invariants
 tests/test_tjl_types.py::TestTJLTypes::test_observation_point_validation_and_exact_prices
 
-544 tests collected in 0.73s
+544 tests collected in 0.74s

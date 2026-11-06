@@ -1,9 +1,11 @@
 # Durable Reproduction Provenance Manifest — Milestone 29
 
-**Timestamp (UTC)**: `2026-11-06T16:43:45Z`  
+**Manifest Type**: `SIMULATED_FAILURE_INJECTION_TEST`  
+**Simulation Control**: `True`  
+**Timestamp (UTC)**: `2026-11-06T16:52:41Z`  
 **Checkout Commit**: `3770989114997280b4f1b19406e294a16ec6c7b9`  
-**Tests Status**: **REQUIRED_STEPS_FAILED (Focused Activation & App Tests)**  
-**Provenance Status**: **PROVENANCE_CHECKS_FAILED (clean_prerun_worktree)**  
+**Tests Status**: **MANDATORY_STEPS_FAILED (Focused Activation & App Tests)**  
+**Provenance Status**: **PROVENANCE_CHECKS_FAILED (clean_prerun_worktree, observed_browser_binary)**  
 **Aggregate Status**: **REQUIRED_STEP_FAILED** (Exit Code: `1`)  
 
 ## 1. Environment Provenance
@@ -16,7 +18,7 @@
 - **Python Interpreter**: `D:\Downloads\TopG-repro\.venv_repro\Scripts\python.exe`
 - **Python Version**: `Python 3.13.12`
 - **Editable Project Location**: `D:\Downloads\TopG-repro`
-- **Launched Browser Binary**: `Chromium 156.0.8078.4`
+- **Launched Browser Binary**: `NOT_LAUNCHED_IN_FAILURE_SIMULATION`
 
 > [!NOTE]
 > Setup commands are operator-reported ('python -m venv .venv_repro', 'pip install -e . pytest pytest-asyncio playwright'); interactive setup transcripts were not retained. Package inventory (01_pip_list.txt) and subsequent command execution were captured.
@@ -29,14 +31,14 @@
 | `clean_prerun_worktree` | ✗ FAIL |
 | `valid_python_interpreter` | ✓ PASS |
 | `editable_install_matches_worktree` | ✓ PASS |
-| `observed_browser_binary` | ✓ PASS |
+| `observed_browser_binary` | ✗ FAIL |
 
 ## 3. Command Execution & Result Summary
 
 | # | Step Name | Command | Exit Code | Duration | Status | Log File |
 |---|---|---|---|---|---|---|
-| 1 | Package Inventory (pip list) | `D:\Downloads\TopG-repro\.venv_repro\Scripts\python.exe -m...` | `0` | 0.1s | **PASSED** | [`01_pip_list.txt`](01_pip_list.txt) |
-| 2 | Focused Activation & App Tests | `D:\Downloads\TopG-repro\.venv_repro\Scripts\python.exe -m...` | `2` | 0.2s | **FAILED** | [`02_focused_tests.log`](02_focused_tests.log) |
-| 3 | Full Offline Repository Suite | `D:\Downloads\TopG-repro\.venv_repro\Scripts\python.exe -m...` | `0` | 0.1s | **PASSED** | [`03_full_offline_suite.log`](03_full_offline_suite.log) |
-| 4 | Controlled Activation Browser Runner | `D:\Downloads\TopG-repro\.venv_repro\Scripts\python.exe -u...` | `0` | 0.1s | **PASSED** | [`04_browser_runner.log`](04_browser_runner.log) |
+| 1 | Package Inventory (pip list) | `D:\Downloads\TopG-repro\.venv_repro\Scripts\python.exe -m...` | `0` | 0.35s | **PASSED** | [`01_pip_list.txt`](01_pip_list.txt) |
+| 2 | Focused Activation & App Tests | `D:\Downloads\TopG-repro\.venv_repro\Scripts\python.exe -c...` | `2` | 0.04s | **FAILED** | [`02_focused_tests.log`](02_focused_tests.log) |
+| 3 | Full Offline Repository Suite | `D:\Downloads\TopG-repro\.venv_repro\Scripts\python.exe -c...` | `0` | 0.04s | **PASSED** | [`03_full_offline_suite.log`](03_full_offline_suite.log) |
+| 4 | Controlled Activation Browser Runner | `D:\Downloads\TopG-repro\.venv_repro\Scripts\python.exe -c...` | `0` | 0.04s | **PASSED** | [`04_browser_runner.log`](04_browser_runner.log) |
 | 5 | Post-Run Git Status | `git status` | `0` | 0.05s | **PASSED** | [`05_git_status_post_browser_run.txt`](05_git_status_post_browser_run.txt) |

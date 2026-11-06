@@ -1,0 +1,1046 @@
+{
+  "report_version": "2.1",
+  "milestone": "Milestone 29 \u2014 Read-Only Dashboard Release-Readiness Audit and Reproducible Offline Runbook",
+  "timestamp_utc": "2026-11-06T16:54:43Z",
+  "validation_environment": {
+    "checkout_commit": "0938cf62ae657a1fd3fa908463ad26db003effd2",
+    "python_interpreter": "D:\\DevTools\\python313\\python.exe",
+    "python_version": "CPython 3.13.12",
+    "operating_system": "Windows 11 AMD64",
+    "matrix_source_file": "D:\\Downloads\\TopG\\docs\\development\\evidence\\reproduction_m29\\temp_cli_negative_test\\invalid_dashboard_matrix.md"
+  },
+  "inventory_validation": {
+    "expected_count": 38,
+    "extracted_count": 37,
+    "errors": [
+      "Missing expected requirement rows: ['MSM-01']"
+    ],
+    "status": "FAIL"
+  },
+  "pytest_collection_summary": {
+    "exit_code": 0,
+    "total_nodes_collected": 544,
+    "collection_log": "pytest_collection.log"
+  },
+  "negative_controls": {},
+  "matrix_rows_validated": [
+    {
+      "section": "2.1 Market Structure Marking (MSM) Module",
+      "requirement": "MSM-02",
+      "disposition": "Unresolved / Excluded from Scope",
+      "construction": "`Engine-derived`",
+      "symbols": [],
+      "pytest_nodes": [
+        {
+          "reference": "tests/test_msm_engine.py::TestMSMAcceptanceFixtures::test_msm_12_two_pairs_and_trend_status",
+          "column": "Verification Path",
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
+        }
+      ],
+      "unresolved_notes": [
+        "Documented gap recorded in matrix: Strong/Weak level classification does not exist in source requirements (`docs/requirements/msm-acceptance.md`) or engine code; cited test verifies standard 2-pair trend status only."
+      ],
+      "row_status": "DOCUMENTED_GAP",
+      "is_valid": true
+    },
+    {
+      "section": "2.1 Market Structure Marking (MSM) Module",
+      "requirement": "MSM-03",
+      "disposition": "Accepted for the reviewed offline scope; subject to recorded limitations",
+      "construction": "`Engine-derived`",
+      "symbols": [
+        {
+          "reference": "aladeen.ui.chart.create_candlestick_chart",
+          "column": "Implementation",
+          "status": "SYMBOL_FOUND",
+          "is_valid": true,
+          "description": "Attribute create_candlestick_chart in module aladeen.ui.chart"
+        }
+      ],
+      "pytest_nodes": [
+        {
+          "reference": "tests/test_chart.py::TestCandlestickChart::test_creates_figure_from_h4",
+          "column": "Verification Path",
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
+        },
+        {
+          "reference": "tests/test_activation_browser_controlled.py::verify_section_a_mounting_and_viewport",
+          "column": "Verification Path",
+          "status": "ALLOWED_BROWSER_RUNNER_HELPER",
+          "is_valid": true
+        }
+      ],
+      "unresolved_notes": [],
+      "row_status": "VALIDATED",
+      "is_valid": true
+    },
+    {
+      "section": "2.1 Market Structure Marking (MSM) Module",
+      "requirement": "MSM-04",
+      "disposition": "Accepted for the reviewed offline scope; subject to recorded limitations",
+      "construction": "`Synthetic`",
+      "symbols": [
+        {
+          "reference": "aladeen.data.fixtures.load_fixture",
+          "column": "Implementation",
+          "status": "SYMBOL_FOUND",
+          "is_valid": true,
+          "description": "Attribute load_fixture in module aladeen.data.fixtures"
+        },
+        {
+          "reference": "aladeen.data.mt5_adapter.MT5Adapter",
+          "column": "Implementation",
+          "status": "SYMBOL_FOUND",
+          "is_valid": true,
+          "description": "Attribute MT5Adapter in module aladeen.data.mt5_adapter"
+        },
+        {
+          "reference": "tests.activation_browser_harness.ControllableActivationMockAdapter",
+          "column": "Implementation",
+          "status": "SYMBOL_FOUND",
+          "is_valid": true,
+          "description": "Attribute ControllableActivationMockAdapter in module tests.activation_browser_harness"
+        }
+      ],
+      "pytest_nodes": [
+        {
+          "reference": "tests/test_app.py::TestAppConstruction::test_no_mt5_import_required",
+          "column": "Verification Path",
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
+        },
+        {
+          "reference": "tests/test_app.py::TestModeIsolationAndFallbackRejection::test_demo_mode_unaffected_by_mt5",
+          "column": "Verification Path",
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
+        }
+      ],
+      "unresolved_notes": [],
+      "row_status": "VALIDATED",
+      "is_valid": true
+    },
+    {
+      "section": "2.2 Change of Character (CHOCH) Module",
+      "requirement": "CHOCH-01",
+      "disposition": "Accepted for the reviewed offline scope; subject to recorded limitations",
+      "construction": "`Engine-derived`",
+      "symbols": [
+        {
+          "reference": "aladeen.strategy.choch_detector.ChochDetector",
+          "column": "Implementation",
+          "status": "SYMBOL_FOUND",
+          "is_valid": true,
+          "description": "Attribute ChochDetector in module aladeen.strategy.choch_detector"
+        }
+      ],
+      "pytest_nodes": [
+        {
+          "reference": "tests/test_choch_engine.py::TestCHOCHExecution::test_choch_bullish_basic_end_to_end_execution",
+          "column": "Verification Path",
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
+        },
+        {
+          "reference": "tests/test_choch_engine.py::TestCHOCHExecution::test_choch_bearish_basic_end_to_end_execution",
+          "column": "Verification Path",
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
+        }
+      ],
+      "unresolved_notes": [],
+      "row_status": "VALIDATED",
+      "is_valid": true
+    },
+    {
+      "section": "2.2 Change of Character (CHOCH) Module",
+      "requirement": "CHOCH-02",
+      "disposition": "Accepted for the reviewed offline scope; subject to recorded limitations",
+      "construction": "`Engine-derived`",
+      "symbols": [
+        {
+          "reference": "aladeen.strategy.choch_detector.ChochDetector",
+          "column": "Implementation",
+          "status": "SYMBOL_FOUND",
+          "is_valid": true,
+          "description": "Attribute ChochDetector in module aladeen.strategy.choch_detector"
+        }
+      ],
+      "pytest_nodes": [
+        {
+          "reference": "tests/test_choch_engine.py::TestCHOCHExecution::test_wick_crossing_only_rejected",
+          "column": "Verification Path",
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
+        }
+      ],
+      "unresolved_notes": [],
+      "row_status": "VALIDATED",
+      "is_valid": true
+    },
+    {
+      "section": "2.2 Change of Character (CHOCH) Module",
+      "requirement": "CHOCH-03",
+      "disposition": "Accepted for the reviewed offline scope; subject to recorded limitations",
+      "construction": "`Engine-derived`",
+      "symbols": [
+        {
+          "reference": "aladeen.strategy.coordinator.MSMChochCoordinator",
+          "column": "Implementation",
+          "status": "SYMBOL_FOUND",
+          "is_valid": true,
+          "description": "Attribute MSMChochCoordinator in module aladeen.strategy.coordinator"
+        }
+      ],
+      "pytest_nodes": [
+        {
+          "reference": "tests/test_choch_engine.py::TestCHOCHExecution::test_continuation_reset_clears_pending_choch",
+          "column": "Verification Path",
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
+        }
+      ],
+      "unresolved_notes": [],
+      "row_status": "VALIDATED",
+      "is_valid": true
+    },
+    {
+      "section": "2.2 Change of Character (CHOCH) Module",
+      "requirement": "CHOCH-04",
+      "disposition": "Unresolved (Documented)",
+      "construction": "`Engine-derived`",
+      "symbols": [
+        {
+          "reference": "aladeen.strategy.choch_detector.ChochDetector",
+          "column": "Implementation",
+          "status": "SYMBOL_FOUND",
+          "is_valid": true,
+          "description": "Attribute ChochDetector in module aladeen.strategy.choch_detector"
+        }
+      ],
+      "pytest_nodes": [
+        {
+          "reference": "tests/test_choch_engine.py::TestCHOCHExecution::test_unresolved_same_close_diagnostic_and_downstream_non_publication",
+          "column": "Verification Path",
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
+        },
+        {
+          "reference": "tests/test_choch_engine.py::TestCHOCHExecution::test_unresolved_containment_freezes_authoritative_state_across_later_candles",
+          "column": "Verification Path",
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
+        }
+      ],
+      "unresolved_notes": [
+        "Documented gap recorded in matrix: When candle close exactly equals prior swing extreme ($c_1 == p_2$), authoritative state freezes at `last_processed_index` without publishing downstream confirmation or restart; diagnostic logged. Awaiting formal strategy reconciliation."
+      ],
+      "row_status": "DOCUMENTED_GAP",
+      "is_valid": true
+    },
+    {
+      "section": "2.3 Inside Swing Structure (ISS) Module",
+      "requirement": "ISS-01",
+      "disposition": "Accepted for the reviewed offline scope; subject to recorded limitations",
+      "construction": "`Engine-derived` (isolated)",
+      "symbols": [
+        {
+          "reference": "aladeen.strategy.iss_engine.ISSEngine",
+          "column": "Implementation",
+          "status": "SYMBOL_FOUND",
+          "is_valid": true,
+          "description": "Attribute ISSEngine in module aladeen.strategy.iss_engine"
+        }
+      ],
+      "pytest_nodes": [
+        {
+          "reference": "tests/test_iss_engine.py::TestISSEngineLifecycleExecution::test_iss_01_bearish_basic_end_to_end_execution",
+          "column": "Verification Path",
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
+        },
+        {
+          "reference": "tests/test_iss_engine.py::TestISSEngineLifecycleExecution::test_iss_02_bullish_basic_end_to_end_execution",
+          "column": "Verification Path",
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
+        }
+      ],
+      "unresolved_notes": [],
+      "row_status": "VALIDATED",
+      "is_valid": true
+    },
+    {
+      "section": "2.3 Inside Swing Structure (ISS) Module",
+      "requirement": "ISS-02",
+      "disposition": "Partial",
+      "construction": "`Engine-derived` (isolated)",
+      "symbols": [
+        {
+          "reference": "aladeen.strategy.iss_engine.ISSEngine",
+          "column": "Implementation",
+          "status": "SYMBOL_FOUND",
+          "is_valid": true,
+          "description": "Attribute ISSEngine in module aladeen.strategy.iss_engine"
+        }
+      ],
+      "pytest_nodes": [
+        {
+          "reference": "tests/test_iss_engine.py::TestISSEngineAPIAndSafety::test_isolated_tracking_only_distinct_from_continuation_cancellation",
+          "column": "Verification Path",
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
+        }
+      ],
+      "unresolved_notes": [
+        "Documented gap recorded in matrix: Internal swing tracking only. Isolated candidate tracking distinct from main trend continuation; multi-candle pullbacks remain unreconciled with strategy documents and are strictly excluded from downstream live activation gating."
+      ],
+      "row_status": "DOCUMENTED_GAP",
+      "is_valid": true
+    },
+    {
+      "section": "2.3 Inside Swing Structure (ISS) Module",
+      "requirement": "ISS-03",
+      "disposition": "Deferred / Unresolved",
+      "construction": "`Specification-only`",
+      "symbols": [],
+      "pytest_nodes": [
+        {
+          "reference": "tests/test_iss_engine.py::TestISSEngineAPIAndSafety::test_synthetic_missing_evidence_isolated_tracking_progression_and_cancellation",
+          "column": "Verification Path",
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
+        }
+      ],
+      "unresolved_notes": [
+        "Documented gap recorded in matrix: Awaiting formal strategy reconciliation; strictly excluded from downstream live activation gating."
+      ],
+      "row_status": "DOCUMENTED_GAP",
+      "is_valid": true
+    },
+    {
+      "section": "2.3 Inside Swing Structure (ISS) Module",
+      "requirement": "ISS-04",
+      "disposition": "Accepted for the reviewed offline scope; subject to recorded limitations",
+      "construction": "`Synthetic`",
+      "symbols": [
+        {
+          "reference": "aladeen.ui.market_coordinator.generate_chart_and_status_from_snapshot",
+          "column": "Implementation",
+          "status": "SYMBOL_FOUND",
+          "is_valid": true,
+          "description": "Attribute generate_chart_and_status_from_snapshot in module aladeen.ui.market_coordinator"
+        }
+      ],
+      "pytest_nodes": [
+        {
+          "reference": "tests/test_iss_dashboard_integration.py::TestISSDashboardInspectionPanel::test_inspection_panel_renders_iss_tables",
+          "column": "Verification Path",
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
+        },
+        {
+          "reference": "tests/test_iss_dashboard_integration.py::TestISSDashboardChartRendering::test_chart_renders_iss_markers_and_zones",
+          "column": "Verification Path",
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
+        }
+      ],
+      "unresolved_notes": [],
+      "row_status": "VALIDATED",
+      "is_valid": true
+    },
+    {
+      "section": "2.4 Trend Joint Levels (TJL) Module",
+      "requirement": "TJL-01",
+      "disposition": "Accepted for the reviewed offline scope; subject to recorded limitations",
+      "construction": "`Engine-derived`",
+      "symbols": [
+        {
+          "reference": "aladeen.strategy.tjl_coordinator.TJLCoordinator",
+          "column": "Implementation",
+          "status": "SYMBOL_FOUND",
+          "is_valid": true,
+          "description": "Attribute TJLCoordinator in module aladeen.strategy.tjl_coordinator"
+        }
+      ],
+      "pytest_nodes": [
+        {
+          "reference": "tests/test_tjl_coordinator.py::TestTJLCoordinator::test_bullish_basic_end_to_end_replay",
+          "column": "Verification Path",
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
+        }
+      ],
+      "unresolved_notes": [],
+      "row_status": "VALIDATED",
+      "is_valid": true
+    },
+    {
+      "section": "2.4 Trend Joint Levels (TJL) Module",
+      "requirement": "TJL-02",
+      "disposition": "Accepted for the reviewed offline scope; subject to recorded limitations",
+      "construction": "`Engine-derived`",
+      "symbols": [
+        {
+          "reference": "aladeen.strategy.tjl_coordinator.TJLCoordinator",
+          "column": "Implementation",
+          "status": "SYMBOL_FOUND",
+          "is_valid": true,
+          "description": "Attribute TJLCoordinator in module aladeen.strategy.tjl_coordinator"
+        }
+      ],
+      "pytest_nodes": [
+        {
+          "reference": "tests/test_tjl_coordinator.py::TestTJLCoordinator::test_continuation_t1_retention_and_t2_pullback_replacement",
+          "column": "Verification Path",
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
+        },
+        {
+          "reference": "tests/test_tjl_coordinator.py::TestTJLCoordinator::test_source_choch_invalidation_and_post_choch_gap",
+          "column": "Verification Path",
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
+        }
+      ],
+      "unresolved_notes": [],
+      "row_status": "VALIDATED",
+      "is_valid": true
+    },
+    {
+      "section": "2.4 Trend Joint Levels (TJL) Module",
+      "requirement": "TJL-03",
+      "disposition": "Accepted for the reviewed offline scope; subject to recorded limitations",
+      "construction": "`Engine-derived`",
+      "symbols": [
+        {
+          "reference": "aladeen.ui.tjl_chart.apply_tjl_overlays",
+          "column": "Implementation",
+          "status": "SYMBOL_FOUND",
+          "is_valid": true,
+          "description": "Attribute apply_tjl_overlays in module aladeen.ui.tjl_chart"
+        }
+      ],
+      "pytest_nodes": [
+        {
+          "reference": "tests/test_tjl_dashboard_integration.py::TestTJLCandlestickChartOverlays::test_display_toggles_suppress_shapes_without_changing_calculation",
+          "column": "Verification Path",
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
+        }
+      ],
+      "unresolved_notes": [],
+      "row_status": "VALIDATED",
+      "is_valid": true
+    },
+    {
+      "section": "2.4 Trend Joint Levels (TJL) Module",
+      "requirement": "TJL-04",
+      "disposition": "Accepted for the reviewed offline scope; subject to recorded limitations",
+      "construction": "`Engine-derived`",
+      "symbols": [
+        {
+          "reference": "aladeen.ui.tjl_chart.resolve_authoritative_endpoint",
+          "column": "Implementation",
+          "status": "SYMBOL_FOUND",
+          "is_valid": true,
+          "description": "Attribute resolve_authoritative_endpoint in module aladeen.ui.tjl_chart"
+        }
+      ],
+      "pytest_nodes": [
+        {
+          "reference": "tests/test_tjl_dashboard_integration.py::TestTJLProductionServiceLifecycleAndPresentation::test_chart_window_excluding_authoritative_source_candle",
+          "column": "Verification Path",
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
+        }
+      ],
+      "unresolved_notes": [],
+      "row_status": "VALIDATED",
+      "is_valid": true
+    },
+    {
+      "section": "2.5 Activation Inspection Dashboard Module (Authoritative G1\u2013G8 Display Groups)",
+      "requirement": "ACT-G1",
+      "disposition": "Accepted for the reviewed offline scope; subject to recorded limitations",
+      "construction": "`Synthetic`",
+      "symbols": [
+        {
+          "reference": "aladeen.ui.activation_inspection.build_activation_inspection_elements",
+          "column": "Implementation",
+          "status": "SYMBOL_FOUND",
+          "is_valid": true,
+          "description": "Attribute build_activation_inspection_elements in module aladeen.ui.activation_inspection"
+        }
+      ],
+      "pytest_nodes": [
+        {
+          "reference": "tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_all_16_scenarios_execute_through_presentation_builder_with_explicit_assertions",
+          "column": "Verification Path",
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
+        }
+      ],
+      "unresolved_notes": [],
+      "row_status": "VALIDATED",
+      "is_valid": true
+    },
+    {
+      "section": "2.5 Activation Inspection Dashboard Module (Authoritative G1\u2013G8 Display Groups)",
+      "requirement": "ACT-G2",
+      "disposition": "Accepted for the reviewed offline scope; subject to recorded limitations",
+      "construction": "`Synthetic`",
+      "symbols": [
+        {
+          "reference": "aladeen.ui.activation_inspection.build_activation_inspection_elements",
+          "column": "Implementation",
+          "status": "SYMBOL_FOUND",
+          "is_valid": true,
+          "description": "Attribute build_activation_inspection_elements in module aladeen.ui.activation_inspection"
+        }
+      ],
+      "pytest_nodes": [
+        {
+          "reference": "tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_all_16_scenarios_execute_through_presentation_builder_with_explicit_assertions",
+          "column": "Verification Path",
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
+        }
+      ],
+      "unresolved_notes": [],
+      "row_status": "VALIDATED",
+      "is_valid": true
+    },
+    {
+      "section": "2.5 Activation Inspection Dashboard Module (Authoritative G1\u2013G8 Display Groups)",
+      "requirement": "ACT-G3",
+      "disposition": "Accepted for the reviewed offline scope; subject to recorded limitations",
+      "construction": "`Synthetic`",
+      "symbols": [
+        {
+          "reference": "aladeen.ui.activation_inspection.build_activation_inspection_elements",
+          "column": "Implementation",
+          "status": "SYMBOL_FOUND",
+          "is_valid": true,
+          "description": "Attribute build_activation_inspection_elements in module aladeen.ui.activation_inspection"
+        }
+      ],
+      "pytest_nodes": [
+        {
+          "reference": "tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_all_16_scenarios_execute_through_presentation_builder_with_explicit_assertions",
+          "column": "Verification Path",
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
+        }
+      ],
+      "unresolved_notes": [],
+      "row_status": "VALIDATED",
+      "is_valid": true
+    },
+    {
+      "section": "2.5 Activation Inspection Dashboard Module (Authoritative G1\u2013G8 Display Groups)",
+      "requirement": "ACT-G4",
+      "disposition": "Accepted for the reviewed offline scope; subject to recorded limitations",
+      "construction": "`Synthetic`",
+      "symbols": [
+        {
+          "reference": "aladeen.ui.activation_inspection.build_activation_inspection_elements",
+          "column": "Implementation",
+          "status": "SYMBOL_FOUND",
+          "is_valid": true,
+          "description": "Attribute build_activation_inspection_elements in module aladeen.ui.activation_inspection"
+        }
+      ],
+      "pytest_nodes": [
+        {
+          "reference": "tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_all_16_scenarios_execute_through_presentation_builder_with_explicit_assertions",
+          "column": "Verification Path",
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
+        }
+      ],
+      "unresolved_notes": [],
+      "row_status": "VALIDATED",
+      "is_valid": true
+    },
+    {
+      "section": "2.5 Activation Inspection Dashboard Module (Authoritative G1\u2013G8 Display Groups)",
+      "requirement": "ACT-G5",
+      "disposition": "Accepted for the reviewed offline scope; subject to recorded limitations",
+      "construction": "`Synthetic`",
+      "symbols": [
+        {
+          "reference": "aladeen.ui.activation_inspection.build_activation_inspection_elements",
+          "column": "Implementation",
+          "status": "SYMBOL_FOUND",
+          "is_valid": true,
+          "description": "Attribute build_activation_inspection_elements in module aladeen.ui.activation_inspection"
+        }
+      ],
+      "pytest_nodes": [
+        {
+          "reference": "tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_all_16_scenarios_execute_through_presentation_builder_with_explicit_assertions",
+          "column": "Verification Path",
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
+        }
+      ],
+      "unresolved_notes": [],
+      "row_status": "VALIDATED",
+      "is_valid": true
+    },
+    {
+      "section": "2.5 Activation Inspection Dashboard Module (Authoritative G1\u2013G8 Display Groups)",
+      "requirement": "ACT-G6",
+      "disposition": "Accepted for the reviewed offline scope; subject to recorded limitations",
+      "construction": "`Synthetic`",
+      "symbols": [
+        {
+          "reference": "aladeen.ui.activation_inspection.build_activation_inspection_elements",
+          "column": "Implementation",
+          "status": "SYMBOL_FOUND",
+          "is_valid": true,
+          "description": "Attribute build_activation_inspection_elements in module aladeen.ui.activation_inspection"
+        }
+      ],
+      "pytest_nodes": [
+        {
+          "reference": "tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_all_16_scenarios_execute_through_presentation_builder_with_explicit_assertions",
+          "column": "Verification Path",
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
+        }
+      ],
+      "unresolved_notes": [],
+      "row_status": "VALIDATED",
+      "is_valid": true
+    },
+    {
+      "section": "2.5 Activation Inspection Dashboard Module (Authoritative G1\u2013G8 Display Groups)",
+      "requirement": "ACT-G7",
+      "disposition": "Accepted for the reviewed offline scope; subject to recorded limitations",
+      "construction": "`Synthetic`",
+      "symbols": [
+        {
+          "reference": "aladeen.ui.activation_inspection.build_activation_inspection_elements",
+          "column": "Implementation",
+          "status": "SYMBOL_FOUND",
+          "is_valid": true,
+          "description": "Attribute build_activation_inspection_elements in module aladeen.ui.activation_inspection"
+        }
+      ],
+      "pytest_nodes": [
+        {
+          "reference": "tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_bounded_history_display_and_total_count",
+          "column": "Verification Path",
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
+        }
+      ],
+      "unresolved_notes": [],
+      "row_status": "VALIDATED",
+      "is_valid": true
+    },
+    {
+      "section": "2.5 Activation Inspection Dashboard Module (Authoritative G1\u2013G8 Display Groups)",
+      "requirement": "ACT-G8",
+      "disposition": "Accepted for the reviewed offline scope; subject to recorded limitations",
+      "construction": "`Synthetic` & `Engine-derived`",
+      "symbols": [
+        {
+          "reference": "aladeen.ui.activation_inspection.build_activation_inspection_elements",
+          "column": "Implementation",
+          "status": "SYMBOL_FOUND",
+          "is_valid": true,
+          "description": "Attribute build_activation_inspection_elements in module aladeen.ui.activation_inspection"
+        }
+      ],
+      "pytest_nodes": [
+        {
+          "reference": "tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_all_16_scenarios_execute_through_presentation_builder_with_explicit_assertions",
+          "column": "Verification Path",
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
+        },
+        {
+          "reference": "tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_same_run_successive_cancellation_sync_with_monotonic_sequences_and_error_preservation",
+          "column": "Verification Path",
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
+        }
+      ],
+      "unresolved_notes": [],
+      "row_status": "VALIDATED",
+      "is_valid": true
+    },
+    {
+      "section": "2.5 Activation Inspection Dashboard Module (Authoritative G1\u2013G8 Display Groups)",
+      "requirement": "ACT-SC13",
+      "disposition": "Accepted for the reviewed offline scope; subject to recorded limitations",
+      "construction": "`Synthetic`",
+      "symbols": [
+        {
+          "reference": "dash_act_13_unresolved_source_snapshot",
+          "column": "Implementation",
+          "status": "NON_PYTHON_SPECIFICATION",
+          "is_valid": true,
+          "description": "UI element / specification artifact"
+        }
+      ],
+      "pytest_nodes": [
+        {
+          "reference": "tests/test_activation_dashboard_fixture_integrity.py::TestActivationDashboardFixtureIntegrity::test_scenario_specific_assertion_contracts",
+          "column": "Verification Path",
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
+        },
+        {
+          "reference": "tests/test_activation_browser_controlled.py::verify_section_c_lifecycle_scenarios",
+          "column": "Verification Path",
+          "status": "ALLOWED_BROWSER_RUNNER_HELPER",
+          "is_valid": true
+        }
+      ],
+      "unresolved_notes": [],
+      "row_status": "VALIDATED",
+      "is_valid": true
+    },
+    {
+      "section": "2.5 Activation Inspection Dashboard Module (Authoritative G1\u2013G8 Display Groups)",
+      "requirement": "ACT-MTF",
+      "disposition": "Accepted for the reviewed offline scope; subject to recorded limitations",
+      "construction": "`Engine-derived`",
+      "symbols": [
+        {
+          "reference": "aladeen.strategy.activation_types.TIMEFRAME_CONFIRMATION_MAP",
+          "column": "Implementation",
+          "status": "SYMBOL_FOUND",
+          "is_valid": true,
+          "description": "Attribute TIMEFRAME_CONFIRMATION_MAP in module aladeen.strategy.activation_types"
+        }
+      ],
+      "pytest_nodes": [
+        {
+          "reference": "tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_service_pipeline_execution_and_context_reset",
+          "column": "Verification Path",
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
+        }
+      ],
+      "unresolved_notes": [],
+      "row_status": "VALIDATED",
+      "is_valid": true
+    },
+    {
+      "section": "2.6 Multi-Context Session Isolation & Tab Ownership",
+      "requirement": "SES-01",
+      "disposition": "Accepted for the reviewed offline scope; subject to recorded limitations",
+      "construction": "`Engine-derived`",
+      "symbols": [
+        {
+          "reference": "aladeen.strategy.service.ActivationSessionRegistry",
+          "column": "Implementation",
+          "status": "SYMBOL_FOUND",
+          "is_valid": true,
+          "description": "Attribute ActivationSessionRegistry in module aladeen.strategy.service"
+        }
+      ],
+      "pytest_nodes": [
+        {
+          "reference": "tests/test_activation_browser_controlled.py::verify_section_b_session_isolation",
+          "column": "Verification Path",
+          "status": "ALLOWED_BROWSER_RUNNER_HELPER",
+          "is_valid": true
+        }
+      ],
+      "unresolved_notes": [],
+      "row_status": "VALIDATED",
+      "is_valid": true
+    },
+    {
+      "section": "2.6 Multi-Context Session Isolation & Tab Ownership",
+      "requirement": "SES-02",
+      "disposition": "Accepted for the reviewed offline scope; subject to recorded limitations",
+      "construction": "`Engine-derived`",
+      "symbols": [
+        {
+          "reference": "aladeen.strategy.service.ActivationSessionCoordinator",
+          "column": "Implementation",
+          "status": "SYMBOL_FOUND",
+          "is_valid": true,
+          "description": "Attribute ActivationSessionCoordinator in module aladeen.strategy.service"
+        }
+      ],
+      "pytest_nodes": [
+        {
+          "reference": "tests/test_activation_browser_controlled.py::verify_section_b_session_isolation",
+          "column": "Verification Path",
+          "status": "ALLOWED_BROWSER_RUNNER_HELPER",
+          "is_valid": true
+        }
+      ],
+      "unresolved_notes": [],
+      "row_status": "VALIDATED",
+      "is_valid": true
+    },
+    {
+      "section": "2.6 Multi-Context Session Isolation & Tab Ownership",
+      "requirement": "SES-03",
+      "disposition": "Accepted for the reviewed offline scope; subject to recorded limitations",
+      "construction": "`Engine-derived`",
+      "symbols": [
+        {
+          "reference": "aladeen.app.DASHBOARD_INDEX_STRING",
+          "column": "Implementation",
+          "status": "SYMBOL_FOUND",
+          "is_valid": true,
+          "description": "Attribute DASHBOARD_INDEX_STRING in module aladeen.app"
+        },
+        {
+          "reference": "window.name",
+          "column": "Implementation",
+          "status": "NON_PYTHON_SPECIFICATION",
+          "is_valid": true,
+          "description": "UI element / specification artifact"
+        }
+      ],
+      "pytest_nodes": [
+        {
+          "reference": "tests/test_activation_browser_controlled.py::verify_section_b_session_isolation",
+          "column": "Verification Path",
+          "status": "ALLOWED_BROWSER_RUNNER_HELPER",
+          "is_valid": true
+        }
+      ],
+      "unresolved_notes": [],
+      "row_status": "VALIDATED",
+      "is_valid": true
+    },
+    {
+      "section": "2.6 Multi-Context Session Isolation & Tab Ownership",
+      "requirement": "SES-04",
+      "disposition": "Accepted for the reviewed offline scope; subject to recorded limitations",
+      "construction": "`Engine-derived`",
+      "symbols": [
+        {
+          "reference": "aladeen.app.DASHBOARD_INDEX_STRING",
+          "column": "Implementation",
+          "status": "SYMBOL_FOUND",
+          "is_valid": true,
+          "description": "Attribute DASHBOARD_INDEX_STRING in module aladeen.app"
+        }
+      ],
+      "pytest_nodes": [
+        {
+          "reference": "tests/test_activation_browser_controlled.py::verify_section_b_session_isolation",
+          "column": "Verification Path",
+          "status": "ALLOWED_BROWSER_RUNNER_HELPER",
+          "is_valid": true
+        }
+      ],
+      "unresolved_notes": [],
+      "row_status": "VALIDATED",
+      "is_valid": true
+    },
+    {
+      "section": "2.6 Multi-Context Session Isolation & Tab Ownership",
+      "requirement": "SES-05",
+      "disposition": "Deferred / Unverified",
+      "construction": "`Specification-only`",
+      "symbols": [],
+      "pytest_nodes": [],
+      "unresolved_notes": [
+        "Documented gap recorded in matrix: Native right-click tab duplication cannot be automated via Playwright API without manual desktop interaction."
+      ],
+      "row_status": "DOCUMENTED_GAP",
+      "is_valid": true
+    },
+    {
+      "section": "2.7 Viewport Usability, Typography & Security Enforcement",
+      "requirement": "VIEW-01",
+      "disposition": "Accepted for the reviewed offline scope; subject to recorded limitations",
+      "construction": "`Engine-derived`",
+      "symbols": [
+        {
+          "reference": "aladeen.ui.layout",
+          "column": "Implementation",
+          "status": "MODULE_FOUND",
+          "is_valid": true,
+          "description": "Python module: aladeen.ui.layout"
+        }
+      ],
+      "pytest_nodes": [
+        {
+          "reference": "tests/test_activation_browser_controlled.py::verify_section_a_mounting_and_viewport",
+          "column": "Verification Path",
+          "status": "ALLOWED_BROWSER_RUNNER_HELPER",
+          "is_valid": true
+        }
+      ],
+      "unresolved_notes": [],
+      "row_status": "VALIDATED",
+      "is_valid": true
+    },
+    {
+      "section": "2.7 Viewport Usability, Typography & Security Enforcement",
+      "requirement": "VIEW-02",
+      "disposition": "Accepted for the reviewed offline scope; subject to recorded limitations",
+      "construction": "`Engine-derived`",
+      "symbols": [
+        {
+          "reference": "aladeen.ui.layout",
+          "column": "Implementation",
+          "status": "MODULE_FOUND",
+          "is_valid": true,
+          "description": "Python module: aladeen.ui.layout"
+        }
+      ],
+      "pytest_nodes": [
+        {
+          "reference": "tests/test_activation_browser_controlled.py::verify_section_a_mounting_and_viewport",
+          "column": "Verification Path",
+          "status": "ALLOWED_BROWSER_RUNNER_HELPER",
+          "is_valid": true
+        }
+      ],
+      "unresolved_notes": [],
+      "row_status": "VALIDATED",
+      "is_valid": true
+    },
+    {
+      "section": "2.7 Viewport Usability, Typography & Security Enforcement",
+      "requirement": "VIEW-03",
+      "disposition": "Accepted for the reviewed offline scope; subject to recorded limitations",
+      "construction": "`Synthetic`",
+      "symbols": [
+        {
+          "reference": "aladeen.ui.activation_inspection",
+          "column": "Implementation",
+          "status": "MODULE_FOUND",
+          "is_valid": true,
+          "description": "Python module: aladeen.ui.activation_inspection"
+        }
+      ],
+      "pytest_nodes": [
+        {
+          "reference": "tests/test_activation_browser_controlled.py::verify_section_c_lifecycle_scenarios",
+          "column": "Verification Path",
+          "status": "ALLOWED_BROWSER_RUNNER_HELPER",
+          "is_valid": true
+        }
+      ],
+      "unresolved_notes": [],
+      "row_status": "VALIDATED",
+      "is_valid": true
+    },
+    {
+      "section": "2.7 Viewport Usability, Typography & Security Enforcement",
+      "requirement": "VIEW-04",
+      "disposition": "Accepted for the reviewed offline scope; subject to recorded limitations",
+      "construction": "`Synthetic`",
+      "symbols": [
+        {
+          "reference": "aladeen.ui.activation_inspection",
+          "column": "Implementation",
+          "status": "MODULE_FOUND",
+          "is_valid": true,
+          "description": "Python module: aladeen.ui.activation_inspection"
+        }
+      ],
+      "pytest_nodes": [
+        {
+          "reference": "tests/test_activation_browser_controlled.py::verify_section_c_lifecycle_scenarios",
+          "column": "Verification Path",
+          "status": "ALLOWED_BROWSER_RUNNER_HELPER",
+          "is_valid": true
+        }
+      ],
+      "unresolved_notes": [],
+      "row_status": "VALIDATED",
+      "is_valid": true
+    },
+    {
+      "section": "2.7 Viewport Usability, Typography & Security Enforcement",
+      "requirement": "SEC-01",
+      "disposition": "Accepted for the reviewed offline scope; subject to recorded limitations",
+      "construction": "`Harness / Guard`",
+      "symbols": [
+        {
+          "reference": "tests.activation_browser_harness.ContextSecurityFirewall",
+          "column": "Implementation",
+          "status": "SYMBOL_FOUND",
+          "is_valid": true,
+          "description": "Attribute ContextSecurityFirewall in module tests.activation_browser_harness"
+        }
+      ],
+      "pytest_nodes": [
+        {
+          "reference": "tests/activation_browser_harness.py::verify_isolation_guards_negative_controls",
+          "column": "Verification Path",
+          "status": "ALLOWED_BROWSER_RUNNER_HELPER",
+          "is_valid": true
+        }
+      ],
+      "unresolved_notes": [],
+      "row_status": "VALIDATED",
+      "is_valid": true
+    },
+    {
+      "section": "2.7 Viewport Usability, Typography & Security Enforcement",
+      "requirement": "SEC-02",
+      "disposition": "Accepted for the reviewed offline scope; subject to recorded limitations",
+      "construction": "`Harness / Guard`",
+      "symbols": [
+        {
+          "reference": "tests.activation_browser_harness.install_server_socket_guard",
+          "column": "Implementation",
+          "status": "SYMBOL_FOUND",
+          "is_valid": true,
+          "description": "Attribute install_server_socket_guard in module tests.activation_browser_harness"
+        }
+      ],
+      "pytest_nodes": [
+        {
+          "reference": "tests/activation_browser_harness.py::verify_isolation_guards_negative_controls",
+          "column": "Verification Path",
+          "status": "ALLOWED_BROWSER_RUNNER_HELPER",
+          "is_valid": true
+        }
+      ],
+      "unresolved_notes": [],
+      "row_status": "VALIDATED",
+      "is_valid": true
+    },
+    {
+      "section": "2.7 Viewport Usability, Typography & Security Enforcement",
+      "requirement": "SEC-03",
+      "disposition": "Accepted for the reviewed offline scope; subject to recorded limitations",
+      "construction": "`Harness / Guard`",
+      "symbols": [
+        {
+          "reference": "tests.activation_browser_harness.ControlledServerHandle",
+          "column": "Implementation",
+          "status": "SYMBOL_FOUND",
+          "is_valid": true,
+          "description": "Attribute ControlledServerHandle in module tests.activation_browser_harness"
+        }
+      ],
+      "pytest_nodes": [
+        {
+          "reference": "tests/activation_browser_harness.py::verify_server_lifecycle_failure_injection",
+          "column": "Verification Path",
+          "status": "ALLOWED_BROWSER_RUNNER_HELPER",
+          "is_valid": true
+        }
+      ],
+      "unresolved_notes": [],
+      "row_status": "VALIDATED",
+      "is_valid": true
+    }
+  ],
+  "aggregate_validation_verdict": "VALIDATION_FAILED",
+  "cli_exit_code": 1
+}

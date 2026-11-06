@@ -1,0 +1,9 @@
+# Step: Focused Activation & App Tests
+# Command: D:\Downloads\TopG-repro\.venv_repro\Scripts\python.exe -c import sys; print('Simulated injected test failure'); sys.exit(2)
+# Working Directory: D:\Downloads\TopG-repro
+# Exit Code: 2
+# Duration: 0.04s
+# Required Step: True
+
+=== STDOUT ===
+Simulated injected test failure

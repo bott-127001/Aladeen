@@ -2078,3 +2078,50 @@ Last Updated: 2026-11-06 (Milestone 29 Release-Readiness Audit & Offline Runbook
   - Zero confirmation arbitration/selection, zero usage ledger writes, zero trade entry signals.
   - Strategy engines 100% untouched (0 diff against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`).
   - Committed and pushed on `requirements/dashboard-release-readiness`. Never merge into `main`.
+
+
+---
+
+## Milestone 29 — Read-Only Dashboard Release-Readiness Audit and Reproducible Offline Runbook (HANDOFF-084)
+
+- **Active Branch**: `requirements/dashboard-release-readiness`
+- **Immediate Parent Commit**: `0938cf62ae657a1fd3fa908463ad26db003effd2` (HANDOFF-083)
+- **Accepted Controlled Browser Baseline Commit**: `bf737ea41e8bfd554b9386a6e9be86f700824fb3` (Milestone 28 accepted)
+- **Accepted Offline Dashboard Implementation Commit**: `d6587a1200735fe6453ff24f043931699f21f407` (Milestone 27 accepted)
+- **Requirements Baseline Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d` (Milestone 26 / HANDOFF-066 accepted)
+- **Root Baseline Engine Commit**: `0867c740352297fb43e781fb654706218771d533` (Milestone 25 / HANDOFF-061)
+- **Reviewer Feedback Addressed (HANDOFF-083 Review Directives 1–5)**:
+  1. *Single Production Orchestration Path with Injectable Step Execution*:
+     - `scripts/run_reproduction_m29.py` runs through the exact normal `run_step()` execution pipeline. When `--inject-failing-step` is supplied, it executes a real failing subprocess (`python -c "import sys; print('Simulated injected test failure'); sys.exit(2)"`) through the shared pipeline, logging execution to disk and evaluating exit codes identically rather than constructing parallel mock dictionaries.
+  2. *Explicit Labeling of Simulated Failure Artifacts*:
+     - Injected failure manifests are explicitly labeled as simulation/negative-control artifacts:
+       * `manifest_type: "SIMULATED_FAILURE_INJECTION_TEST"`
+       * `is_simulation_negative_control: true`
+       * `browser_binary_launched: "NOT_LAUNCHED_IN_FAILURE_SIMULATION"`
+       * `observed_browser_binary: false`
+     - Retained in [`docs/development/evidence/reproduction_m29/controlled_cli_failure_evidence/provenance_manifest.json`](file:///docs/development/evidence/reproduction_m29/controlled_cli_failure_evidence/provenance_manifest.json) and child transcript in [`controlled_cli_failure.log`](file:///docs/development/evidence/reproduction_m29/controlled_cli_failure.log).
+  3. *Normal Validator CLI Execution Against Temporary Invalid Matrix & Reused Row Evaluator*:
+     - Refactored `evaluate_matrix_row(row, collected_nodes) -> Dict[str, Any]` into a standalone production evaluation engine used identically by `main()` and negative controls.
+     - Negative control 4 passes the test row directly through `evaluate_matrix_row()` and asserts `INVALID` status with the exact expected error note.
+     - Replaced `--test-failing-cli` bypass with `--matrix <path>` and `--output-dir <path>` CLI options.
+     - In negative control 8, executes the normal CLI validator against a temporary invalid matrix missing `MSM-01`. Child process exits with code 1, detects inventory failure, and writes `reference_validation.json` with `VALIDATION_FAILED`. Retained as [`docs/development/evidence/reproduction_m29/cli_negative_test_validation.json`](file:///docs/development/evidence/reproduction_m29/cli_negative_test_validation.json).
+  4. *Authoritative Mandatory Step Contract & Hardened Evaluator Input Validation*:
+     - Step requiredness is derived authoritatively from `MANDATORY_STEP_NAMES`. Caller metadata (`required: False`) cannot override.
+     - Evaluator rejects empty inputs, duplicate step records, and malformed records (missing or non-int exit codes).
+     - Expanded test suite to 8 comprehensive failure scenarios (Cases 0–7) in `test_failure_propagation()`, all verified via `--test-failure-gate`.
+  5. *Focused Tooling Verification & Preservation of Reproduction Records*:
+     - Ran only focused tooling self-tests and reference collection/validation; preserved all clean full/browser reproduction evidence.
+- **Completed Deliverables**:
+  1. [`scripts/run_reproduction_m29.py`](file:///scripts/run_reproduction_m29.py): Updated with shared execution path for injected failure, simulation labeling, authoritative requiredness contract, and 8-scenario failure propagation test suite.
+  2. [`scripts/validate_matrix_references.py`](file:///scripts/validate_matrix_references.py): Refactored with standalone `evaluate_matrix_row()`, normal CLI `--matrix` invocation on temporary invalid matrix, and retained negative CLI test report.
+  3. [`docs/development/evidence/reproduction_m29/cli_negative_test_validation.json`](file:///docs/development/evidence/reproduction_m29/cli_negative_test_validation.json): Retained CLI negative test report proving inventory failure detection and nonzero exit.
+  4. [`docs/development/evidence/reproduction_m29/failure_injection_test_results.json`](file:///docs/development/evidence/reproduction_m29/failure_injection_test_results.json): Retained failure test results for 8 distinct cases (Cases 0–7).
+  5. [`docs/development/evidence/reproduction_m29/reference_validation.json`](file:///docs/development/evidence/reproduction_m29/reference_validation.json) & [`reference_validation.md`](file:///docs/development/evidence/reproduction_m29/reference_validation.md): Regenerated reports validating all 38 rows and 8 passing negative controls.
+  6. [`docs/development/offline-dashboard-runbook.md`](file:///docs/development/offline-dashboard-runbook.md): Updated runbook Sections 5.1 and 5.2.
+  7. [`docs/development/status.md`](file:///docs/development/status.md): Appended HANDOFF-084 record.
+- **Standing Invariants Maintained**:
+  - Pure read-only dashboard presentation.
+  - Zero UI order execution, zero MT5 trading calls, zero live account modification.
+  - Zero confirmation arbitration/selection, zero usage ledger writes, zero trade entry signals.
+  - Strategy engines 100% untouched (0 diff against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`).
+  - Committed and pushed on `requirements/dashboard-release-readiness`. Never merge into `main`.

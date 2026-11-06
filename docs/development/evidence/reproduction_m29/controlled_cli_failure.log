@@ -1,7 +1,7 @@
 # Controlled CLI Failure Test Output
 # Command: D:\DevTools\python313\python.exe D:\Downloads\TopG\scripts\run_reproduction_m29.py --inject-failing-step --output-dir D:\Downloads\TopG\docs\development\evidence\reproduction_m29\controlled_cli_failure_evidence --skip-self-test
 # Exit Code: 1
-# Duration: 0.63s
+# Duration: 1.19s
 
 === STDOUT ===
 ================================================================================
@@ -12,8 +12,28 @@ Python:     D:\Downloads\TopG-repro\.venv_repro\Scripts\python.exe
 Output Dir: D:\Downloads\TopG\docs\development\evidence\reproduction_m29\controlled_cli_failure_evidence
 
 --- CAPTURING CHECKOUT & ENVIRONMENT PROVENANCE ---
+=== Running: Package Inventory (pip list) ===
+   Command: D:\Downloads\TopG-repro\.venv_repro\Scripts\python.exe -m pip list
+   Working Dir: D:\Downloads\TopG-repro
+   Result: PASSED (Exit Code: 0, Duration: 0.35s) -> 01_pip_list.txt
 
-[TEST MODE] Injecting controlled failing step into production pipeline...
+[TEST MODE] Executing injected failing subprocess through shared run_step path...
+=== Running: Focused Activation & App Tests ===
+   Command: D:\Downloads\TopG-repro\.venv_repro\Scripts\python.exe -c import sys; print('Simulated injected test failure'); sys.exit(2)
+   Working Dir: D:\Downloads\TopG-repro
+   Result: FAILED (Exit Code: 2, Duration: 0.04s) -> 02_focused_tests.log
+=== Running: Full Offline Repository Suite ===
+   Command: D:\Downloads\TopG-repro\.venv_repro\Scripts\python.exe -c print('Offline suite skipped in failure test')
+   Working Dir: D:\Downloads\TopG-repro
+   Result: PASSED (Exit Code: 0, Duration: 0.04s) -> 03_full_offline_suite.log
+=== Running: Controlled Activation Browser Runner ===
+   Command: D:\Downloads\TopG-repro\.venv_repro\Scripts\python.exe -c print('Browser runner skipped in failure test')
+   Working Dir: D:\Downloads\TopG-repro
+   Result: PASSED (Exit Code: 0, Duration: 0.04s) -> 04_browser_runner.log
+=== Running: Post-Run Git Status ===
+   Command: git status
+   Working Dir: D:\Downloads\TopG-repro
+   Result: PASSED (Exit Code: 0, Duration: 0.05s) -> 05_git_status_post_browser_run.txt
 Checkout Commit:      3770989114997280b4f1b19406e294a16ec6c7b9 (Valid: True)
 Pre-Run Clean Status: DIRTY (M tests/evidence/activation_browser/01_app_mounting_desktop.png
  M tests/evidence/activation_browser/03_session_isolation_context_a.png
@@ -21,12 +41,13 @@ Pre-Run Clean Status: DIRTY (M tests/evidence/activation_browser/01_app_mounting
 Python Version:       Python 3.13.12
 Editable Location:    D:\Downloads\TopG-repro (Matches Worktree: True)
 Operating System:     Windows 11 (version 10.0.26200) AMD64
-Browser Binary:       Chromium 156.0.8078.4 (Observed: True)
+Browser Binary:       NOT_LAUNCHED_IN_FAILURE_SIMULATION (Observed: False)
 
 ================================================================================
 REPRODUCTION EVALUATION COMPLETED: REQUIRED_STEP_FAILED (Exit Code: 1)
-Tests:      REQUIRED_STEPS_FAILED (Focused Activation & App Tests)
-Provenance: PROVENANCE_CHECKS_FAILED (clean_prerun_worktree)
+Manifest Type: SIMULATED_FAILURE_INJECTION_TEST (Simulation: True)
+Tests:         MANDATORY_STEPS_FAILED (Focused Activation & App Tests)
+Provenance:    PROVENANCE_CHECKS_FAILED (clean_prerun_worktree, observed_browser_binary)
 Manifest written to:
 - D:\Downloads\TopG\docs\development\evidence\reproduction_m29\controlled_cli_failure_evidence\provenance_manifest.json
 - D:\Downloads\TopG\docs\development\evidence\reproduction_m29\controlled_cli_failure_evidence\provenance_manifest.md

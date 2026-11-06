@@ -238,7 +238,87 @@ def validate_verification_reference(span: str, collected_nodes: Set[str]) -> Tup
     return "UNRESOLVED_VERIFICATION_REFERENCE", False
 
 
-def run_negative_controls(collected_nodes: Set[str], output_dir: Path) -> Dict[str, Any]:
+def evaluate_matrix_row(row: Dict[str, Any], collected_nodes: Set[str]) -> Dict[str, Any]:
+    """Evaluate a single parsed matrix row for symbol and verification references.
+
+    Returns:
+        Dict containing section, requirement, disposition, construction, symbols,
+        pytest_nodes, unresolved_notes, row_status, and is_valid flag.
+    """
+    req_id = row["requirement"]
+    row_symbols = []
+    row_pytest_nodes = []
+    row_unresolved_notes = []
+
+    is_accepted = "Accepted" in row.get("disposition", "")
+    is_gap = any(term in row.get("disposition", "") for term in ("Unresolved", "Partial", "Deferred", "Excluded"))
+
+    # Parse implementation column spans
+    impl_spans = extract_code_spans(row.get("implementation_raw", ""))
+    for span in impl_spans:
+        stat, is_valid, desc = validate_symbol(span)
+        row_symbols.append({
+            "reference": span,
+            "column": "Implementation",
+            "status": stat,
+            "is_valid": is_valid,
+            "description": desc
+        })
+        if not is_valid:
+            if is_gap:
+                row_unresolved_notes.append(f"Documented unverified implementation symbol: {span} ({stat})")
+            else:
+                row_unresolved_notes.append(f"Unverified implementation symbol: {span} ({stat})")
+
+    # Parse verification column spans
+    verify_spans = extract_code_spans(row.get("verification_raw", ""))
+    for span in verify_spans:
+        node_stat, node_valid = validate_verification_reference(span, collected_nodes)
+        if not node_valid:
+            if is_gap:
+                row_unresolved_notes.append(f"Documented unverified verification reference: {span} ({node_stat})")
+            else:
+                row_unresolved_notes.append(f"Unverified verification reference: {span} ({node_stat})")
+
+        row_pytest_nodes.append({
+            "reference": span,
+            "column": "Verification Path",
+            "status": node_stat,
+            "is_valid": node_valid
+        })
+
+    # Require accepted rows to have evidence references
+    missing_evidence = is_accepted and (not impl_spans or not verify_spans)
+    if missing_evidence:
+        row_unresolved_notes.append("Accepted row missing required implementation or verification evidence spans!")
+
+    if is_gap and not row_unresolved_notes:
+        row_unresolved_notes.append(f"Documented gap recorded in matrix: {row.get('limitations', '')}")
+
+    has_invalid_symbols = any(not s["is_valid"] for s in row_symbols)
+    has_invalid_nodes = any(not n["is_valid"] for n in row_pytest_nodes)
+
+    if missing_evidence or ((has_invalid_symbols or has_invalid_nodes) and not is_gap):
+        row_status = "INVALID"
+    elif is_gap:
+        row_status = "DOCUMENTED_GAP"
+    else:
+        row_status = "VALIDATED"
+
+    return {
+        "section": row.get("section", "Unknown"),
+        "requirement": req_id,
+        "disposition": row.get("disposition", ""),
+        "construction": row.get("construction", ""),
+        "symbols": row_symbols,
+        "pytest_nodes": row_pytest_nodes,
+        "unresolved_notes": row_unresolved_notes,
+        "row_status": row_status,
+        "is_valid": (row_status in {"VALIDATED", "DOCUMENTED_GAP"})
+    }
+
+
+def run_negative_controls(collected_nodes: Set[str], output_dir: Path, matrix_path: Path) -> Dict[str, Any]:
     """Execute comprehensive negative controls proving validator rejects invalid inputs and exits nonzero."""
     results = {}
 
@@ -252,7 +332,7 @@ def run_negative_controls(collected_nodes: Set[str], output_dir: Path) -> Dict[s
     }
 
     # 2. Missing row rejected
-    valid_content = MATRIX_PATH.read_text(encoding="utf-8")
+    valid_content = matrix_path.read_text(encoding="utf-8")
     missing_row_content = re.sub(r"\|\s*\*\*MSM-01\*\*:[^\n]*\n", "", valid_content)
     missing_rows, missing_errs = parse_matrix_content(missing_row_content)
     assert any("Missing expected requirement rows" in e and "MSM-01" in e for e in missing_errs), "Missing row negative control failed!"
@@ -275,23 +355,23 @@ def run_negative_controls(collected_nodes: Set[str], output_dir: Path) -> Dict[s
         "detail": "Duplicate requirement key MSM-01 correctly detected and rejected."
     }
 
-    # 4. Accepted row without evidence references rejected
+    # 4. Accepted row without evidence references rejected via evaluate_matrix_row
     no_ref_row_content = valid_content.replace(
         "| `aladeen.strategy.engine.MSMEngine` | `tests/test_msm_engine.py::TestMSMAcceptanceFixtures::test_msm_01_upward_standard` |",
         "| None | None |"
     )
     no_ref_rows, _ = parse_matrix_content(no_ref_row_content)
-    # Validate rows: MSM-01 marked accepted with None should fail
     msm01_row = next(r for r in no_ref_rows if r["requirement"] == "MSM-01")
-    impl_spans = extract_code_spans(msm01_row["implementation_raw"])
-    verify_spans = extract_code_spans(msm01_row["verification_raw"])
-    has_evidence = bool(impl_spans and verify_spans)
-    assert not has_evidence, "Accepted row without evidence check failed!"
+    evaluated_no_ref = evaluate_matrix_row(msm01_row, collected_nodes)
+    assert not evaluated_no_ref["is_valid"], "Accepted row without evidence check failed!"
+    assert evaluated_no_ref["row_status"] == "INVALID", f"Expected INVALID, got {evaluated_no_ref['row_status']}"
+    assert any("Accepted row missing required implementation or verification evidence spans!" in note for note in evaluated_no_ref["unresolved_notes"])
     results["accepted_row_without_evidence_rejected"] = {
         "row": "MSM-01",
-        "has_evidence": has_evidence,
+        "row_status": evaluated_no_ref["row_status"],
+        "unresolved_notes": evaluated_no_ref["unresolved_notes"],
         "rejected": True,
-        "detail": "Accepted row with empty evidence spans correctly detected as invalid."
+        "detail": "Accepted row with empty evidence spans evaluated by evaluate_matrix_row and correctly detected as INVALID."
     }
 
     # 5. Uncollected test function reflection strictly rejected
@@ -326,19 +406,49 @@ def run_negative_controls(collected_nodes: Set[str], output_dir: Path) -> Dict[s
         "detail": "Confirmed that nonzero collection exit code is detected."
     }
 
-    # 8. Production CLI failure exit code test
+    # 8. Production CLI failure exit code test on invalid matrix
+    temp_test_dir = output_dir / "temp_cli_negative_test"
+    temp_test_dir.mkdir(parents=True, exist_ok=True)
+    temp_invalid_matrix = temp_test_dir / "invalid_dashboard_matrix.md"
+    temp_invalid_content = re.sub(r"\|\s*\*\*MSM-01\*\*:[^\n]*\n", "", valid_content)
+    temp_invalid_matrix.write_text(temp_invalid_content, encoding="utf-8")
+
+    cli_test_output_dir = temp_test_dir / "evidence"
+    cli_test_output_dir.mkdir(parents=True, exist_ok=True)
+
     test_cli_cmd = [
         sys.executable,
         str(Path(__file__).resolve()),
-        "--test-failing-cli"
+        "--matrix", str(temp_invalid_matrix),
+        "--output-dir", str(cli_test_output_dir),
+        "--skip-negative-controls"
     ]
     cli_rc, cli_stdout, cli_stderr, _ = capture_command(test_cli_cmd, REPO_ROOT)
-    assert cli_rc != 0, f"Expected validator CLI to exit nonzero on failure, got {cli_rc}!"
+    assert cli_rc != 0, f"Expected validator CLI to exit nonzero on invalid matrix, got {cli_rc}!"
+
+    child_json_path = cli_test_output_dir / "reference_validation.json"
+    assert child_json_path.exists(), "Child CLI did not write reference_validation.json before failing!"
+    with open(child_json_path, "r", encoding="utf-8") as f:
+        child_report = json.load(f)
+    assert child_report["aggregate_validation_verdict"] == "VALIDATION_FAILED"
+    assert child_report["inventory_validation"]["status"] == "FAIL"
+    assert any("MSM-01" in err for err in child_report["inventory_validation"]["errors"])
+
+    retained_cli_negative_json = output_dir / "cli_negative_test_validation.json"
+    with open(retained_cli_negative_json, "w", encoding="utf-8") as f:
+        json.dump(child_report, f, indent=2)
+
+    import shutil
+    shutil.rmtree(temp_test_dir, ignore_errors=True)
+
     results["failing_cli_produces_nonzero_exit"] = {
         "command": test_cli_cmd,
         "exit_code": cli_rc,
+        "child_verdict": child_report["aggregate_validation_verdict"],
+        "inventory_errors": child_report["inventory_validation"]["errors"],
+        "retained_evidence_artifact": str(retained_cli_negative_json.name),
         "passed": True,
-        "detail": "Confirmed that validate_matrix_references.py exits nonzero on validation failure."
+        "detail": "Confirmed that validate_matrix_references.py executed normally against an invalid matrix detects inventory failure, writes VALIDATION_FAILED report, and exits nonzero."
     }
 
     return results
@@ -347,9 +457,21 @@ def run_negative_controls(collected_nodes: Set[str], output_dir: Path) -> Dict[s
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Validate matrix references and pytest collection.")
     parser.add_argument(
-        "--test-failing-cli",
+        "--matrix",
+        type=str,
+        default=str(MATRIX_PATH),
+        help=f"Path to markdown matrix file (default: {MATRIX_PATH})"
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default=str(EVIDENCE_DIR),
+        help=f"Path to evidence output directory (default: {EVIDENCE_DIR})"
+    )
+    parser.add_argument(
+        "--skip-negative-controls",
         action="store_true",
-        help="Simulate validation failure to verify nonzero CLI exit code"
+        help="Skip negative controls suite (internal flag for child runs)"
     )
     return parser.parse_args()
 
@@ -357,21 +479,10 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
 
-    # If --test-failing-cli is passed, simulate failure, retain report, and exit nonzero
-    if args.test_failing_cli:
-        print("[TEST MODE] Simulating validation failure for CLI negative control...")
-        simulated_report = {
-            "verdict": "VALIDATION_FAILED",
-            "simulated_error": "Injected validation failure for CLI test"
-        }
-        test_out_path = EVIDENCE_DIR / "simulated_failing_validation.json"
-        with open(test_out_path, "w", encoding="utf-8") as f:
-            json.dump(simulated_report, f, indent=2)
-        print(f"Retained simulated failure report at {test_out_path.name}. Exiting with code 1.")
-        sys.exit(1)
-
-    EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
-    collection_log_path = EVIDENCE_DIR / "pytest_collection.log"
+    matrix_path = Path(args.matrix).resolve()
+    output_dir = Path(args.output_dir).resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    collection_log_path = output_dir / "pytest_collection.log"
 
     print("=" * 80)
     print("ALADEEN AUDIT MATRIX REFERENCE & PYTEST COLLECTION VALIDATOR")
@@ -386,7 +497,7 @@ def main() -> None:
     print(f"Checkout Commit: {validation_checkout}")
     print(f"Interpreter:     {sys.executable} ({python_ver})")
     print(f"OS:              {os_info}")
-    print(f"Matrix Path:     {MATRIX_PATH}")
+    print(f"Matrix Path:     {matrix_path}")
 
     # 2. Pytest Collection
     print("\n--- COLLECTING PYTEST NODES ---")
@@ -395,14 +506,18 @@ def main() -> None:
     print(f"Collection Log:    {collection_log_path.name}")
 
     # 3. Negative Controls Suite
-    print("\n--- RUNNING COMPREHENSIVE NEGATIVE CONTROLS ---")
-    negative_controls = run_negative_controls(collected_nodes, EVIDENCE_DIR)
-    for name, res in negative_controls.items():
-        print(f"   ✓ Negative Control [{name}]: PASS (Correctly Rejected / Tripped)")
+    negative_controls = {}
+    if not args.skip_negative_controls:
+        print("\n--- RUNNING COMPREHENSIVE NEGATIVE CONTROLS ---")
+        negative_controls = run_negative_controls(collected_nodes, output_dir, matrix_path)
+        for name, res in negative_controls.items():
+            print(f"   ✓ Negative Control [{name}]: PASS (Correctly Rejected / Tripped)")
+    else:
+        print("\n[NOTE] Skipping negative controls suite per --skip-negative-controls flag.")
 
     # 4. Extract Matrix Rows and Validate Inventory
     print("\n--- EXTRACTING & VALIDATING MATRIX INVENTORY ---")
-    matrix_content = MATRIX_PATH.read_text(encoding="utf-8")
+    matrix_content = matrix_path.read_text(encoding="utf-8")
     matrix_rows, inventory_errors = parse_matrix_content(matrix_content)
     print(f"Extracted {len(matrix_rows)} requirement rows from audit matrix.")
 
@@ -415,75 +530,14 @@ def main() -> None:
     all_rows_valid = (len(inventory_errors) == 0)
 
     for row in matrix_rows:
-        req_id = row["requirement"]
-        row_symbols = []
-        row_pytest_nodes = []
-        row_unresolved_notes = []
-
-        is_accepted = "Accepted" in row["disposition"]
-        is_gap = ("Unresolved" in row["disposition"] or "Partial" in row["disposition"] or "Deferred" in row["disposition"] or "Excluded" in row["disposition"])
-
-        # Parse implementation column spans
-        impl_spans = extract_code_spans(row["implementation_raw"])
-        for span in impl_spans:
-            stat, is_valid, desc = validate_symbol(span)
-            row_symbols.append({
-                "reference": span,
-                "column": "Implementation",
-                "status": stat,
-                "is_valid": is_valid,
-                "description": desc
-            })
-            if not is_valid:
-                if is_gap:
-                    row_unresolved_notes.append(f"Documented unverified implementation symbol: {span} ({stat})")
-                else:
-                    all_rows_valid = False
-
-        # Parse verification column spans
-        verify_spans = extract_code_spans(row["verification_raw"])
-        for span in verify_spans:
-            node_stat, node_valid = validate_verification_reference(span, collected_nodes)
-            if not node_valid:
-                if is_gap:
-                    row_unresolved_notes.append(f"Documented unverified verification reference: {span} ({node_stat})")
-                else:
-                    all_rows_valid = False
-
-            row_pytest_nodes.append({
-                "reference": span,
-                "column": "Verification Path",
-                "status": node_stat,
-                "is_valid": node_valid
-            })
-
-        # Require accepted rows to have evidence references
-        if is_accepted and (not impl_spans or not verify_spans):
+        row_record = evaluate_matrix_row(row, collected_nodes)
+        if not row_record["is_valid"]:
             all_rows_valid = False
-            row_unresolved_notes.append("Accepted row missing required implementation or verification evidence spans!")
-
-        if is_gap and not row_unresolved_notes:
-            row_unresolved_notes.append(f"Documented gap recorded in matrix: {row['limitations']}")
-
-        row_status = "VALIDATED" if not row_unresolved_notes and all(s["is_valid"] for s in row_symbols) and all(n["is_valid"] for n in row_pytest_nodes) else ("DOCUMENTED_GAP" if is_gap else "INVALID")
-        if row_status == "INVALID":
-            all_rows_valid = False
-
-        row_record = {
-            "section": row["section"],
-            "requirement": req_id,
-            "disposition": row["disposition"],
-            "construction": row["construction"],
-            "symbols": row_symbols,
-            "pytest_nodes": row_pytest_nodes,
-            "unresolved_notes": row_unresolved_notes,
-            "row_status": row_status
-        }
         validated_matrix_rows.append(row_record)
 
-        sym_summary = ", ".join(f"{s['reference']} ({s['status']})" for s in row_symbols)
-        node_summary = ", ".join(f"{n['reference']} ({n['status']})" for n in row_pytest_nodes)
-        print(f"[{row_record['row_status']:14}] {req_id:12} | Symbols: [{sym_summary or 'None'}] | Nodes: [{node_summary or 'None'}]")
+        sym_summary = ", ".join(f"{s['reference']} ({s['status']})" for s in row_record["symbols"])
+        node_summary = ", ".join(f"{n['reference']} ({n['status']})" for n in row_record["pytest_nodes"])
+        print(f"[{row_record['row_status']:14}] {row_record['requirement']:12} | Symbols: [{sym_summary or 'None'}] | Nodes: [{node_summary or 'None'}]")
 
     # Aggregate verdict
     if all_rows_valid and not inventory_errors:
@@ -503,7 +557,7 @@ def main() -> None:
             "python_interpreter": sys.executable,
             "python_version": python_ver,
             "operating_system": os_info,
-            "matrix_source_file": str(MATRIX_PATH)
+            "matrix_source_file": str(matrix_path)
         },
         "inventory_validation": {
             "expected_count": len(EXPECTED_REQUIREMENT_KEYS),
@@ -523,12 +577,12 @@ def main() -> None:
     }
 
     # Write JSON report
-    json_path = EVIDENCE_DIR / "reference_validation.json"
+    json_path = output_dir / "reference_validation.json"
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(report, f, indent=2)
 
     # Write Markdown report
-    md_path = EVIDENCE_DIR / "reference_validation.md"
+    md_path = output_dir / "reference_validation.md"
     with open(md_path, "w", encoding="utf-8") as f:
         f.write("# Automated Matrix Reference & Pytest Collection Validation Report\n\n")
         f.write(f"**Timestamp (UTC)**: `{report['timestamp_utc']}`  \n")

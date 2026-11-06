@@ -1,7 +1,7 @@
 # Automated Matrix Reference & Pytest Collection Validation Report
 
-**Timestamp (UTC)**: `2026-11-06T16:43:38Z`  
-**Validation Checkout Commit**: `afb7457e82ba3dcdb23c4e3a20f7bc63001f214f`  
+**Timestamp (UTC)**: `2026-11-06T16:54:44Z`  
+**Validation Checkout Commit**: `0938cf62ae657a1fd3fa908463ad26db003effd2`  
 **Python Interpreter**: `D:\DevTools\python313\python.exe` (`CPython 3.13.12`)  
 **Total Collected Test Nodes**: `544` (Exit Code: `0`)  
 **Inventory Status**: **PASS** (38 of 38 rows validated)  
@@ -18,11 +18,11 @@
 | `empty_matrix_rejected` | **PASS (Correctly Rejected / Tripped)** | Empty matrix content correctly rejected with inventory failure. |
 | `missing_row_rejected` | **PASS (Correctly Rejected / Tripped)** | Missing MSM-01 row correctly detected and rejected. |
 | `duplicate_row_rejected` | **PASS (Correctly Rejected / Tripped)** | Duplicate requirement key MSM-01 correctly detected and rejected. |
-| `accepted_row_without_evidence_rejected` | **PASS (Correctly Rejected / Tripped)** | Accepted row with empty evidence spans correctly detected as invalid. |
+| `accepted_row_without_evidence_rejected` | **PASS (Correctly Rejected / Tripped)** | Accepted row with empty evidence spans evaluated by evaluate_matrix_row and correctly detected as INVALID. |
 | `uncollected_test_helper_reflection_rejected` | **PASS (Correctly Rejected / Tripped)** | Confirmed uncollected test_* function cannot be relabeled as browser runner helper. |
 | `wrong_class_node_rejected` | **PASS (Correctly Rejected / Tripped)** | Confirmed that wrong-class qualified node is strictly rejected. |
 | `collection_error_detection` | **PASS (Correctly Rejected / Tripped)** | Confirmed that nonzero collection exit code is detected. |
-| `failing_cli_produces_nonzero_exit` | **PASS (Correctly Rejected / Tripped)** | Confirmed that validate_matrix_references.py exits nonzero on validation failure. |
+| `failing_cli_produces_nonzero_exit` | **PASS (Correctly Rejected / Tripped)** | Confirmed that validate_matrix_references.py executed normally against an invalid matrix detects inventory failure, writes VALIDATION_FAILED report, and exits nonzero. |
 
 ## 2. Row-by-Row Matrix Reference Validation
 
