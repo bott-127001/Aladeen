@@ -474,6 +474,14 @@ Last Updated: 2026-11-05 (MSM Dashboard Milestone Accepted — Transition to CHO
 
 ## 15. Milestone Implementation & Verification: TJL Endpoint Resolution, Lifecycle Classification & Focused Presentation Regressions (HANDOFF-047)
 - **Active Branch**: `feature/tjl-dashboard`
+- **Reviewer Status**: **ACCEPTED** by Perplexity for the bounded read-only TJL dashboard milestone at commit `535af1434ed9a6b93328202039db7f1d4f4be410`.
+- **Recorded Acceptance Boundaries & Evidence Qualifications**:
+  1. *Isolated Presentation Regressions*: Several unresolved-coordinate tests use `dataclasses.replace()` to inject unresolved snapshot fields; they are isolated presentation regressions built on production-calculated data, not candle-driven demonstrations of the unresolved lifecycle.
+  2. *Windowed Chart Boundary*: The windowed-chart test directly verifies endpoint resolution across excluded rows; it is not a complete windowed-rendering lifecycle test.
+  3. *Adapter Characterization*: Browser verification uses a deterministic mock data adapter and real browser/application calculations; it does not establish native MT5 calendar or live-feed correctness.
+  4. *Browser Test Structure*: Reported as 1 pytest test containing 11 scenario sections.
+  5. *Unresolved Core Limitations*: Existing CHOCH identification-close ($c_1 == p_2$) and ISS reconciliation limitations remain unresolved; dashboard acceptance does not settle them.
+  6. *Engine / Dashboard Stability*: No further TJL engine or dashboard rewrite is requested.
 - **Parent Commit**: `bab21d8b2f944d50a68b6af646fec8c7b5489600` (HANDOFF-046)
 - **Objective**: Harden authoritative endpoint resolution via explicit source ID mapping, decouple lifecycle classification from visibility toggles, preserve contextual roles across transitions, and add comprehensive presentation regression tests.
 - **Commit Provenance Clarification**: The commit hash submitted for HANDOFF-046 in the submission text contained a string typo (`bab21d8b671a53b516dae9dfdb34570d5eb645ef`), which failed remote resolution. The actual verified git commit on `origin/feature/tjl-dashboard` is `bab21d8b2f944d50a68b6af646fec8c7b5489600`.
@@ -513,3 +521,40 @@ Last Updated: 2026-11-05 (MSM Dashboard Milestone Accepted — Transition to CHO
   3. *Downstream Engine Absence*: Zero zone activation logic, zero usage accounting/ledger, zero tap tracking, zero trade entry signals.
   4. *Adapter Disclosure*: Deterministic mock adapter clearly documented as simulating broker-connected state.
   5. *Branch Boundary*: All work committed strictly on `feature/tjl-dashboard`. No merging into `main`.
+
+
+---
+
+## 16. Milestone Specification & Verification: Tap / Activation Acceptance Requirements & Deterministic Acceptance Fixtures (HANDOFF-048)
+- **Active Branch**: `requirements/activation-acceptance`
+- **Parent Commit**: `535af1434ed9a6b93328202039db7f1d4f4be410` (Accepted TJL Dashboard Integration)
+- **Objective**: Establish authoritative, machine-readable acceptance requirements and deterministic fixtures for tap observation and zone activation lifecycle prior to any engine implementation.
+- **Scope Boundary**: Pure requirements specification and fixture validation. Strictly **zero activation engine implementation, zero usage ledger, zero arbitration logic, zero trade entry signals, zero order execution, and zero merging into `main`**.
+- **Delivered Specifications & Fixtures**:
+  1. **Acceptance Specification (`docs/requirements/activation-acceptance.md`)**:
+     - Cites exact authoritative source sections (`MTF-Analysis.pdf` §5, §8, §9, §10, §12) and user approvals (`OPEN-03`, `OPEN-04`, `OPEN-05`, `OPEN-06`, `OPEN-08`, `OPEN-09`, `OPEN-10`, `OPEN-12`).
+     - Separates architectural concerns: Source Structural Eligibility, Observed Touch Evidence, Pending Activation Lifecycle, Cancellation and Precedence, Future Confirmation/Arbitration Interfaces, and Future Usage-Ledger Interfaces.
+     - Declares explicit input/evidence value contracts (`ActivationSourceLevel`, `ObservedPriceEvent`, `TouchObservation`, `PendingActivationState`).
+     - Documents future downstream protocols for arbitration (earliest confirmation close timestamp; tie-breakers: M1 < M5 < H1, TJL2 / A+ < TJL1) and usage ledger (one trade per level via `StableLevelId`).
+  2. **Machine-Readable Acceptance Fixtures (`tests/fixtures/activation_acceptance.json`)**:
+     - 10 comprehensive deterministic fixture categories:
+       - `act_01_known_availability_first_touch`: Valid touch on or after known availability transitions level to `PENDING_ACTIVATION` and maps confirmation timeframe (H1 -> M1).
+       - `act_02_unknown_availability_blocks_activation`: `eligibility_available_time is None` blocks time-extended activation (fail-closed principle).
+       - `act_03_no_retroactive_wick_claim`: Pre-availability wick touch in `[open, avail)` rejected; only post-availability touch activates (`OPEN-04`).
+       - `act_04_observed_touch_vs_interpolated_path`: Discrete candle high/low boundary touch vs gapping non-touch; path interpolation rejected (`OPEN-06`).
+       - `act_05_repeated_observations_no_reset`: Secondary/tertiary touches while pending do not reset `first_touch_time` or restart search (`MTF-Analysis.pdf` §5).
+       - `act_06_source_choch_cancellation`: Source main CHOCH immediately cancels pending activation (`MTF-Analysis.pdf` §9, `OPEN-03`).
+       - `act_07_source_t2_replacement_cancellation`: Pullback t2 replacement cancels SET_1 activation; new SET_2 requires independent touch (`MTF-Analysis.pdf` §9).
+       - `act_08_external_entry_cancellation_and_rearm`: External entry cancels activation without consuming level; price leaves zone and retouches, successfully rearming (`OPEN-05`, `MTF-Analysis.pdf` §9 & §10).
+       - `act_09_same_time_event_ordering`: Shared close event ordering: invalidation applied before entry evaluation (`OPEN-03`, `OPEN-12`).
+       - `act_10_run_isolation_and_replay_idempotence`: Engine configuration isolation (`OPEN-08`) and idempotent replay consistency (`OPEN-09`).
+  3. **Automated Fixture Integrity Suite (`tests/test_activation_fixture_integrity.py`)**:
+     - 12 comprehensive unit tests independently validating timestamps, finite positive prices, geometric bounds, half-open intervals, touch detection, cancellation rules, rearming preconditions, and replay determinism.
+- **Verification Summary**:
+  - Activation fixture integrity suite: 12/12 passed in 0.52s (`pytest tests/test_activation_fixture_integrity.py -v`).
+  - Full offline repository test suite: 432/432 passed in 10.61s (`pytest -q tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py`).
+- **Scope Compliance & Standing Invariants**:
+  1. *Requirements Only*: Zero activation engine, zero usage ledger, zero arbitration logic, zero trade entry signals, zero order execution.
+  2. *No Price-Path Invention*: Discrete candle wicks evaluated strictly within declared timestamps; no speculative tick paths inferred.
+  3. *Unresolved Core Ambiguities*: Upstream $c_1 == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
+  4. *Branch Boundary*: Committed and pushed strictly on `requirements/activation-acceptance`. No merging into `main`.
