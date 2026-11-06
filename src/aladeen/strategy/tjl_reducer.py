@@ -33,7 +33,19 @@ from .tjl_types import (
 
 
 class TJLReducer:
-    """Pure lifecycle state machine managing TJL labels, geometry, and current-set eligibility."""
+    """Pure lifecycle state machine managing TJL labels, geometry, and current-set eligibility.
+
+    PROVENANCE TRUST BOUNDARY:
+    Explicit event positions passed in TJLStructuralObservation represent validated input
+    contract parameters, not independently authenticated cryptographic proofs.
+    - Coordinator Context: In integrated execution, TJLCoordinator derives these positions directly
+      from authoritative MSMChochCoordinator completed candle history and confirmed event positions.
+    - Reducer Context: When synthetic or external callers invoke the standalone TJLReducer directly,
+      the reducer strictly enforces internal consistency rules (structural epochs, strictly increasing
+      observation event positions, dependent event horizon limits, and exact source candle body edges).
+      The reducer does not claim to detect fabricated-yet-internally-consistent event metadata without
+      receiving the underlying event history.
+    """
 
     def __init__(
         self,
@@ -70,6 +82,7 @@ class TJLReducer:
         self._set_counter: int = 0
         self._structural_epoch: int = 0
         self._epoch_choch_event_pos: Optional[int] = None
+        self._last_received_event_pos: Optional[int] = None
         self._last_choch_time: Optional[datetime] = None
         self._last_choch_c2_index: Optional[int] = None
         self._last_choch_event_time: Optional[datetime] = None
@@ -106,6 +119,10 @@ class TJLReducer:
     def structural_epoch(self) -> int:
         return self._structural_epoch
 
+    @property
+    def last_received_event_pos(self) -> Optional[int]:
+        return self._last_received_event_pos
+
     def reset(self) -> None:
         """Resets the reducer to initial clean state."""
         self._current_direction = None
@@ -125,7 +142,11 @@ class TJLReducer:
         self._received_indices.clear()
         self._set_counter = 0
         self._structural_epoch = 0
+        self._epoch_choch_event_pos = None
+        self._last_received_event_pos = None
         self._last_choch_time = None
+        self._last_choch_c2_index = None
+        self._last_choch_event_time = None
 
     def reduce(self, observation: TJLStructuralObservation) -> TJLSnapshot:
         """Atomically evaluates a structural observation and advances state."""
@@ -155,6 +176,15 @@ class TJLReducer:
         ):
             raise ValueError(
                 f"Non-chronological observation open_time: {observation.candle_open_time} <= {self._last_received_open_time}"
+            )
+
+        # Monotonic observation event position check (strictly increasing)
+        if (
+            self._last_received_event_pos is not None
+            and observation.observation_event_pos <= self._last_received_event_pos
+        ):
+            raise ValueError(
+                f"Non-strictly-increasing observation_event_pos: {observation.observation_event_pos} <= {self._last_received_event_pos}"
             )
 
         # Authoritative Structural Epoch Check
@@ -255,6 +285,7 @@ class TJLReducer:
             self._received_indices.add(observation.candle_index)
             self._last_received_index = observation.candle_index
             self._last_received_open_time = observation.candle_open_time
+            self._last_received_event_pos = observation.observation_event_pos
             self._is_unresolved = staged_is_unresolved
             self._unresolved_diagnostic = staged_unresolved_diag
             self._last_transition = record
@@ -302,6 +333,7 @@ class TJLReducer:
             self._last_processed_index = observation.candle_index
             self._last_received_index = observation.candle_index
             self._last_received_open_time = observation.candle_open_time
+            self._last_received_event_pos = observation.observation_event_pos
             self._received_indices.add(observation.candle_index)
             self._structural_epoch = staged_epoch
             self._epoch_choch_event_pos = staged_epoch_choch_event_pos
@@ -548,6 +580,7 @@ class TJLReducer:
         self._last_processed_index = observation.candle_index
         self._last_received_index = observation.candle_index
         self._last_received_open_time = observation.candle_open_time
+        self._last_received_event_pos = observation.observation_event_pos
         self._received_indices.add(observation.candle_index)
         self._set_counter = staged_set_counter
         self._structural_epoch = staged_epoch

@@ -366,3 +366,37 @@ Last Updated: 2026-11-05 (MSM Dashboard Milestone Accepted — Transition to CHO
   - Full repository offline suite: 380/380 tests passing in 5.84s (0 failures, 1 deselected).
 - **Scope Compliance**: Pure offline TJL calculation. Strictly zero UI, zero chart overlays, zero taps, zero activation engine, zero usage ledger, zero signals, zero order execution, and zero merging to `main`.
 
+---
+
+## 12. Monotonic Observation Positions, Reset Provenance & State Invariants (HANDOFF-043)
+- **Repository Provenance**:
+  - **Branch**: `feature/tjl-engine`
+  - **Immediate Git Parent**: `21b431a832acd0cdaf15bccc39c7c2bdf44ccc9c` (HANDOFF-042)
+  - **Accepted Requirements Baseline**: `859cf12ae11b2198a6306a183364860e84b82724` (`HANDOFF-037`)
+- **Core Hardening Implementation**:
+  1. **Strictly Increasing Observation Positions (Directive 1)**:
+     - Added `self._last_received_event_pos: Optional[int] = None` to `TJLReducer`.
+     - In `TJLReducer.reduce()`, strictly enforces `observation.observation_event_pos > self._last_received_event_pos` fail-closed.
+     - Rejects repeated and decreasing event positions even when `candle_open_time` increases.
+     - Allows gaps without requiring strictly consecutive integers or increasing source candle IDs.
+     - Unresolved receipts advance `_last_received_event_pos` alongside receipt index and timestamp without mutating live state.
+     - Rejection occurs before any mutation, preserving position, timestamp, and structural epoch state.
+  2. **Complete Event-Provenance Reset (Directive 2)**:
+     - In `TJLReducer.reset()`, comprehensively clears all provenance state: `_epoch_choch_event_pos = None`, `_last_received_event_pos = None`, `_last_choch_time = None`, `_last_choch_c2_index = None`, `_last_choch_event_time = None`, `_structural_epoch = 0`.
+     - Reused reducer matches a brand-new instance identically.
+  3. **Focused Ordering & State Regressions (Directive 3 — 8/8 passing)**:
+     - `test_repeated_observation_event_pos_rejected_with_later_timestamp`: Repeated position rejected fail-closed without mutation.
+     - `test_decreasing_observation_event_pos_rejected_with_later_timestamp`: Decreasing position rejected fail-closed without mutation.
+     - `test_backward_position_choch_rejected_without_epoch_boundary_mutation`: Backward-position CHOCH rejected without moving epoch boundary or incrementing epoch.
+     - `test_valid_observation_event_pos_gaps_accepted`: Gaps in positions accepted cleanly when strictly increasing.
+     - `test_unresolved_receipt_advances_received_order_metadata_only`: Advances received-order metadata only; preserves `last_processed_index`.
+     - `test_reset_clears_all_provenance_and_matches_fresh_reference`: Fully clears state and matches fresh reference on reuse.
+     - `test_forming_bar_leaves_completed_candle_state_unchanged`: Coordinator preserves completed-candle snapshot 100% on forming bar delivery.
+     - `test_fresh_batch_failure_preserves_previous_live_state`: Process-candles fresh batch failure preserves live state 100% untouched.
+  4. **Trust Boundary Documentation (Directive 4)**:
+     - Documented in `TJLReducer` class docstrings and architecture notes: Explicit event positions in `TJLStructuralObservation` are validated input parameters. The candle coordinator derives them directly from authoritative MSM/CHOCH event history; the standalone reducer enforces internal consistency rules, not cryptographic proof against fabricated-yet-consistent synthetic metadata.
+- **Verification Summary**:
+  - Full TJL suite: 58/58 tests passing in 0.82s.
+  - Full repository offline suite: 388/388 tests passing in 5.90s (0 failures, 1 deselected).
+- **Scope Compliance**: Pure offline TJL calculations. Strictly zero UI, zero chart overlays, zero taps, zero activation engine, zero usage ledger, zero signals, zero order execution, and zero merging to `main`.
+

@@ -530,3 +530,71 @@ class TestTJLCoordinator:
             )
             batch_snap = batch_coord.process_candles(recovery_seq_unknown[:k+1])
             assert seq_snap == replay_snap == batch_snap
+
+    def test_forming_bar_leaves_completed_candle_state_unchanged(
+        self, tjl_fixtures: Mapping[str, Any]
+    ) -> None:
+        """[HANDOFF-043] Forming bar receipt causes zero mutations to live completed-candle state."""
+        fix = tjl_fixtures["tjl_01_bullish_basic_end_to_end"]
+        candles = adapt_candles(fix["candles"])
+        start_time = datetime.fromisoformat(fix["start_candle_time"])
+
+        coord = TJLCoordinator(
+            config=MSMConfig(direction=Direction.UPWARD, start_candle_time=start_time),
+            symbol_feed_id="FEED_EURUSD_H1",
+            source_timeframe="H1",
+            source_engine_id="ENGINE_EURUSD_H1",
+        )
+        snap_completed = coord.process_candles(candles[:8])
+        assert snap_completed.current_eligible_set is not None
+
+        # Deliver a forming candle (is_forming=True, bar_status="FORMING")
+        forming_candle = StrategyCandle(
+            index=candles[7].index + 1,
+            open_time=candles[7].open_time + timedelta(hours=1),
+            open=1.146,
+            high=1.160,
+            low=1.144,
+            close=1.158,
+            is_forming=True,
+            bar_status="FORMING",
+        )
+        snap_after_forming = coord.process_candle(forming_candle)
+        assert snap_after_forming == snap_completed
+        assert coord.get_snapshot() == snap_completed
+
+    def test_fresh_batch_failure_preserves_previous_live_state(
+        self, tjl_fixtures: Mapping[str, Any]
+    ) -> None:
+        """[HANDOFF-043] Failure in fresh-batch process_candles preserves previous live state 100% untouched."""
+        fix = tjl_fixtures["tjl_01_bullish_basic_end_to_end"]
+        candles = adapt_candles(fix["candles"])
+        start_time = datetime.fromisoformat(fix["start_candle_time"])
+
+        coord = TJLCoordinator(
+            config=MSMConfig(direction=Direction.UPWARD, start_candle_time=start_time),
+            symbol_feed_id="FEED_EURUSD_H1",
+            source_timeframe="H1",
+            source_engine_id="ENGINE_EURUSD_H1",
+        )
+        snap_live = coord.process_candles(candles[:6])
+        assert coord.get_snapshot() == snap_live
+
+        # Attempt batch with invalid data that causes mid-batch failure (non-chronological open_time)
+        bad_candles = list(candles[:6]) + [
+            StrategyCandle(
+                index=99,
+                open_time=candles[2].open_time,  # Non-chronological open_time!
+                open=1.130,
+                high=1.140,
+                low=1.120,
+                close=1.135,
+                is_forming=False,
+                bar_status="CONFIRMED_COMPLETED",
+            )
+        ]
+        with pytest.raises(Exception):
+            coord.process_candles(bad_candles)
+
+        # Assert live state completely preserved
+        assert coord.get_snapshot() == snap_live

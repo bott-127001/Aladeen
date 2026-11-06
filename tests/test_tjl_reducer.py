@@ -882,3 +882,223 @@ class TestTJLReducer:
         assert snap.current_eligible_set.tjl2_zone.source_candle_index == 800
         assert snap.current_eligible_set.tjl2_zone.source_candle_open_time == c_orig.open_time
 
+    # =========================================================================
+    # [HANDOFF-043 Monotonic Event-Position & Reset Regression Tests]
+    # =========================================================================
+
+    def test_repeated_observation_event_pos_rejected_with_later_timestamp(self) -> None:
+        """[Directive 3.1] Repeated observation_event_pos with a later timestamp is rejected without mutation."""
+        reducer = TJLReducer("ENGINE_TEST", "FEED_TEST", "H1")
+        t0 = datetime(2026, 10, 1, 0, 0, tzinfo=timezone.utc)
+        c1 = _make_candle(1, 1.130, 1.140, 1.129, 1.135, t0 + timedelta(hours=1))
+        c2 = _make_candle(2, 1.135, 1.145, 1.134, 1.140, t0 + timedelta(hours=2))
+
+        # Receipt 1: event_pos=1
+        reducer.reduce(TJLStructuralObservation(
+            source_engine_id="ENGINE_TEST", symbol_feed_id="FEED_TEST", source_timeframe="H1",
+            direction=Direction.UPWARD, candle_index=1, candle_open_time=c1.open_time,
+            source_candle_lookup={1: c1}, observation_event_pos=1,
+        ))
+        assert reducer.last_received_event_pos == 1
+
+        # Receipt 2: open_time is later (t0 + 2h), but event_pos is repeated (1)
+        obs_repeated = TJLStructuralObservation(
+            source_engine_id="ENGINE_TEST", symbol_feed_id="FEED_TEST", source_timeframe="H1",
+            direction=Direction.UPWARD, candle_index=2, candle_open_time=c2.open_time,
+            source_candle_lookup={2: c2}, observation_event_pos=1,
+        )
+        with pytest.raises(ValueError, match="Non-strictly-increasing observation_event_pos: 1 <= 1"):
+            reducer.reduce(obs_repeated)
+
+        # Assert state unmutated
+        assert reducer.last_received_event_pos == 1
+        assert reducer.last_processed_index == 1
+
+    def test_decreasing_observation_event_pos_rejected_with_later_timestamp(self) -> None:
+        """[Directive 3.2] Decreasing observation_event_pos with a later timestamp is rejected without mutation."""
+        reducer = TJLReducer("ENGINE_TEST", "FEED_TEST", "H1")
+        t0 = datetime(2026, 10, 1, 0, 0, tzinfo=timezone.utc)
+        c1 = _make_candle(1, 1.130, 1.140, 1.129, 1.135, t0 + timedelta(hours=1))
+        c2 = _make_candle(2, 1.135, 1.145, 1.134, 1.140, t0 + timedelta(hours=2))
+
+        # Receipt 1: event_pos=5
+        reducer.reduce(TJLStructuralObservation(
+            source_engine_id="ENGINE_TEST", symbol_feed_id="FEED_TEST", source_timeframe="H1",
+            direction=Direction.UPWARD, candle_index=1, candle_open_time=c1.open_time,
+            source_candle_lookup={1: c1}, observation_event_pos=5,
+        ))
+        assert reducer.last_received_event_pos == 5
+
+        # Receipt 2: open_time is later, but event_pos is 3 (< 5)
+        obs_decreasing = TJLStructuralObservation(
+            source_engine_id="ENGINE_TEST", symbol_feed_id="FEED_TEST", source_timeframe="H1",
+            direction=Direction.UPWARD, candle_index=2, candle_open_time=c2.open_time,
+            source_candle_lookup={2: c2}, observation_event_pos=3,
+        )
+        with pytest.raises(ValueError, match="Non-strictly-increasing observation_event_pos: 3 <= 5"):
+            reducer.reduce(obs_decreasing)
+
+        assert reducer.last_received_event_pos == 5
+        assert reducer.last_processed_index == 1
+
+    def test_backward_position_choch_rejected_without_epoch_boundary_mutation(self) -> None:
+        """[Directive 3.3] Backward-position CHOCH is rejected without moving the stored epoch boundary or mutating epoch."""
+        reducer = TJLReducer("ENGINE_TEST", "FEED_TEST", "H1")
+        t0 = datetime(2026, 10, 1, 0, 0, tzinfo=timezone.utc)
+        c1 = _make_candle(1, 1.130, 1.140, 1.129, 1.135, t0 + timedelta(hours=1))
+
+        # Receipt at event pos 5
+        reducer.reduce(TJLStructuralObservation(
+            source_engine_id="ENGINE_TEST", symbol_feed_id="FEED_TEST", source_timeframe="H1",
+            direction=Direction.UPWARD, candle_index=1, candle_open_time=c1.open_time,
+            source_candle_lookup={1: c1}, observation_event_pos=5,
+        ))
+        assert reducer.structural_epoch == 0
+        assert reducer.last_received_event_pos == 5
+
+        # CHOCH observation claiming later open_time but backward event_pos 4!
+        obs_bad_choch = TJLStructuralObservation(
+            source_engine_id="ENGINE_TEST", symbol_feed_id="FEED_TEST", source_timeframe="H1",
+            direction=Direction.UPWARD, candle_index=2, candle_open_time=t0 + timedelta(hours=2),
+            is_choch_event=True, new_choch_direction=Direction.DOWNWARD,
+            observation_event_pos=4,
+        )
+        with pytest.raises(ValueError, match="Non-strictly-increasing observation_event_pos: 4 <= 5"):
+            reducer.reduce(obs_bad_choch)
+
+        # Assert epoch and epoch CHOCH boundary NOT mutated
+        assert reducer.structural_epoch == 0
+        assert reducer._epoch_choch_event_pos is None
+        assert reducer.last_received_event_pos == 5
+
+    def test_valid_observation_event_pos_gaps_accepted(self) -> None:
+        """[Directive 3.4] Gaps in observation_event_pos are strictly accepted as long as positions are strictly increasing."""
+        reducer = TJLReducer("ENGINE_TEST", "FEED_TEST", "H1")
+        t0 = datetime(2026, 10, 1, 0, 0, tzinfo=timezone.utc)
+        c1 = _make_candle(1, 1.130, 1.140, 1.129, 1.135, t0 + timedelta(hours=1))
+        c2 = _make_candle(2, 1.135, 1.145, 1.134, 1.140, t0 + timedelta(hours=5))
+        c3 = _make_candle(3, 1.140, 1.150, 1.138, 1.145, t0 + timedelta(hours=12))
+
+        reducer.reduce(TJLStructuralObservation(
+            source_engine_id="ENGINE_TEST", symbol_feed_id="FEED_TEST", source_timeframe="H1",
+            direction=Direction.UPWARD, candle_index=1, candle_open_time=c1.open_time,
+            source_candle_lookup={1: c1}, observation_event_pos=0,
+        ))
+        assert reducer.last_received_event_pos == 0
+
+        # Gap from 0 to 5
+        reducer.reduce(TJLStructuralObservation(
+            source_engine_id="ENGINE_TEST", symbol_feed_id="FEED_TEST", source_timeframe="H1",
+            direction=Direction.UPWARD, candle_index=2, candle_open_time=c2.open_time,
+            source_candle_lookup={2: c2}, observation_event_pos=5,
+        ))
+        assert reducer.last_received_event_pos == 5
+
+        # Gap from 5 to 12
+        reducer.reduce(TJLStructuralObservation(
+            source_engine_id="ENGINE_TEST", symbol_feed_id="FEED_TEST", source_timeframe="H1",
+            direction=Direction.UPWARD, candle_index=3, candle_open_time=c3.open_time,
+            source_candle_lookup={3: c3}, observation_event_pos=12,
+        ))
+        assert reducer.last_received_event_pos == 12
+
+    def test_unresolved_receipt_advances_received_order_metadata_only(self) -> None:
+        """[Directive 3.5] Unresolved receipt advances received-order metadata (index, time, event_pos) without mutating live state."""
+        reducer = TJLReducer("ENGINE_TEST", "FEED_TEST", "H1")
+        t0 = datetime(2026, 10, 1, 0, 0, tzinfo=timezone.utc)
+        c1 = _make_candle(1, 1.130, 1.140, 1.129, 1.135, t0 + timedelta(hours=1))
+
+        reducer.reduce(TJLStructuralObservation(
+            source_engine_id="ENGINE_TEST", symbol_feed_id="FEED_TEST", source_timeframe="H1",
+            direction=Direction.UPWARD, candle_index=1, candle_open_time=c1.open_time,
+            source_candle_lookup={1: c1}, observation_event_pos=2,
+        ))
+
+        # Unresolved receipt at event pos 6
+        snap_unres = reducer.reduce(TJLStructuralObservation(
+            source_engine_id="ENGINE_TEST", symbol_feed_id="FEED_TEST", source_timeframe="H1",
+            direction=Direction.UPWARD, candle_index=5, candle_open_time=t0 + timedelta(hours=5),
+            is_unresolved=True, unresolved_diagnostic="GAP_AMBIGUITY",
+            observation_event_pos=6,
+        ))
+        assert snap_unres.is_unresolved is True
+        assert reducer.last_received_index == 5
+        assert reducer.last_processed_index == 1  # Unmutated!
+        assert reducer.last_received_event_pos == 6
+
+        # Subsequent receipt cannot re-use event_pos <= 6
+        c6 = _make_candle(6, 1.140, 1.150, 1.138, 1.145, t0 + timedelta(hours=6))
+        with pytest.raises(ValueError, match="Non-strictly-increasing observation_event_pos: 6 <= 6"):
+            reducer.reduce(TJLStructuralObservation(
+                source_engine_id="ENGINE_TEST", symbol_feed_id="FEED_TEST", source_timeframe="H1",
+                direction=Direction.UPWARD, candle_index=6, candle_open_time=c6.open_time,
+                source_candle_lookup={6: c6}, observation_event_pos=6,
+            ))
+
+        # Receipt at pos 7 is accepted
+        c7 = _make_candle(7, 1.145, 1.155, 1.140, 1.150, t0 + timedelta(hours=7))
+        snap_ok = reducer.reduce(TJLStructuralObservation(
+            source_engine_id="ENGINE_TEST", symbol_feed_id="FEED_TEST", source_timeframe="H1",
+            direction=Direction.UPWARD, candle_index=7, candle_open_time=c7.open_time,
+            source_candle_lookup={7: c7}, observation_event_pos=7,
+        ))
+        assert reducer.last_received_event_pos == 7
+
+    def test_reset_clears_all_provenance_and_matches_fresh_reference(self) -> None:
+        """[Directive 3.6] reset() clears all event provenance, epoch, and position fields; reuse matches a fresh reducer."""
+        reducer = TJLReducer("ENGINE_TEST", "FEED_TEST", "H1")
+        t0 = datetime(2026, 10, 1, 0, 0, tzinfo=timezone.utc)
+        c1 = _make_candle(1, 1.130, 1.140, 1.129, 1.135, t0 + timedelta(hours=1))
+        c4 = _make_candle(4, 1.110, 1.115, 1.104, 1.105, t0 + timedelta(hours=4))
+        c5 = _make_candle(5, 1.140, 1.155, 1.139, 1.155, t0 + timedelta(hours=5))
+
+        # Build Bullish set
+        ch = SwingPoint(price=1.135, candle_index=1, candle_open_time=c1.open_time, identified_bar_index=1, confirmed_bar_index=4)
+        cl = SwingPoint(price=1.105, candle_index=4, candle_open_time=c4.open_time, identified_bar_index=4, confirmed_bar_index=4)
+        p3 = SwingPoint(price=1.155, candle_index=5, candle_open_time=c5.open_time, identified_bar_index=7)
+        c7 = _make_candle(7, 1.145, 1.150, 1.142, 1.146, t0 + timedelta(hours=7))
+
+        reducer.reduce(TJLStructuralObservation(
+            source_engine_id="ENGINE_TEST", symbol_feed_id="FEED_TEST", source_timeframe="H1",
+            direction=Direction.UPWARD, candle_index=7, candle_open_time=c7.open_time,
+            ch_point=ch, cl_point=cl, tentative_p3=p3,
+            source_candle_lookup={1: c1, 4: c4, 5: c5, 7: c7},
+            observation_event_pos=7, pair_confirmation_event_pos=4, p3_identification_event_pos=7,
+        ))
+
+        # CHOCH to DOWNWARD
+        reducer.reduce(TJLStructuralObservation(
+            source_engine_id="ENGINE_TEST", symbol_feed_id="FEED_TEST", source_timeframe="H1",
+            direction=Direction.UPWARD, candle_index=9, candle_open_time=t0 + timedelta(hours=9),
+            is_choch_event=True, new_choch_direction=Direction.DOWNWARD,
+            observation_event_pos=9,
+        ))
+        assert reducer.structural_epoch == 1
+        assert reducer._epoch_choch_event_pos == 9
+        assert reducer.last_received_event_pos == 9
+
+        # Call reset()
+        reducer.reset()
+        assert reducer.structural_epoch == 0
+        assert reducer._epoch_choch_event_pos is None
+        assert reducer.last_received_event_pos is None
+        assert reducer.current_eligible_set is None
+        assert reducer._last_choch_time is None
+        assert reducer._last_choch_c2_index is None
+        assert reducer._last_choch_event_time is None
+        assert len(reducer.get_snapshot().transition_history) == 0
+
+        # Feed fresh sequence to reset reducer and to a brand new reducer
+        fresh_reducer = TJLReducer("ENGINE_TEST", "FEED_TEST", "H1")
+        fresh_obs = TJLStructuralObservation(
+            source_engine_id="ENGINE_TEST", symbol_feed_id="FEED_TEST", source_timeframe="H1",
+            direction=Direction.UPWARD, candle_index=7, candle_open_time=c7.open_time,
+            ch_point=ch, cl_point=cl, tentative_p3=p3,
+            source_candle_lookup={1: c1, 4: c4, 5: c5, 7: c7},
+            observation_event_pos=7, pair_confirmation_event_pos=4, p3_identification_event_pos=7,
+        )
+        snap_reused = reducer.reduce(fresh_obs)
+        snap_fresh = fresh_reducer.reduce(fresh_obs)
+
+        assert snap_reused == snap_fresh
+
