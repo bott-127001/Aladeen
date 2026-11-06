@@ -1772,3 +1772,42 @@ Last Updated: 2026-11-06 (Milestone 27 Read-Only Activation Dashboard Accepted â
   6. *Core Ambiguities Preserved*: Upstream $c_1 == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
   7. *Safety Boundary*: Strictly pure read-only dashboard presentation. Zero UI order execution, zero MT5 live trading calls, zero live account modification, zero confirmation arbitration, zero usage ledger writes, zero trade entry signals.
   8. *Branch Boundary*: Committed and pushed strictly on `feature/activation-dashboard`; never merge into `main`.
+
+---
+
+## Milestone 29 â€” Read-Only Dashboard Release-Readiness Audit and Reproducible Offline Runbook (HANDOFF-078)
+
+- **Active Branch**: `requirements/dashboard-release-readiness`
+- **Immediate Parent Commit**: `dc7726d79dc921b0aac4e977e44fbae66a5e6b4b` (HANDOFF-077 closeout)
+- **Accepted Controlled Browser Baseline Commit**: `bf737ea41e8bfd554b9386a6e9be86f700824fb3` (Milestone 28 accepted)
+- **Accepted Offline Dashboard Implementation Commit**: `d6587a1200735fe6453ff24f043931699f21f407` (Milestone 27 accepted)
+- **Requirements Baseline Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d` (Milestone 26 / HANDOFF-066 accepted)
+- **Root Baseline Engine Commit**: `0867c740352297fb43e781fb654706218771d533` (Milestone 25 / HANDOFF-061)
+- **Objective**: Consolidate and audit the agreed read-only dashboard scope, produce a traceable requirement-to-evidence matrix, establish an executable offline reproducibility runbook, and document all open ambiguities and evidence boundaries:
+  1. *Scope-Completion Matrix (`docs/requirements/dashboard-release-readiness.md`)*:
+     - Traceable matrix covering MSM, CHOCH, ISS, TJL, Activation Inspection, Multi-Context Isolation, and Viewport Usability.
+     - Documented disposition for each requirement: Accepted, Partial, Deferred, or Unresolved.
+     - Retained key distinctions: ISS tracking-only isolated evidence vs candle-driven integration; unresolved $c_1 == p_2$ boundary; synthetic snapshot presentation for Scenario 13; metadata-only confirmation timeframe mapping.
+  2. *Reproducible Offline Runbook (`docs/development/offline-dashboard-runbook.md`)*:
+     - Documented executable path from clean checkout to environment setup, local demo launch, focused tests, full offline test suite, and controlled browser runner.
+     - Documented prerequisites, declared dependencies, Playwright setup, port configuration (8068, 8069), offline adapter/guard architecture, failure diagnostics, and safe cleanup.
+     - Prominently included simulated/mock non-broker safety warning.
+  3. *Reproduction Exercise Verified*:
+     - Full offline suite executed: 542 passed in 9.16s (0 failures).
+     - Controlled browser runner executed: all assertions passed, 9 screenshots verified, ports 8068/8069 cleanly released.
+     - Strategy engine purity verified: 0 diff across all 6 core strategy engine files against baseline `3f6689c194c95ca3761833f8831bb8a3f5b4740d`.
+- **Completed Deliverables**:
+  1. [`docs/requirements/dashboard-release-readiness.md`](file:///docs/requirements/dashboard-release-readiness.md): Complete scope-completion matrix and audit verdict.
+  2. [`docs/development/offline-dashboard-runbook.md`](file:///docs/development/offline-dashboard-runbook.md): Reproducible offline operating guide.
+  3. [`docs/development/status.md`](file:///docs/development/status.md): Appended HANDOFF-078 documentation.
+- **Verification Summary**:
+  - Focused activation & app unit tests: **38 / 38 passed** in 2.24s (`pytest tests/test_activation_dashboard_integration.py tests/test_app.py -v`).
+  - Full offline repository test suite: **542 / 542 passed** in 9.16s (`pytest -q tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py --ignore=tests/test_activation_browser_controlled.py --ignore=tests/activation_browser_runner.py --ignore=tests/activation_browser_harness.py`).
+  - Controlled browser validation runner: **All assertions passed, 0 failures, 9 screenshots verified, ports cleanly released** (`python tests/activation_browser_runner.py`).
+  - Strategy Engine Purity Audit: Exactly zero modifications to strategy engines (`msm_engine.py`, `choch_engine.py`, `iss_engine.py`, `tjl_coordinator.py`, `activation_engine.py`, `activation_adapter.py`). `git diff 3f6689c194c95ca3761833f8831bb8a3f5b4740d -- src/aladeen/strategy/activation_engine.py src/aladeen/strategy/activation_adapter.py src/aladeen/strategy/engine.py src/aladeen/strategy/choch_detector.py src/aladeen/strategy/iss_engine.py src/aladeen/strategy/tjl_coordinator.py` is completely clean (0 output).
+- **Scope Compliance & Standing Invariants**:
+  1. *Pure Read-Only Presentation*: Strictly zero UI order execution, zero MT5 live trading calls, zero live account modification.
+  2. *Downstream Invariant*: Strictly zero confirmation arbitration/selection, zero usage ledger writes, zero trade entry signals.
+  3. *Engine Integrity*: Strictly zero modification to accepted strategy engines (`msm_engine`, `choch_engine`, `iss_engine`, `tjl_coordinator`, `activation_engine`, `activation_adapter`).
+  4. *Core Ambiguities Preserved*: Upstream $c_1 == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
+  5. *Branch Boundary*: Committed and pushed strictly on `requirements/dashboard-release-readiness`. No merging into `main`.
