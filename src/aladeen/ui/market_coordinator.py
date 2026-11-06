@@ -375,6 +375,9 @@ def generate_chart_and_status_from_snapshot(
                             extra_str = f", {choch_cnt} CHOCH"
                         elif ctx.calculation_mode == "INTEGRATED_MSM_CHOCH_ISS":
                             extra_str = f", {choch_cnt} CHOCH, {iss_cnt} ISS"
+                        elif ctx.calculation_mode == "INTEGRATED_MSM_CHOCH_TJL":
+                            curr_set_id = msm_res.tjl_snapshot.current_eligible_set.set_id if (msm_res.tjl_snapshot and msm_res.tjl_snapshot.current_eligible_set) else "None"
+                            extra_str = f", {choch_cnt} CHOCH, Set: {curr_set_id}"
                         else:
                             extra_str = ""
                         msm_status_suffix = f" | 📐 MSM: {msm_res.snapshot.trend_status} ({len(msm_res.snapshot.confirmed_pairs)} pairs{extra_str})"

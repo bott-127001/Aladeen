@@ -30,6 +30,8 @@ from .iss_types import (
     ISSSnapshot,
     ISSZone,
 )
+from .tjl_coordinator import TJLCoordinator
+from .tjl_types import TJLSnapshot
 from .types import (
     Direction,
     EngineState,
@@ -52,6 +54,7 @@ class CalculationMode(str, Enum):
     STANDALONE_MSM = "STANDALONE_MSM"
     INTEGRATED_MSM_CHOCH = "INTEGRATED_MSM_CHOCH"
     INTEGRATED_MSM_CHOCH_ISS = "INTEGRATED_MSM_CHOCH_ISS"
+    INTEGRATED_MSM_CHOCH_TJL = "INTEGRATED_MSM_CHOCH_TJL"
 
 
 def validate_candle_completion(row_pos: int, row: Any) -> Tuple[bool, str]:
@@ -136,6 +139,10 @@ class MSMContext:
     show_iss_markers: bool = True
     show_iss_zones: bool = True
     show_iss_points: bool = True
+    show_tjl_zones: bool = True
+    show_tjl_labels: bool = True
+    show_tjl_current_set: bool = True
+    show_tjl_historical_sets: bool = True
 
     def __post_init__(self) -> None:
         if not isinstance(self.data_source, str) or not self.data_source.strip():
@@ -172,6 +179,7 @@ class MSMContext:
             CalculationMode.STANDALONE_MSM.value,
             CalculationMode.INTEGRATED_MSM_CHOCH.value,
             CalculationMode.INTEGRATED_MSM_CHOCH_ISS.value,
+            CalculationMode.INTEGRATED_MSM_CHOCH_TJL.value,
         }
         if self.calculation_mode not in valid_modes:
             raise ValueError(f"Unknown calculation_mode '{self.calculation_mode}'. Must be one of {valid_modes}")
@@ -181,6 +189,10 @@ class MSMContext:
         object.__setattr__(self, "show_iss_markers", bool(self.show_iss_markers))
         object.__setattr__(self, "show_iss_zones", bool(self.show_iss_zones))
         object.__setattr__(self, "show_iss_points", bool(self.show_iss_points))
+        object.__setattr__(self, "show_tjl_zones", bool(self.show_tjl_zones))
+        object.__setattr__(self, "show_tjl_labels", bool(self.show_tjl_labels))
+        object.__setattr__(self, "show_tjl_current_set", bool(self.show_tjl_current_set))
+        object.__setattr__(self, "show_tjl_historical_sets", bool(self.show_tjl_historical_sets))
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize context to a JSON-compatible dictionary."""
@@ -198,6 +210,10 @@ class MSMContext:
             "show_iss_markers": self.show_iss_markers,
             "show_iss_zones": self.show_iss_zones,
             "show_iss_points": self.show_iss_points,
+            "show_tjl_zones": self.show_tjl_zones,
+            "show_tjl_labels": self.show_tjl_labels,
+            "show_tjl_current_set": self.show_tjl_current_set,
+            "show_tjl_historical_sets": self.show_tjl_historical_sets,
         }
 
     @classmethod
@@ -236,6 +252,10 @@ class MSMContext:
         show_iss_markers = bool(data.get("show_iss_markers", True))
         show_iss_zones = bool(data.get("show_iss_zones", True))
         show_iss_points = bool(data.get("show_iss_points", True))
+        show_tjl_zones = bool(data.get("show_tjl_zones", True))
+        show_tjl_labels = bool(data.get("show_tjl_labels", True))
+        show_tjl_current_set = bool(data.get("show_tjl_current_set", True))
+        show_tjl_historical_sets = bool(data.get("show_tjl_historical_sets", True))
 
         return cls(
             data_source=data["data_source"],
@@ -251,12 +271,16 @@ class MSMContext:
             show_iss_markers=show_iss_markers,
             show_iss_zones=show_iss_zones,
             show_iss_points=show_iss_points,
+            show_tjl_zones=show_tjl_zones,
+            show_tjl_labels=show_tjl_labels,
+            show_tjl_current_set=show_tjl_current_set,
+            show_tjl_historical_sets=show_tjl_historical_sets,
         )
 
 
 @dataclass(frozen=True)
 class MSMServiceResult:
-    """Immutable result structure of an MSM / CHOCH / ISS service calculation."""
+    """Immutable result structure of an MSM / CHOCH / ISS / TJL service calculation."""
     context: MSMContext
     snapshot: Optional[MSMSnapshot]
     candles: Tuple[StrategyCandle, ...]
@@ -267,6 +291,7 @@ class MSMServiceResult:
     confirmed_choch_events: Tuple[ConfirmedChoch, ...] = ()
     iss_snapshot: Optional[ISSSnapshot] = None
     confirmed_iss_events: Tuple[ConfirmedISSEvent, ...] = ()
+    tjl_snapshot: Optional[TJLSnapshot] = None
     is_unresolved: bool = False
     unresolved_diagnostic: Optional[ChochDiagnostic] = None
     unresolved_candle_index: Optional[int] = None
@@ -434,7 +459,62 @@ def calculate_msm(df: pd.DataFrame, context: MSMContext) -> MSMServiceResult:
             start_candle_time=context.start_candle_time,
             direction=context.direction,
         )
-        if context.calculation_mode == CalculationMode.INTEGRATED_MSM_CHOCH_ISS.value:
+        if context.calculation_mode == CalculationMode.INTEGRATED_MSM_CHOCH_TJL.value:
+            tjl_coord = TJLCoordinator(
+                config=config,
+                symbol_feed_id=context.symbol,
+                source_timeframe=context.timeframe,
+                source_engine_id=f"ENGINE_{context.symbol}_{context.timeframe}",
+            )
+            tjl_snap = tjl_coord.process_candles(candles)
+            coord_snap = tjl_coord.get_main_coordinator_snapshot()
+            snapshot = coord_snap.msm_snapshot
+            pair_count = len(snapshot.confirmed_pairs) if snapshot else 0
+            choch_count = len(coord_snap.confirmed_choch_events)
+            labeled_zone_count = len(tjl_snap.all_labeled_zones)
+            curr_set_id = tjl_snap.current_eligible_set.set_id if tjl_snap.current_eligible_set else "None"
+
+            if tjl_snap.is_unresolved or coord_snap.is_unresolved:
+                unres_diag = tjl_snap.unresolved_diagnostic or (
+                    coord_snap.unresolved_diagnostic.diagnostic_type.value
+                    if coord_snap.unresolved_diagnostic else "Structure ambiguity"
+                )
+                status_msg = (
+                    f"Integrated TJL unresolved: {unres_diag} | "
+                    f"Last Authoritative State: {snapshot.trend_status if snapshot else 'None'} (Bar #{tjl_snap.last_processed_index}) | "
+                    f"Received through Bar #{tjl_snap.last_received_index} | "
+                    f"Pairs: {pair_count} | CHOCH: {choch_count} | Set: {curr_set_id}"
+                )
+            else:
+                applied_dir_str = (
+                    tjl_snap.direction.value
+                    if tjl_snap.direction is not None
+                    else context.direction.value
+                )
+                status_msg = (
+                    f"MSM+CHOCH+TJL Applied: {applied_dir_str} (Epoch {tjl_snap.structural_epoch}) | "
+                    f"Pairs: {pair_count} | CHOCH: {choch_count} | "
+                    f"Eligible Set: {curr_set_id} | Labeled Zones: {labeled_zone_count}"
+                )
+
+            return MSMServiceResult(
+                context=context,
+                snapshot=snapshot,
+                candles=tuple(candles),
+                status_message=status_msg,
+                candle_count=len(candles),
+                start_candle_found=True,
+                coordinator_snapshot=coord_snap,
+                confirmed_choch_events=coord_snap.confirmed_choch_events,
+                tjl_snapshot=tjl_snap,
+                is_unresolved=tjl_snap.is_unresolved or coord_snap.is_unresolved,
+                unresolved_diagnostic=coord_snap.unresolved_diagnostic,
+                unresolved_candle_index=coord_snap.unresolved_candle_index,
+                last_processed_index=tjl_snap.last_processed_index,
+                last_received_index=tjl_snap.last_received_index,
+                error=None,
+            )
+        elif context.calculation_mode == CalculationMode.INTEGRATED_MSM_CHOCH_ISS.value:
             iss_config = ISSConfig(
                 start_candle_time=context.start_candle_time,
                 main_direction=context.direction,

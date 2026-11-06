@@ -331,6 +331,7 @@ def _build_msm_controls() -> html.Div:
                                 {"label": " Standalone MSM", "value": "STANDALONE_MSM"},
                                 {"label": " Integrated MSM + CHOCH", "value": "INTEGRATED_MSM_CHOCH"},
                                 {"label": " Integrated MSM + CHOCH + ISS", "value": "INTEGRATED_MSM_CHOCH_ISS"},
+                                {"label": " Integrated MSM + CHOCH + TJL", "value": "INTEGRATED_MSM_CHOCH_TJL"},
                             ],
                             value="STANDALONE_MSM",
                             inline=True,
@@ -396,6 +397,23 @@ def _build_msm_controls() -> html.Div:
                             inputStyle={"marginRight": "4px", "marginLeft": "8px"},
                         ),
                     ]),
+                    # TJL Display Toggles
+                    html.Div([
+                        html.Label("TJL Display", style={"color": "#aaa", "fontSize": "12px", "display": "block", "marginBottom": "4px"}),
+                        dcc.Checklist(
+                            id="tjl-display-toggles",
+                            options=[
+                                {"label": " Zones", "value": "zones"},
+                                {"label": " Current Set", "value": "current_set"},
+                                {"label": " Historical", "value": "historical"},
+                                {"label": " Labels", "value": "labels"},
+                            ],
+                            value=["zones", "current_set", "historical", "labels"],
+                            inline=True,
+                            style={"color": "#e0e0e0", "fontSize": "13px"},
+                            inputStyle={"marginRight": "4px", "marginLeft": "8px"},
+                        ),
+                    ]),
                     # Apply / Calculate Button
                     html.Button(
                         "⚡ Apply / Calculate MSM",
@@ -456,7 +474,7 @@ def _build_msm_inspection_panel() -> html.Div:
             ),
             # Strategy Scope Boundaries Disclaimer
             html.Div(
-                "ℹ️ Scope boundary: TJL, zone activations, and entry signals are strictly out of scope (MSM + CHOCH + ISS read-only structure phase). No automated trading, no order execution.",
+                "ℹ️ Scope boundary: Pure read-only structure phase (MSM + CHOCH + ISS + TJL). Zone activations, execution ledger, entry signals, and automated trading are strictly out of scope. No order execution, no account modification.",
                 style={"fontSize": "11px", "color": "#555", "marginTop": "12px", "borderTop": "1px solid #222233", "paddingTop": "6px"},
             ),
         ],

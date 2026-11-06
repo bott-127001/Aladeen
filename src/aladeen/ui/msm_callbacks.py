@@ -29,6 +29,17 @@ from aladeen.strategy.iss_types import (
     ISSZoneType,
     InternalPoint,
 )
+from aladeen.strategy.tjl_types import (
+    CurrentEligibleSet,
+    StableLevelId,
+    TJLFingerprint,
+    TJLLabel,
+    TJLSide,
+    TJLSnapshot,
+    TJLTransitionRecord,
+    TJLTransitionType,
+    TJLZone,
+)
 from aladeen.strategy.service import (
     MSMContext,
     MSMServiceResult,
@@ -266,6 +277,15 @@ def render_msm_inspection_table(
             html.Span([html.B("Confirmed ISS: "), html.Span(str(len(msm_result.confirmed_iss_events)), style={"color": "#b388ff", "fontWeight": "bold"})], style={"fontSize": "12px", "color": "#ccc"})
         )
 
+    if msm_result is not None and msm_result.tjl_snapshot is not None:
+        curr_set_id = msm_result.tjl_snapshot.current_eligible_set.set_id if msm_result.tjl_snapshot.current_eligible_set else "None"
+        summary_items.append(
+            html.Span([html.B("TJL Set: "), html.Span(curr_set_id, style={"color": "#00e676" if curr_set_id != "None" else "#ffb74d", "fontWeight": "bold"})], style={"fontSize": "12px", "color": "#ccc"})
+        )
+        summary_items.append(
+            html.Span([html.B("TJL Epoch: "), html.Span(str(msm_result.tjl_snapshot.structural_epoch), style={"color": "#b388ff", "fontWeight": "bold"})], style={"fontSize": "12px", "color": "#ccc"})
+        )
+
     if snapshot.last_support is not None:
         summary_items.append(
             html.Span(
@@ -424,6 +444,8 @@ def render_msm_inspection_table(
     if msm_result is not None:
         iss_elements = _build_iss_inspection_elements(msm_result)
         container_children.extend(iss_elements)
+        tjl_elements = _build_tjl_inspection_elements(msm_result)
+        container_children.extend(tjl_elements)
     if choch_events_table is not None:
         container_children.append(choch_events_table)
     if choch_zones_table is not None:
@@ -798,6 +820,380 @@ def _build_iss_inspection_elements(msm_result: MSMServiceResult) -> list[html.Di
     return elements
 
 
+def _build_tjl_inspection_elements(msm_result: MSMServiceResult) -> list[html.Div]:
+    elements: list[html.Div] = []
+    if msm_result.tjl_snapshot is None:
+        return elements
+
+    tjl_snap = msm_result.tjl_snapshot
+    curr_set = tjl_snap.current_eligible_set
+
+    # 1. Badge & Engine Status Card
+    if tjl_snap.is_unresolved:
+        badge_bg, badge_fg = "#b71c1c", "#ef9a9a"
+        badge_text = "UNRESOLVED AMBIGUITY"
+    elif curr_set is not None:
+        badge_bg, badge_fg = "#1b5e20", "#a5d6a7"
+        badge_text = f"ELIGIBLE SET ACTIVE ({curr_set.set_id})"
+    elif tjl_snap.all_labeled_zones:
+        badge_bg, badge_fg = "#e65100", "#ffb74d"
+        badge_text = f"LABELS ONLY ({len(tjl_snap.all_labeled_zones)} ZONES)"
+    else:
+        badge_bg, badge_fg = "#212121", "#9e9e9e"
+        badge_text = "AWAITING STRUCTURE"
+
+    badge = html.Span(
+        badge_text,
+        style={
+            "padding": "3px 8px",
+            "borderRadius": "4px",
+            "background": badge_bg,
+            "color": badge_fg,
+            "fontWeight": "bold",
+            "fontSize": "11px",
+        },
+    )
+
+    dir_str = tjl_snap.direction.value if tjl_snap.direction is not None else "None"
+    id_details = [
+        html.Span([html.B("Engine ID: "), html.Code(tjl_snap.source_engine_id, style={"color": "#00e5ff"})], style={"fontSize": "12px", "color": "#ccc"}),
+        html.Span([html.B("Feed / TF: "), html.Span(f"{tjl_snap.symbol_feed_id} ({tjl_snap.source_timeframe})", style={"color": "#90caf9"})], style={"fontSize": "12px", "color": "#ccc"}),
+        html.Span([html.B("Direction: "), html.Span(dir_str, style={"color": "#ff80ab", "fontWeight": "bold"})], style={"fontSize": "12px", "color": "#ccc"}),
+        html.Span([html.B("Structural Epoch: "), html.Span(str(tjl_snap.structural_epoch), style={"color": "#b388ff", "fontWeight": "bold"})], style={"fontSize": "12px", "color": "#ccc"}),
+        html.Span([html.B("Current Set ID: "), html.Span(curr_set.set_id if curr_set else "None", style={"color": "#00e676" if curr_set else "#ffd54f", "fontWeight": "bold"})], style={"fontSize": "12px", "color": "#ccc"}),
+        html.Span(
+            [
+                html.B("Outgoing Cancel Intent: "),
+                html.Span(
+                    "YES" if tjl_snap.outgoing_cancellation_intent else "NO",
+                    style={"color": "#ff5252" if tjl_snap.outgoing_cancellation_intent else "#aaa", "fontWeight": "bold"},
+                ),
+            ],
+            style={"fontSize": "12px", "color": "#ccc"},
+        ),
+    ]
+
+    diag_children = []
+    if tjl_snap.unresolved_diagnostic:
+        diag_children.append(
+            html.P(f"Diagnostic: {tjl_snap.unresolved_diagnostic}", style={"fontSize": "12px", "color": "#ff9800", "margin": "4px 0 0 0", "fontWeight": "bold"})
+        )
+
+    progress_bar = html.Div(
+        style={"fontSize": "11px", "color": "#888", "marginTop": "4px"},
+        children=[
+            html.Span(f"Authoritative Processed Bar: #{tjl_snap.last_processed_index} | "),
+            html.Span(f"Latest Received Input: Bar #{tjl_snap.last_received_index}"),
+        ],
+    )
+
+    elements.append(
+        html.Div(
+            style={
+                "background": "#161626",
+                "border": "1px solid #2a2a44",
+                "borderRadius": "6px",
+                "padding": "10px 14px",
+                "marginBottom": "14px",
+            },
+            children=[
+                html.Div(
+                    style={"display": "flex", "alignItems": "center", "justifyContent": "space-between", "marginBottom": "8px"},
+                    children=[
+                        html.H5("🔗 Trend Joining Level (TJL) Status & Eligible Set", style={"color": "#00e5ff", "margin": 0}),
+                        badge,
+                    ],
+                ),
+                html.Div(
+                    style={"display": "flex", "gap": "14px", "alignItems": "center", "flexWrap": "wrap", "marginBottom": "4px"},
+                    children=id_details,
+                ),
+                *diag_children,
+                progress_bar,
+            ],
+        )
+    )
+
+    # 2. Current Eligible Set Detailed Table
+    if curr_set is not None:
+        avail_str = (
+            curr_set.eligibility_available_time.strftime("%Y-%m-%d %H:%M UTC")
+            if curr_set.eligibility_available_time is not None
+            else "Unknown — pending candle completion"
+        )
+        avail_color = "#80d8ff" if curr_set.eligibility_available_time is not None else "#ffb74d"
+
+        fp_tuple = curr_set.fingerprint.to_tuple()
+        fp_str = f"({fp_tuple[0]}, {fp_tuple[1]}, CH:{fp_tuple[2]}, CL:{fp_tuple[3]}, P3:{fp_tuple[4]})"
+
+        p3_info = f"Bar #{curr_set.p3_source_index} ({curr_set.p3_open_time.strftime('%Y-%m-%d %H:%M UTC')}) @ {curr_set.p3_price:.4f}"
+
+        set_header_info = html.Div(
+            style={"display": "flex", "gap": "16px", "alignItems": "center", "flexWrap": "wrap", "marginBottom": "8px"},
+            children=[
+                html.Span([html.B("Set Fingerprint: "), html.Code(fp_str, style={"color": "#b388ff"})], style={"fontSize": "12px", "color": "#ccc"}),
+                html.Span([html.B("Tentative P3 Anchor: "), html.Span(p3_info, style={"color": "#ffd54f"})], style={"fontSize": "12px", "color": "#ccc"}),
+                html.Span([html.B("Eligibility Available: "), html.Span(avail_str, style={"color": avail_color, "fontWeight": "bold"})], style={"fontSize": "12px", "color": "#ccc"}),
+            ],
+        )
+
+        zone_rows = []
+        for z in [curr_set.tjl1_zone, curr_set.tjl2_zone]:
+            price_str = f"{z.lower_price:.4f} – {z.upper_price:.4f}" if not z.is_line else f"{z.lower_price:.4f}"
+            geom_str = "Line (Thickness 0)" if z.is_line else "Box / Area"
+            role_color = "#00e676" if z.label == TJLLabel.TJL1 else "#ab47bc"
+            lid_str = f"({z.level_id.symbol_feed_id}, {z.level_id.source_timeframe}, {z.level_id.source_open_time.strftime('%H:%M')}, {z.level_id.side.value})"
+
+            conf_str = (
+                z.confirmed_time.strftime("%Y-%m-%d %H:%M UTC")
+                if z.confirmed_time is not None
+                else f"Unknown (Source Bar #{z.source_candle_index})"
+            )
+
+            zone_rows.append(
+                html.Tr(
+                    style={"borderBottom": "1px solid #232338", "fontSize": "12px", "color": "#e0e0e0"},
+                    children=[
+                        html.Td(
+                            html.Span(
+                                z.label.value,
+                                style={
+                                    "padding": "2px 6px",
+                                    "borderRadius": "3px",
+                                    "background": "#004d40" if z.label == TJLLabel.TJL1 else "#4a148c",
+                                    "color": role_color,
+                                    "fontSize": "11px",
+                                    "fontWeight": "bold",
+                                },
+                            ),
+                            style={"padding": "6px 12px"},
+                        ),
+                        html.Td(price_str, style={"padding": "6px 12px", "fontWeight": "bold", "color": role_color}),
+                        html.Td(geom_str, style={"padding": "6px 12px", "color": "#aaa"}),
+                        html.Td(html.Code(lid_str, style={"color": "#90caf9"}), style={"padding": "6px 12px"}),
+                        html.Td(f"{z.source_candle_open_time.strftime('%Y-%m-%d %H:%M UTC')} (Bar #{z.source_candle_index})", style={"padding": "6px 12px"}),
+                        html.Td(conf_str, style={"padding": "6px 12px"}),
+                        html.Td(
+                            html.Span(
+                                "STRUCTURAL SET ONLY — NOT ORDER EXECUTION",
+                                style={"fontSize": "10px", "color": "#888", "fontStyle": "italic"},
+                            ),
+                            style={"padding": "6px 12px"},
+                        ),
+                    ],
+                )
+            )
+
+        elements.append(
+            html.Div(
+                style={"marginBottom": "16px"},
+                children=[
+                    html.H5(f"🎯 Current Eligible TJL Set: {curr_set.set_id}", style={"color": "#00e676", "margin": "12px 0 6px 0"}),
+                    set_header_info,
+                    html.Table(
+                        [
+                            html.Thead(
+                                html.Tr(
+                                    style={"background": "#1e1e30", "color": "#a0a0b8", "fontSize": "12px", "textAlign": "left"},
+                                    children=[
+                                        html.Th("Role", style={"padding": "8px 12px"}),
+                                        html.Th("Price Bounds", style={"padding": "8px 12px"}),
+                                        html.Th("Geometry", style={"padding": "8px 12px"}),
+                                        html.Th("Stable Level ID", style={"padding": "8px 12px"}),
+                                        html.Th("Source Candle (UTC)", style={"padding": "8px 12px"}),
+                                        html.Th("Confirmed At (UTC)", style={"padding": "8px 12px"}),
+                                        html.Th("Boundary Scope", style={"padding": "8px 12px"}),
+                                    ],
+                                )
+                            ),
+                            html.Tbody(zone_rows),
+                        ],
+                        style={"width": "100%", "borderCollapse": "collapse", "background": "#12121c"},
+                    ),
+                ],
+            )
+        )
+    else:
+        # Informational note when no current eligible set
+        no_set_reason = (
+            "Confirmed structural labels exist, but no active Point 3 has qualified an eligible set."
+            if tjl_snap.all_labeled_zones
+            else "Awaiting directional structure initialization or recovering from CHOCH reset."
+        )
+        elements.append(
+            html.Div(
+                style={
+                    "background": "#181824",
+                    "border": "1px dashed #333348",
+                    "borderRadius": "6px",
+                    "padding": "10px 14px",
+                    "marginBottom": "16px",
+                    "color": "#aaa",
+                    "fontSize": "12px",
+                },
+                children=[
+                    html.B("Current Eligible Set: None. "),
+                    html.Span(no_set_reason),
+                ],
+            )
+        )
+
+    # 3. All Labeled Zones Table
+    if tjl_snap.all_labeled_zones:
+        curr_lids = {curr_set.tjl1_zone.level_id, curr_set.tjl2_zone.level_id} if curr_set else set()
+        hist_lids = {z.level_id for h in tjl_snap.historical_sets for z in [h.tjl1_zone, h.tjl2_zone]}
+
+        labeled_rows = []
+        for z in tjl_snap.all_labeled_zones:
+            price_str = f"{z.lower_price:.4f} – {z.upper_price:.4f}" if not z.is_line else f"{z.lower_price:.4f}"
+            geom_str = "Line (Thickness 0)" if z.is_line else "Box / Area"
+            lid_str = f"({z.level_id.symbol_feed_id}, {z.level_id.source_timeframe}, {z.level_id.source_open_time.strftime('%H:%M')}, {z.level_id.side.value})"
+            conf_str = (
+                z.confirmed_time.strftime("%Y-%m-%d %H:%M UTC")
+                if z.confirmed_time is not None
+                else f"Unknown (Source Bar #{z.source_candle_index})"
+            )
+
+            if z.level_id in curr_lids:
+                status_badge = html.Span("CURRENT SET", style={"padding": "2px 6px", "borderRadius": "3px", "background": "#1b5e20", "color": "#a5d6a7", "fontSize": "10px", "fontWeight": "bold"})
+            elif z.level_id in hist_lids:
+                status_badge = html.Span("HISTORICAL", style={"padding": "2px 6px", "borderRadius": "3px", "background": "#37474f", "color": "#cfd8dc", "fontSize": "10px", "fontWeight": "bold"})
+            else:
+                status_badge = html.Span("LABELED ONLY", style={"padding": "2px 6px", "borderRadius": "3px", "background": "#e65100", "color": "#ffe082", "fontSize": "10px", "fontWeight": "bold"})
+
+            labeled_rows.append(
+                html.Tr(
+                    style={"borderBottom": "1px solid #232338", "fontSize": "12px", "color": "#e0e0e0"},
+                    children=[
+                        html.Td(z.label.value, style={"padding": "6px 12px", "fontWeight": "bold"}),
+                        html.Td(price_str, style={"padding": "6px 12px"}),
+                        html.Td(geom_str, style={"padding": "6px 12px", "color": "#aaa"}),
+                        html.Td(html.Code(lid_str, style={"color": "#90caf9"}), style={"padding": "6px 12px"}),
+                        html.Td(f"{z.source_candle_open_time.strftime('%Y-%m-%d %H:%M UTC')} (Bar #{z.source_candle_index})", style={"padding": "6px 12px"}),
+                        html.Td(conf_str, style={"padding": "6px 12px"}),
+                        html.Td(status_badge, style={"padding": "6px 12px"}),
+                    ],
+                )
+            )
+
+        elements.append(
+            html.Div(
+                style={"marginBottom": "16px"},
+                children=[
+                    html.H5("🏷️ All Labeled TJL Zones (Structural Provenance)", style={"color": "#b388ff", "margin": "12px 0 6px 0"}),
+                    html.Table(
+                        [
+                            html.Thead(
+                                html.Tr(
+                                    style={"background": "#1e1e30", "color": "#a0a0b8", "fontSize": "12px", "textAlign": "left"},
+                                    children=[
+                                        html.Th("Role", style={"padding": "8px 12px"}),
+                                        html.Th("Price Bounds", style={"padding": "8px 12px"}),
+                                        html.Th("Geometry", style={"padding": "8px 12px"}),
+                                        html.Th("Stable Level ID", style={"padding": "8px 12px"}),
+                                        html.Th("Source Candle (UTC)", style={"padding": "8px 12px"}),
+                                        html.Th("Confirmed At (UTC)", style={"padding": "8px 12px"}),
+                                        html.Th("Set Membership", style={"padding": "8px 12px"}),
+                                    ],
+                                )
+                            ),
+                            html.Tbody(labeled_rows),
+                        ],
+                        style={"width": "100%", "borderCollapse": "collapse", "background": "#12121c"},
+                    ),
+                ],
+            )
+        )
+
+    # 4. Lifecycle Transition History Table
+    if tjl_snap.transition_history:
+        history_rows = []
+        for idx, tr in enumerate(tjl_snap.transition_history, start=1):
+            t_type = tr.transition_type.value if hasattr(tr.transition_type, "value") else str(tr.transition_type)
+            set_id = tr.current_set.set_id if tr.current_set else "None"
+            cancel_str = f"CANCEL {tr.outgoing_cancelled_set_id}" if tr.outgoing_cancellation_intent else "—"
+            cancel_color = "#ff5252" if tr.outgoing_cancellation_intent else "#888"
+
+            time_str = tr.transition_time.strftime("%Y-%m-%d %H:%M UTC") if tr.transition_time else "—"
+
+            history_rows.append(
+                html.Tr(
+                    style={"borderBottom": "1px solid #232338", "fontSize": "12px", "color": "#e0e0e0"},
+                    children=[
+                        html.Td(f"#{idx}", style={"padding": "6px 12px", "color": "#aaa"}),
+                        html.Td(
+                            html.Span(
+                                t_type,
+                                style={
+                                    "padding": "2px 6px",
+                                    "borderRadius": "3px",
+                                    "background": "#263238",
+                                    "color": "#80d8ff",
+                                    "fontSize": "10px",
+                                    "fontWeight": "bold",
+                                },
+                            ),
+                            style={"padding": "6px 12px"},
+                        ),
+                        html.Td(f"{time_str} (Bar #{tr.transition_candle_index})", style={"padding": "6px 12px"}),
+                        html.Td(html.B(set_id, style={"color": "#00e676" if set_id != "None" else "#888"}), style={"padding": "6px 12px"}),
+                        html.Td(html.Span(cancel_str, style={"color": cancel_color, "fontWeight": "bold" if tr.outgoing_cancellation_intent else "normal"}), style={"padding": "6px 12px"}),
+                        html.Td(str(len(tr.newly_labeled_zones)), style={"padding": "6px 12px"}),
+                        html.Td(tr.diagnostic or "—", style={"padding": "6px 12px", "color": "#bbb", "fontSize": "11px"}),
+                    ],
+                )
+            )
+
+        elements.append(
+            html.Div(
+                style={"marginBottom": "16px"},
+                children=[
+                    html.H5("📜 TJL Lifecycle Transition History", style={"color": "#00e5ff", "margin": "12px 0 6px 0"}),
+                    html.Table(
+                        [
+                            html.Thead(
+                                html.Tr(
+                                    style={"background": "#1e1e30", "color": "#a0a0b8", "fontSize": "12px", "textAlign": "left"},
+                                    children=[
+                                        html.Th("#", style={"padding": "8px 12px"}),
+                                        html.Th("Transition Type", style={"padding": "8px 12px"}),
+                                        html.Th("Transition Candle", style={"padding": "8px 12px"}),
+                                        html.Th("Resulting Set", style={"padding": "8px 12px"}),
+                                        html.Th("Outgoing Cancellation", style={"padding": "8px 12px"}),
+                                        html.Th("New Zones", style={"padding": "8px 12px"}),
+                                        html.Th("Diagnostic", style={"padding": "8px 12px"}),
+                                    ],
+                                )
+                            ),
+                            html.Tbody(history_rows),
+                        ],
+                        style={"width": "100%", "borderCollapse": "collapse", "background": "#12121c"},
+                    ),
+                ],
+            )
+        )
+
+    # 5. TJL Scope Disclaimer Box
+    elements.append(
+        html.Div(
+            "ℹ️ TJL Scope boundary: Structural Set Only — Downstream activation/ledger not present. "
+            "Pure read-only market structure calculation. Zero order execution, zero MT5 trading calls, zero account modification.",
+            style={
+                "fontSize": "11px",
+                "color": "#888",
+                "marginTop": "8px",
+                "marginBottom": "16px",
+                "border": "1px solid #232338",
+                "padding": "6px 10px",
+                "borderRadius": "4px",
+                "background": "#12121c",
+            },
+        )
+    )
+
+    return elements
+
+
 def evaluate_msm_for_snapshot(
     snapshot: MarketDataSnapshot,
     applied_data: Optional[Dict[str, Any]],
@@ -947,12 +1343,18 @@ def evaluate_msm_for_snapshot(
                 has_unapplied_draft = True
 
     if res.is_unresolved:
-        iss_unres_str = f" | ISS: {iss_cnt}" if ctx.calculation_mode == "INTEGRATED_MSM_CHOCH_ISS" else ""
+        if ctx.calculation_mode == "INTEGRATED_MSM_CHOCH_ISS":
+            mode_unres_str = f" | ISS: {iss_cnt}"
+        elif ctx.calculation_mode == "INTEGRATED_MSM_CHOCH_TJL":
+            curr_set_id = res.tjl_snapshot.current_eligible_set.set_id if (res.tjl_snapshot and res.tjl_snapshot.current_eligible_set) else "None"
+            mode_unres_str = f" | TJL Set: {curr_set_id}"
+        else:
+            mode_unres_str = ""
         status_text = (
             f"⚠️ Integrated structure unresolved: ambiguous at candle {res.unresolved_candle_index} | "
             f"Last Authoritative State: {res.snapshot.trend_status} (Bar #{res.last_processed_index}) | "
             f"Received through Bar #{res.last_received_index} | "
-            f"Pairs: {pair_cnt} | CHOCH: {choch_cnt}{iss_unres_str} (rev: {snapshot.revision_id})"
+            f"Pairs: {pair_cnt} | CHOCH: {choch_cnt}{mode_unres_str} (rev: {snapshot.revision_id})"
         )
         status_style = {"marginTop": "10px", "fontSize": "12px", "color": "#ff9800", "fontWeight": "bold"}
     elif has_unapplied_draft:
@@ -971,6 +1373,9 @@ def evaluate_msm_for_snapshot(
             extra_info = f" | {choch_cnt} CHOCH confirmed"
         elif ctx.calculation_mode == "INTEGRATED_MSM_CHOCH_ISS":
             extra_info = f" | {choch_cnt} CHOCH confirmed | {iss_cnt} ISS confirmed"
+        elif ctx.calculation_mode == "INTEGRATED_MSM_CHOCH_TJL":
+            curr_set_id = res.tjl_snapshot.current_eligible_set.set_id if (res.tjl_snapshot and res.tjl_snapshot.current_eligible_set) else "None"
+            extra_info = f" | {choch_cnt} CHOCH confirmed | Set: {curr_set_id}"
         else:
             extra_info = ""
         status_text = (
@@ -996,6 +1401,7 @@ def process_msm_controls_update(
     calculation_mode_val: str | None = None,
     display_toggles_val: list[str] | None = None,
     iss_display_toggles_val: list[str] | None = None,
+    tjl_display_toggles_val: list[str] | None = None,
 ) -> tuple[dict | None, str, dict, Any]:
     """Pure coordinator function for MSM controls, application, and unapplied edit detection.
 
@@ -1146,6 +1552,28 @@ def process_msm_controls_update(
             )
             return updated_applied, status_text, status_style, panel
 
+    if triggered_id == "tjl-display-toggles":
+        if applied_data and applied_data.get("enabled", False):
+            tjl_vals = tjl_display_toggles_val if tjl_display_toggles_val is not None else ["zones", "current_set", "historical", "labels"]
+            show_z = "zones" in tjl_vals
+            show_c = "current_set" in tjl_vals
+            show_h = "historical" in tjl_vals
+            show_l = "labels" in tjl_vals
+            updated_applied = dict(applied_data)
+            updated_applied["show_tjl_zones"] = show_z
+            updated_applied["show_tjl_current_set"] = show_c
+            updated_applied["show_tjl_historical_sets"] = show_h
+            updated_applied["show_tjl_labels"] = show_l
+            _, status_text, status_style, panel = evaluate_msm_for_snapshot(
+                snapshot=snapshot,
+                applied_data=updated_applied,
+                draft_direction=direction_val,
+                draft_start_candle=start_candle_val,
+                current_context=active_ctx,
+                active_request_token=active_token,
+            )
+            return updated_applied, status_text, status_style, panel
+
     # 5. Detect unapplied edits without silently recalculating
     if triggered_id in {"msm-direction-selector", "msm-start-candle-dropdown", "strategy-calculation-mode"}:
         if applied_data and applied_data.get("enabled", False):
@@ -1215,6 +1643,11 @@ def process_msm_controls_update(
             show_iss_m = "markers" in (iss_display_toggles_val if iss_display_toggles_val is not None else ["markers", "zones", "points"])
             show_iss_z = "zones" in (iss_display_toggles_val if iss_display_toggles_val is not None else ["markers", "zones", "points"])
             show_iss_p = "points" in (iss_display_toggles_val if iss_display_toggles_val is not None else ["markers", "zones", "points"])
+            tjl_vals = tjl_display_toggles_val if tjl_display_toggles_val is not None else ["zones", "current_set", "historical", "labels"]
+            show_tjl_z = "zones" in tjl_vals
+            show_tjl_c = "current_set" in tjl_vals
+            show_tjl_h = "historical" in tjl_vals
+            show_tjl_l = "labels" in tjl_vals
             msm_ctx = MSMContext(
                 data_source=snapshot.data_source,
                 symbol=snapshot.symbol,
@@ -1228,6 +1661,10 @@ def process_msm_controls_update(
                 show_iss_markers=show_iss_m,
                 show_iss_zones=show_iss_z,
                 show_iss_points=show_iss_p,
+                show_tjl_zones=show_tjl_z,
+                show_tjl_current_set=show_tjl_c,
+                show_tjl_historical_sets=show_tjl_h,
+                show_tjl_labels=show_tjl_l,
             )
             df = snapshot.to_dataframe()
             res = calculate_msm(df, msm_ctx)
@@ -1236,13 +1673,19 @@ def process_msm_controls_update(
                 choch_cnt = len(res.confirmed_choch_events)
                 iss_cnt = len(res.confirmed_iss_events)
                 if res.is_unresolved:
-                    iss_unres_str = f" | ISS: {iss_cnt}" if calc_mode == "INTEGRATED_MSM_CHOCH_ISS" else ""
+                    if calc_mode == "INTEGRATED_MSM_CHOCH_ISS":
+                        mode_unres_str = f" | ISS: {iss_cnt}"
+                    elif calc_mode == "INTEGRATED_MSM_CHOCH_TJL":
+                        curr_set_id = res.tjl_snapshot.current_eligible_set.set_id if (res.tjl_snapshot and res.tjl_snapshot.current_eligible_set) else "None"
+                        mode_unres_str = f" | TJL Set: {curr_set_id}"
+                    else:
+                        mode_unres_str = ""
                     status_style = {"marginTop": "10px", "fontSize": "12px", "color": "#ff9800", "fontWeight": "bold"}
                     status_text = (
                         f"⚠️ Integrated structure unresolved: ambiguous at candle {res.unresolved_candle_index} | "
                         f"Last Authoritative State: {res.snapshot.trend_status} (Bar #{res.last_processed_index}) | "
                         f"Received through Bar #{res.last_received_index} | "
-                        f"Pairs: {pair_cnt} | CHOCH: {choch_cnt}{iss_unres_str} (rev: {snapshot.revision_id})"
+                        f"Pairs: {pair_cnt} | CHOCH: {choch_cnt}{mode_unres_str} (rev: {snapshot.revision_id})"
                     )
                 else:
                     applied_dir = (
@@ -1254,6 +1697,9 @@ def process_msm_controls_update(
                         extra_info = f" | {choch_cnt} CHOCH confirmed"
                     elif calc_mode == "INTEGRATED_MSM_CHOCH_ISS":
                         extra_info = f" | {choch_cnt} CHOCH confirmed | {iss_cnt} ISS confirmed"
+                    elif calc_mode == "INTEGRATED_MSM_CHOCH_TJL":
+                        curr_set_id = res.tjl_snapshot.current_eligible_set.set_id if (res.tjl_snapshot and res.tjl_snapshot.current_eligible_set) else "None"
+                        extra_info = f" | {choch_cnt} CHOCH confirmed | Set: {curr_set_id}"
                     else:
                         extra_info = ""
                     status_style = {"marginTop": "10px", "fontSize": "12px", "color": "#00e676", "fontWeight": "bold"}
@@ -1328,6 +1774,7 @@ def register_msm_callbacks(app: Dash, adapter: Any = None) -> tuple[Any, Any]:
         Input("strategy-calculation-mode", "value"),
         Input("choch-display-toggles", "value"),
         Input("iss-display-toggles", "value"),
+        Input("tjl-display-toggles", "value"),
         Input("msm-direction-selector", "value"),
         Input("msm-start-candle-dropdown", "value"),
         Input("market-data-store", "data"),
@@ -1340,6 +1787,7 @@ def register_msm_callbacks(app: Dash, adapter: Any = None) -> tuple[Any, Any]:
         calculation_mode_val: str | None,
         display_toggles_val: list[str] | None,
         iss_display_toggles_val: list[str] | None,
+        tjl_display_toggles_val: list[str] | None,
         direction_val: str | None,
         start_candle_val: str | None,
         market_snapshot_data: dict | None,
@@ -1359,6 +1807,7 @@ def register_msm_callbacks(app: Dash, adapter: Any = None) -> tuple[Any, Any]:
             calculation_mode_val=calculation_mode_val,
             display_toggles_val=display_toggles_val,
             iss_display_toggles_val=iss_display_toggles_val,
+            tjl_display_toggles_val=tjl_display_toggles_val,
         )
 
     return update_msm_dropdown_options, handle_msm_controls

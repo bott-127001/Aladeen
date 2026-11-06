@@ -410,14 +410,54 @@ Last Updated: 2026-11-05 (MSM Dashboard Milestone Accepted — Transition to CHO
 
 ---
 
-## 13. Current Milestone: Read-Only TJL Dashboard Integration
+## 13. Milestone Implementation & Verification: Read-Only TJL Dashboard Integration
 - **Active Branch**: `feature/tjl-dashboard` (created from `5b46185853075b45f18d618dd385ce853dddcfc8`)
 - **Objective**: Integrate the accepted pure offline TJL engine into the Aladeen / TopG read-only dashboard with deterministic browser verification.
 - **Scope Boundary**: Pure read-only dashboard presentation. Strictly zero UI order execution, zero MT5 trading calls, zero zone activations, zero usage ledger, zero tap tracking, zero trade entry signals, zero automated trading, and zero merging into `main`.
-- **Target Deliverables**:
-  1. Route calculations through `TJLCoordinator` via `src/aladeen/strategy/service.py`.
-  2. Visual distinction between labeled zones, current eligible sets, replacement sets, and CHOCH gaps.
-  3. Exact zone geometry (`[UB, H]` / `[L, LB]`) and zero-width price lines.
-  4. Dedicated TJL inspection panel displaying roles, fingerprints, availability, transitions, and unresolved diagnostics.
-  5. Offline integration test suite and controlled Playwright browser verification suite.
+- **Delivered Implementations**:
+  1. **Application Service & Coordinator Integration (`src/aladeen/strategy/service.py`)**:
+     - Added `CalculationMode.INTEGRATED_MSM_CHOCH_TJL` to calculation modes.
+     - Added display toggles (`show_tjl_zones`, `show_tjl_labels`, `show_tjl_current_set`, `show_tjl_historical_sets`) to `MSMContext`.
+     - Integrated `TJLCoordinator` into `calculate_msm()` returning `tjl_snapshot: Optional[TJLSnapshot]` in `MSMServiceResult`.
+     - Added public snapshot accessor `get_main_coordinator_snapshot()` to `TJLCoordinator` to cleanly expose underlying `MSMChochCoordinator` snapshot without violating encapsulation.
+  2. **Plotly Chart Overlays & Exact Geometry (`src/aladeen/ui/chart.py`)**:
+     - Distinct shape naming: `tjl_zone_current_tjl1`, `tjl_zone_current_tjl2_a_plus`, `tjl_zone_historical_*`, `tjl_zone_label_*`.
+     - Visual differentiation:
+       - Current Set: Solid border (`#00e676` for TJL1, `#ab47bc` for TJL2_A_PLUS, width 2).
+       - Historical Sets: Slate gray (`#78909c`), dot dash, width 1.
+       - Labels Only: Amber/orange (`#ffb74d`), dash, width 1.5.
+     - Zero-width geometry preserved strictly: `type="line"`, `y0 == y1 == lower_price`, zero artificial widening.
+     - Availability boundary starts strictly at `eligibility_available_time` or confirmation time, right boundary at `max(last_chart_time, x0)`. Never plotted backwards.
+     - Honest tooltips carrying mandatory non-execution disclaimers: `[Structural Set Only — Downstream activation/ledger not present]`.
+     - Type-guarded snapshot handling (`isinstance(tjl_snap, TJLSnapshot)`) ensuring robustness across mock and real pipeline results.
+  3. **UI Controls & Unified Synchronization (`src/aladeen/ui/layout.py`, `market_coordinator.py`, `msm_callbacks.py`)**:
+     - Added `INTEGRATED_MSM_CHOCH_TJL` option to calculation mode RadioItems.
+     - Added `tjl-display-toggles` Checklist (Zones, Current Set, Historical, Labels) allowing visual toggling without re-running calculations.
+     - Updated summary bar and status message formatting for `INTEGRATED_MSM_CHOCH_TJL`.
+     - Built comprehensive TJL inspection panel with Engine Status card, status badges, Current Set table, All Labeled Zones table, and Lifecycle Transition History table.
+     - Retained unapplied draft edits detection and warning banner.
+  4. **Offline Integration Test Suite (`tests/test_tjl_dashboard_integration.py`)**:
+     - 14 comprehensive tests covering application service calculation, chart shapes/geometry, zero-width lines, display toggle independence, inspection panel rendering, and unapplied edit detection.
+     - **Outcome**: 14/14 passed in 3.82s.
+  5. **Deterministic Browser Controlled Verification Suite (`tests/test_tjl_browser_controlled.py`)**:
+     - 7 deterministic browser verification scenarios using Playwright:
+       - Scenario 1: Bullish Set 1 creation with current set table and green/purple overlays.
+       - Scenario 2: Bearish Set 1 creation with current set table and green/purple overlays.
+       - Scenario 3: Labels-only prefix prior to eligible set formation with amber dashed lines.
+       - Scenario 4: Pullback t2 replacement showing superseded historical set and cancellation intent badge.
+       - Scenario 5: Unapplied draft edits banner detection on direction/mode switch without recalculating.
+       - Scenario 6: Display toggles suppressing/restoring chart overlays without recalculating.
+       - Scenario 7: Zero browser console errors and zero page errors across all flows.
+     - **Outcome**: 1/1 passed in 43.46s with **0 console errors and 0 page errors**.
+- **Verification Summary**:
+  - Full TJL dashboard integration suite: 14/14 passed in 3.82s (`pytest tests/test_tjl_dashboard_integration.py -v`).
+  - Controlled browser verification suite: 1/1 passed in 43.46s (`pytest tests/test_tjl_browser_controlled.py -v`).
+  - Full offline suite: 402/402 passed in 22.42s (0 failures).
+  - Standalone ISS browser suite: 1/1 passed in 64.03s (0 failures).
+- **Scope Compliance & Recorded Evidence Boundaries**:
+  1. *Presentation Only*: Pure read-only dashboard presentation. Zero UI order execution, zero MT5 trading calls, zero account modification.
+  2. *Non-Execution Invariant*: All hover tooltips, status banners, and inspection tables explicitly display `[Structural Set Only — Downstream activation/ledger not present]`.
+  3. *Downstream Engine Absence*: Zero zone activation logic, zero usage accounting/ledger, zero tap tracking, zero trade entry signals.
+  4. *Branch Boundary*: All work committed strictly on `feature/tjl-dashboard`. No merging into `main`.
+
 

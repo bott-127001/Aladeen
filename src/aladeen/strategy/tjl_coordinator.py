@@ -249,6 +249,10 @@ class TJLCoordinator:
         self._candle_lookup = candle_lookup_copy
         self._prev_choch_count = current_choch_count
 
+    def get_main_coordinator_snapshot(self) -> CoordinatorSnapshot:
+        """Returns snapshot of the underlying MSMChochCoordinator."""
+        return self._main_coordinator.get_snapshot()
+
     def get_snapshot(self) -> TJLSnapshot:
         """Returns an immutable snapshot of the TJL execution state."""
         return self._reducer.get_snapshot()
