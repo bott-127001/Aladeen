@@ -1057,15 +1057,34 @@ class TestActivationEngineExecution:
         m_adv2 = SourceMemberReference("ENGINE::EURUSD::H1", "FEED::EURUSD::H1", "H1", "SET", "TJL1", "HIGH", 1.1040, 1.1050, False, Direction.UPWARD, lvl, datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc), UsageEvidenceStatus.UNUSED)
 
         ev_reg = RegisterMembersEvent("EV_REG", default_domain, 100, datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc), (m_adv1, m_adv2))
-        snap = eng.process_event(ev_reg)
-        assert len(snap.current_members) == 2
+        ev_touch1 = ExactPricePrint("O1", 1.1370, PriceBasis.BID, datetime(2026, 10, 2, 8, 15, tzinfo=timezone.utc), default_domain, 101)
+        ev_touch2 = ExactPricePrint("O2", 1.1045, PriceBasis.BID, datetime(2026, 10, 2, 8, 20, tzinfo=timezone.utc), default_domain, 102)
+        ev_commit = ExternalCommitEvent("C1", datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc), default_domain, 103, winning_engine_id="OTHER", winning_set_id="OTHER_SET", winning_role="TJL1")
+        ev_dep = ExactPricePrint("O_DEP", 1.1200, PriceBasis.BID, datetime(2026, 10, 2, 8, 35, tzinfo=timezone.utc), default_domain, 104)
+        ev_ret1 = ExactPricePrint("O_RET1", 1.1370, PriceBasis.BID, datetime(2026, 10, 2, 8, 40, tzinfo=timezone.utc), default_domain, 105)
+        ev_ret2 = ExactPricePrint("O_RET2", 1.1045, PriceBasis.BID, datetime(2026, 10, 2, 8, 45, tzinfo=timezone.utc), default_domain, 106)
+        ev_cancel_set1 = SourceCancellationEvent("CAN_SET1", CancellationReason.SOURCE_REPLACEMENT, default_domain, 107, datetime(2026, 10, 2, 8, 50, tzinfo=timezone.utc), target_set_id="SET::1")
+        ev_choch = SourceCancellationEvent("CAN_CHOCH", CancellationReason.SOURCE_CHOCH, default_domain, 108, datetime(2026, 10, 2, 8, 55, tzinfo=timezone.utc), affected_direction=Direction.UPWARD)
+
+        recorded_events = [ev_reg, ev_touch1, ev_touch2, ev_commit, ev_dep, ev_ret1, ev_ret2, ev_cancel_set1, ev_choch]
+        seq_snapshots = []
+        seq_checkpoints = []
+
+        # Process sequentially on eng, recording snapshot and full internal checkpoint after each event:
+        snap_reg = eng.process_event(ev_reg)
+        seq_snapshots.append(snap_reg)
+        seq_checkpoints.append(eng.create_checkpoint())
+        assert len(snap_reg.current_members) == 2
         assert m_adv1.member_key != m_adv2.member_key
 
         # Phase A: First activation touches for both adversarial members
-        ev_touch1 = ExactPricePrint("O1", 1.1370, PriceBasis.BID, datetime(2026, 10, 2, 8, 15, tzinfo=timezone.utc), default_domain, 101)
-        ev_touch2 = ExactPricePrint("O2", 1.1045, PriceBasis.BID, datetime(2026, 10, 2, 8, 20, tzinfo=timezone.utc), default_domain, 102)
-        eng.process_event(ev_touch1)
+        snap_touch1 = eng.process_event(ev_touch1)
+        seq_snapshots.append(snap_touch1)
+        seq_checkpoints.append(eng.create_checkpoint())
+
         snap_act = eng.process_event(ev_touch2)
+        seq_snapshots.append(snap_act)
+        seq_checkpoints.append(eng.create_checkpoint())
 
         act1 = snap_act.active_activations[m_adv1.member_key]
         act2 = snap_act.active_activations[m_adv2.member_key]
@@ -1076,8 +1095,9 @@ class TestActivationEngineExecution:
         assert act2.activation_id == format_activation_id("ENGINE::EURUSD::H1", "H1", "FEED::EURUSD::H1", "SET", "TJL1", 1)
 
         # Phase B: External cancellation terminalizes both into CANCELLED_EXTERNAL_ENTRY
-        ev_commit = ExternalCommitEvent("C1", datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc), default_domain, 103, winning_engine_id="OTHER", winning_set_id="OTHER_SET", winning_role="TJL1")
         snap_commit = eng.process_event(ev_commit)
+        seq_snapshots.append(snap_commit)
+        seq_checkpoints.append(eng.create_checkpoint())
         assert len(snap_commit.active_activations) == 0
         assert len(snap_commit.terminal_activations) == 2
         assert len(snap_commit.rearm_controllers) == 2
@@ -1085,16 +1105,20 @@ class TestActivationEngineExecution:
         assert snap_commit.rearm_controllers[m_adv2.member_key].prior_activation_id == act2.activation_id
 
         # Phase C: Confirmed departure outside both zones
-        ev_dep = ExactPricePrint("O_DEP", 1.1200, PriceBasis.BID, datetime(2026, 10, 2, 8, 35, tzinfo=timezone.utc), default_domain, 104)
         snap_dep = eng.process_event(ev_dep)
+        seq_snapshots.append(snap_dep)
+        seq_checkpoints.append(eng.create_checkpoint())
         assert snap_dep.rearm_controllers[m_adv1.member_key].state == ActivationState.OUT_OF_ZONE_ARMED
         assert snap_dep.rearm_controllers[m_adv2.member_key].state == ActivationState.OUT_OF_ZONE_ARMED
 
         # Phase D: Linked reactivation touches creating generation 2
-        ev_ret1 = ExactPricePrint("O_RET1", 1.1370, PriceBasis.BID, datetime(2026, 10, 2, 8, 40, tzinfo=timezone.utc), default_domain, 105)
-        ev_ret2 = ExactPricePrint("O_RET2", 1.1045, PriceBasis.BID, datetime(2026, 10, 2, 8, 45, tzinfo=timezone.utc), default_domain, 106)
-        eng.process_event(ev_ret1)
+        snap_ret1 = eng.process_event(ev_ret1)
+        seq_snapshots.append(snap_ret1)
+        seq_checkpoints.append(eng.create_checkpoint())
+
         snap_rearm = eng.process_event(ev_ret2)
+        seq_snapshots.append(snap_rearm)
+        seq_checkpoints.append(eng.create_checkpoint())
 
         react1 = snap_rearm.active_activations[m_adv1.member_key]
         react2 = snap_rearm.active_activations[m_adv2.member_key]
@@ -1107,15 +1131,17 @@ class TestActivationEngineExecution:
         assert react2.prior_activation_id == act2.activation_id
 
         # Phase E: Source invalidation targeted specifically at SET::1 (does not affect SET)
-        ev_cancel_set1 = SourceCancellationEvent("CAN_SET1", CancellationReason.SOURCE_REPLACEMENT, default_domain, 107, datetime(2026, 10, 2, 8, 50, tzinfo=timezone.utc), target_set_id="SET::1")
         snap_after_cancel1 = eng.process_event(ev_cancel_set1)
+        seq_snapshots.append(snap_after_cancel1)
+        seq_checkpoints.append(eng.create_checkpoint())
         assert m_adv1.member_key not in snap_after_cancel1.current_members
         assert m_adv2.member_key in snap_after_cancel1.current_members
         assert m_adv2.member_key in snap_after_cancel1.active_activations
 
         # Source CHOCH invalidates remaining SET
-        ev_choch = SourceCancellationEvent("CAN_CHOCH", CancellationReason.SOURCE_CHOCH, default_domain, 108, datetime(2026, 10, 2, 8, 55, tzinfo=timezone.utc), affected_direction=Direction.UPWARD)
         snap_final = eng.process_event(ev_choch)
+        seq_snapshots.append(snap_final)
+        seq_checkpoints.append(eng.create_checkpoint())
         assert len(snap_final.current_members) == 0
         assert len(snap_final.active_activations) == 0
         assert len(snap_final.terminal_activations) == 4
@@ -1123,18 +1149,38 @@ class TestActivationEngineExecution:
         terminal_ids = [t.activation_id for t in snap_final.terminal_activations]
         assert len(terminal_ids) == len(set(terminal_ids))
 
-        # Phase F: Every-prefix replay equivalence from scratch
-        recorded_events = [ev_reg, ev_touch1, ev_touch2, ev_commit, ev_dep, ev_ret1, ev_ret2, ev_cancel_set1, ev_choch]
+        # Capture invoking engine state prior to replay calls
+        pre_replay_snapshot = eng.get_snapshot()
+        pre_replay_checkpoint = eng.create_checkpoint()
+
+        # Phase F: Every-prefix replay equivalence from scratch across snapshots and full checkpoint state
+        assert len(seq_snapshots) == len(recorded_events)
+        assert len(seq_checkpoints) == len(recorded_events)
+
+        # Replay full event sequence via .replay() API
         replay_engine = ActivationEngine(config)
         replayed_snapshots = replay_engine.replay(recorded_events)
-        replayed_snap = replayed_snapshots[-1]
+        assert len(replayed_snapshots) == len(seq_snapshots)
 
-        assert replayed_snap.current_members == snap_final.current_members
-        assert replayed_snap.active_activations == snap_final.active_activations
-        assert replayed_snap.terminal_activations == snap_final.terminal_activations
-        assert replayed_snap.rearm_controllers == snap_final.rearm_controllers
-        assert replayed_snap.last_processed_sequence == snap_final.last_processed_sequence
-        assert replayed_snap.last_processed_timestamp == snap_final.last_processed_timestamp
+        # Assert every intermediate prefix snapshot and full-state checkpoint bit-for-bit equivalence
+        for prefix_len in range(1, len(recorded_events) + 1):
+            # 1. Verify .replay() returned prefix snapshot matches sequential snapshot
+            assert replayed_snapshots[prefix_len - 1] == seq_snapshots[prefix_len - 1]
+
+            # 2. Replay prefix on an isolated engine and verify full future-behavior checkpoint state:
+            # processed events, observation associations, consumed observations, generation counts,
+            # active/terminal activations, rearm controllers, sequence, and coverage
+            prefix_engine = ActivationEngine(config)
+            for ev in recorded_events[:prefix_len]:
+                prefix_engine.process_event(ev)
+            assert prefix_engine.get_snapshot() == seq_snapshots[prefix_len - 1]
+            assert prefix_engine.create_checkpoint() == seq_checkpoints[prefix_len - 1]
+
+        # Phase G: Verify calling replay on invoking engine does not mutate the invoking engine
+        isolated_snaps = eng.replay(recorded_events[:3])
+        assert len(isolated_snaps) == 3
+        assert eng.get_snapshot() == pre_replay_snapshot
+        assert eng.create_checkpoint() == pre_replay_checkpoint
 
     def test_supported_roles_validation(self) -> None:
         """Directive 3: Validates supported roles and rejects undocumented roles."""

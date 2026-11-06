@@ -85,6 +85,20 @@ class ActivationEngineState:
         self.last_processed_timestamp = cp["last_processed_timestamp"]
         self.coverage_status = cp["coverage_status"]
 
+    def reset(self) -> None:
+        """Resets all mutable state collections to fresh baseline."""
+        self.current_members.clear()
+        self.active_activations.clear()
+        self.terminal_activations.clear()
+        self.rearm_controllers.clear()
+        self.processed_events.clear()
+        self.observation_associations.clear()
+        self.member_consumed_observations.clear()
+        self.generation_counts.clear()
+        self.last_processed_sequence = None
+        self.last_processed_timestamp = None
+        self.coverage_status = CoverageStatus.COMPLETE
+
     def get_snapshot(self) -> ActivationLifecycleSnapshot:
         """Returns an immutable snapshot projection of the engine's current state."""
         return ActivationLifecycleSnapshot(

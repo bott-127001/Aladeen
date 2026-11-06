@@ -363,6 +363,10 @@ class ActivationSnapshot:
     rearm_controllers: Mapping[str, RearmController] = field(default_factory=dict)
 
 
+# Semantic alias
+ActivationLifecycleSnapshot = ActivationSnapshot
+
+
 # Standard MTF timeframe mapping dictionary (§6)
 TIMEFRAME_CONFIRMATION_MAP: Mapping[str, str] = MappingProxyType({
     "D1": "H1",

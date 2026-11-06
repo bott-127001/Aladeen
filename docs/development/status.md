@@ -781,3 +781,39 @@ Last Updated: 2026-11-05 (MSM Dashboard Milestone Accepted — Transition to CHO
   2. *Downstream Invariant*: Strictly zero usage ledger implementation, zero confirmation arbitration, zero trade entry signals.
   3. *Core Ambiguities Preserved*: Upstream $c_1 == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
   4. *Branch Boundary*: Committed and pushed strictly on `feature/activation-engine`. No merging into `main`.
+
+
+### Milestone 21 (Activation Engine): Honest Runtime Extraction, Retrievable Modules, and Every-Prefix Full-State Replay Equivalence (HANDOFF-058)
+- **Active Branch**: feature/activation-engine
+- **Parent Commit**: e479546dfd4513b4f41bc69173be45ade6a7a6f1 (HANDOFF-057)
+- **Root Baseline Commit**: 535af1434ed9a6b93328202039db7f1d4f4be410 (Accepted TJL Dashboard Integration)
+- **Objective**: Address Perplexity's review of HANDOFF-057:
+  1. Complete runtime extraction honestly: genuinely integrate `ActivationEngineState` into `ActivationEngine`, eliminating duplicate mutable dictionaries and redundant in-file reducer logic; provide retrievable, isolated modules for evidence, prints/registration, state, and engine façade (all strictly <380 lines to prevent review retrieval truncation).
+  2. Correct adversarial replay regression: record sequential snapshots and canonical full-state checkpoints after each event; assert bit-for-bit equality for every intermediate replay prefix across both snapshots and full future-behavior checkpoints (processed events, observation associations, consumed observations, generation counts, controllers, sequence, and coverage); assert replay leaves invoking engine unmutated.
+  3. Preserve expanded adversarial lifecycle assertions, coverage-scope filtering, unknown-order recovery, and prior regressions.
+- **Completed Deliverables**:
+  1. **Honest Runtime State Integration & Zero Duplicate Code**:
+     - `ActivationEngine` in [`src/aladeen/strategy/activation_engine.py`](file:///src/aladeen/strategy/activation_engine.py) (199 lines) now exclusively instantiates and delegates to `self._state = ActivationEngineState(...)`.
+     - Zero parallel state containers; snapshot projection, state inspection, and checkpoint creation/restoration delegate directly to `ActivationEngineState`.
+  2. **Modular, Fully Retrievable Runtime Modules (<380 lines each)**:
+     - [`src/aladeen/strategy/activation_state.py`](file:///src/aladeen/strategy/activation_state.py) (102 lines): Authoritative mutable state container `ActivationEngineState`, complete checkpoint creation/restoration for transactional atomicity, `get_snapshot()`, and `reset()`.
+     - [`src/aladeen/strategy/activation_evidence.py`](file:///src/aladeen/strategy/activation_evidence.py) (181 lines): Isolated handlers for `process_cancellation_event` (CHOCH and Replacement), `process_external_commit_event` (winner exclusion & rearm controller instantiation), `process_candle_evidence` (interval bounds & intra-candle availability fail-closed), and `process_coverage_evidence` (scoped context validation).
+     - [`src/aladeen/strategy/activation_handlers.py`](file:///src/aladeen/strategy/activation_handlers.py) (370 lines): Authoritative implementations for `validate_sequence_and_domain` (monotonicity, idempotence, conflict detection), `register_source_members` (intra-batch duplicate coalescing & immutable geometry/identity), `process_register_members_event`, and `process_exact_price_print` (touch observation, BLOCKED_UNKNOWN_ORDER recovery, decoupled rearm controller evaluation).
+     - [`src/aladeen/strategy/activation_engine.py`](file:///src/aladeen/strategy/activation_engine.py) (199 lines): Compact façade coordinating config, registration, event dispatch, atomic batch processing, isolated replay, and backwards-compatible property access.
+  3. **Every-Prefix Snapshot & Full-State Checkpoint Replay Assertions**:
+     - In `tests/test_activation_engine.py` (`test_canonical_unambiguous_identifiers_with_adversarial_delimiters`):
+       - Captured sequential `seq_snapshots` and `seq_checkpoints` after each of the 9 events.
+       - Asserted full `.replay()` returns all prefix snapshots matching `seq_snapshots` bit-for-bit.
+       - Replayed every prefix $k \in [1, 9]$ on an isolated engine, asserting both snapshot equality AND bit-for-bit full checkpoint equality (`processed_events`, `observation_associations`, `member_consumed_observations`, `generation_counts`, `current_members`, `active_activations`, `terminal_activations`, `rearm_controllers`, `last_processed_sequence`, `last_processed_timestamp`, `coverage_status`).
+       - Asserted calling `.replay()` on an existing engine does not mutate the invoking engine's state or checkpoint.
+- **Verification Summary**:
+  - Activation engine execution suite: 42/42 passed in 0.69s (`pytest tests/test_activation_engine.py -q`).
+  - Activation adapter suite: 14/14 passed in 0.61s (`pytest tests/test_activation_adapter.py -q`).
+  - Activation fixture integrity suite: 28/28 passed in 0.60s (`pytest tests/test_activation_fixture_integrity.py -q`).
+  - Total activation tests: 84/84 passed.
+  - Full offline repository test suite: 504/504 passed in 17.21s (`pytest -q tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py`).
+- **Scope Compliance & Standing Invariants**:
+  1. *Offline Only*: Strictly zero UI order execution, zero MT5 trading calls, zero live account modification.
+  2. *Downstream Invariant*: Strictly zero usage ledger implementation, zero confirmation arbitration, zero trade entry signals.
+  3. *Core Ambiguities Preserved*: Upstream $c_1 == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
+  4. *Branch Boundary*: Committed and pushed strictly on `feature/activation-engine`. No merging into `main`.
