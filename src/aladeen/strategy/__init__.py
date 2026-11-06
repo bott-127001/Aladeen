@@ -86,6 +86,7 @@ from .activation_types import (
     IntervalBoundedCandleEvidence,
     InvalidEvidenceError,
     PriceBasis,
+    RegisterMembersEvent,
     SequenceDomain,
     SequenceOrderError,
     SourceCancellationEvent,
@@ -96,6 +97,7 @@ from .activation_types import (
 )
 from .activation_engine import ActivationEngine, ActivationEngineConfig
 from .activation_adapter import (
+    TJLSynchronizer,
     adapt_tjl_cancellation_record,
     adapt_tjl_current_set,
     sync_tjl_snapshot_to_activation_engine,
@@ -172,6 +174,7 @@ __all__ = [
     "IntervalBoundedCandleEvidence",
     "InvalidEvidenceError",
     "PriceBasis",
+    "RegisterMembersEvent",
     "SequenceDomain",
     "SequenceOrderError",
     "SourceCancellationEvent",
@@ -181,6 +184,7 @@ __all__ = [
     "format_activation_id",
     "ActivationEngine",
     "ActivationEngineConfig",
+    "TJLSynchronizer",
     "adapt_tjl_cancellation_record",
     "adapt_tjl_current_set",
     "sync_tjl_snapshot_to_activation_engine",

@@ -95,7 +95,7 @@ class SourceMemberReference:
     direction: Direction
     level_id: Optional[StableLevelId] = None
     eligibility_available_time: Optional[datetime] = None
-    usage_evidence_status: UsageEvidenceStatus = UsageEvidenceStatus.UNUSED
+    usage_evidence_status: UsageEvidenceStatus = UsageEvidenceStatus.UNKNOWN
 
     def __post_init__(self) -> None:
         if not math.isfinite(self.lower_edge) or self.lower_edge <= 0:
@@ -106,6 +106,8 @@ class SourceMemberReference:
             raise ValueError(f"upper_edge ({self.upper_edge}) cannot be strictly less than lower_edge ({self.lower_edge})")
         if self.is_line and self.lower_edge != self.upper_edge:
             raise ValueError(f"is_line is True but lower_edge ({self.lower_edge}) != upper_edge ({self.upper_edge})")
+        if not isinstance(self.usage_evidence_status, UsageEvidenceStatus):
+            raise TypeError("usage_evidence_status must be UsageEvidenceStatus enum")
 
     @property
     def member_key(self) -> str:
@@ -141,15 +143,23 @@ class ExactPricePrint:
 @dataclass(frozen=True)
 class IntervalBoundedCandleEvidence:
     """Interval-bounded candle evidence with unknown intra-bar exact occurrence time."""
+    event_id: str
+    sequence_domain: SequenceDomain
+    sequence_ref: int
     candle_id: str
     interval_open: datetime
     interval_close: datetime
     observed_field: str  # "HIGH", "LOW", "CLOSE", "OPEN"
     observed_value: float
     sub_bar_sequence_available: bool = False
+    timestamp: Optional[datetime] = None
     note: Optional[str] = None
 
     def __post_init__(self) -> None:
+        if not isinstance(self.event_id, str) or not self.event_id.strip():
+            raise ValueError("event_id must be non-empty string")
+        if not isinstance(self.sequence_ref, int) or self.sequence_ref < 0:
+            raise ValueError("sequence_ref must be non-negative integer")
         if self.interval_open.tzinfo != timezone.utc:
             raise ValueError("interval_open must be UTC timezone-aware")
         if self.interval_close.tzinfo != timezone.utc:
@@ -158,6 +168,8 @@ class IntervalBoundedCandleEvidence:
             raise ValueError("interval_close must be strictly greater than interval_open")
         if not math.isfinite(self.observed_value) or self.observed_value <= 0:
             raise ValueError(f"observed_value must be finite positive float, got {self.observed_value}")
+        if self.timestamp is not None and self.timestamp.tzinfo != timezone.utc:
+            raise ValueError("timestamp must be UTC timezone-aware if provided")
 
 
 @dataclass(frozen=True)
@@ -165,9 +177,9 @@ class SourceCancellationEvent:
     """Authoritative event triggering cancellation of source level activations."""
     event_id: str
     cancellation_reason: CancellationReason
-    timestamp: datetime
     sequence_domain: SequenceDomain
     sequence_ref: int
+    timestamp: Optional[datetime] = None
     target_set_id: Optional[str] = None
     target_role: Optional[str] = None
     affected_direction: Optional[Direction] = None
@@ -176,8 +188,8 @@ class SourceCancellationEvent:
     def __post_init__(self) -> None:
         if not isinstance(self.event_id, str) or not self.event_id.strip():
             raise ValueError("event_id must be non-empty string")
-        if self.timestamp.tzinfo != timezone.utc:
-            raise ValueError("timestamp must be UTC timezone-aware")
+        if self.timestamp is not None and self.timestamp.tzinfo != timezone.utc:
+            raise ValueError("timestamp must be UTC timezone-aware if provided")
         if not isinstance(self.sequence_ref, int) or self.sequence_ref < 0:
             raise ValueError("sequence_ref must be non-negative integer")
 
@@ -210,10 +222,40 @@ class ExternalCommitEvent:
 @dataclass(frozen=True)
 class CoverageEvidence:
     """Authoritative declaration of market data coverage completeness."""
+    event_id: str
+    sequence_domain: SequenceDomain
+    sequence_ref: int
     coverage_status: CoverageStatus
     scope: str
     missing_gap_count: int = 0
+    timestamp: Optional[datetime] = None
     details: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.event_id, str) or not self.event_id.strip():
+            raise ValueError("event_id must be non-empty string")
+        if not isinstance(self.sequence_ref, int) or self.sequence_ref < 0:
+            raise ValueError("sequence_ref must be non-negative integer")
+        if self.timestamp is not None and self.timestamp.tzinfo != timezone.utc:
+            raise ValueError("timestamp must be UTC timezone-aware if provided")
+
+
+@dataclass(frozen=True)
+class RegisterMembersEvent:
+    """Explicit member registration event for deterministic historical replay."""
+    event_id: str
+    sequence_domain: SequenceDomain
+    sequence_ref: int
+    timestamp: Optional[datetime]
+    members: Tuple[SourceMemberReference, ...]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.event_id, str) or not self.event_id.strip():
+            raise ValueError("event_id must be non-empty string")
+        if not isinstance(self.sequence_ref, int) or self.sequence_ref < 0:
+            raise ValueError("sequence_ref must be non-negative integer")
+        if self.timestamp is not None and self.timestamp.tzinfo != timezone.utc:
+            raise ValueError("timestamp must be UTC timezone-aware if provided")
 
 
 def format_activation_id(
@@ -251,13 +293,18 @@ class ActivationRecord:
     prior_activation_id: Optional[str] = None
     rearm_armed: bool = False
     last_observed_position: Optional[str] = None  # "INSIDE", "OUTSIDE"
-    usage_evidence_status: UsageEvidenceStatus = UsageEvidenceStatus.UNUSED
+    usage_evidence_status: UsageEvidenceStatus = UsageEvidenceStatus.UNKNOWN
     cancellation_reason: Optional[CancellationReason] = None
     cancellation_time: Optional[datetime] = None
     cancellation_sequence_ref: Optional[int] = None
     generation_seq: int = 1
     terminal: bool = False
     blocked_reason: Optional[str] = None
+
+    @property
+    def member_key(self) -> str:
+        """Deterministic member lookup key scoped by set_id and role."""
+        return f"{self.set_id}::{self.role}"
 
 
 @dataclass(frozen=True)

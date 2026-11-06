@@ -6,10 +6,11 @@ Scope & Design Boundary:
 - Consumes discrete price prints, candle evidence, coverage evidence, and authoritative lifecycle cancellations.
 - Strictly immutable snapshots and event records.
 - Sequence domain scoping: compares event sequence references only within declared (feed_id, run_id).
+- Strict monotonic sequence ordering: distinct events with equal sequence_ref are rejected.
 - Unambiguous canonical activation ID encoding.
 - Raw price observations are immutable facts; association with activations is tracked separately without mutating shared prints.
-- Atomic batch processing with full state rollback on failure.
-- Bit-for-bit idempotent replay determinism.
+- Atomic multi-member registration and atomic batch processing with full state rollback on failure.
+- Bit-for-bit idempotent replay determinism executed on isolated engine instances.
 - Strictly zero order placement, zero execution ledger, zero live account modification.
 """
 
@@ -37,6 +38,7 @@ from .activation_types import (
     IntervalBoundedCandleEvidence,
     InvalidEvidenceError,
     PriceBasis,
+    RegisterMembersEvent,
     SequenceDomain,
     SequenceOrderError,
     SourceCancellationEvent,
@@ -128,50 +130,94 @@ class ActivationEngine:
         return self.register_source_members([member])
 
     def register_source_members(self, members: Sequence[SourceMemberReference]) -> ActivationSnapshot:
-        """Registers a sequence of eligible source level members with the engine."""
+        """Registers a sequence of eligible source level members atomically."""
+        # 1. Validate all members before mutating state
         for m in members:
-            if m.engine_id != self.engine_id and m.engine_id != "":
-                # Scoped to engine
-                pass
+            if m.engine_id != self.engine_id:
+                raise InvalidEvidenceError(
+                    f"Member engine_id {m.engine_id!r} does not match activation engine {self.engine_id!r}"
+                )
+            if m.symbol != self.symbol:
+                raise InvalidEvidenceError(
+                    f"Member symbol {m.symbol!r} does not match activation engine {self.symbol!r}"
+                )
+            if m.source_timeframe != self.source_timeframe:
+                raise InvalidEvidenceError(
+                    f"Member source_timeframe {m.source_timeframe!r} does not match activation engine {self.source_timeframe!r}"
+                )
+
+        # 2. Mutate state atomically
+        for m in members:
+            existing_rec = self._active_activations.get(m.member_key)
+            existing_member = self._current_members.get(m.member_key)
+
+            if existing_member == m and existing_rec is not None:
+                # Idempotent re-registration of identical member: preserve existing activation state!
+                continue
+
             self._current_members[m.member_key] = m
 
-            # If member not yet in active activations, initialize its baseline status
-            if m.member_key not in self._active_activations:
-                if m.eligibility_available_time is None:
-                    init_state = ActivationState.INACTIVE_INELIGIBLE
-                    blocked = "UNKNOWN_AVAILABILITY_TIMING"
-                elif m.usage_evidence_status != UsageEvidenceStatus.UNUSED:
-                    init_state = ActivationState.INACTIVE_INELIGIBLE
-                    blocked = "USAGE_EVIDENCE_UNCERTAIN_FAIL_CLOSED"
-                else:
-                    init_state = ActivationState.INACTIVE_ELIGIBLE
-                    blocked = None
+            # Determine initial state and effective gating
+            if m.eligibility_available_time is None:
+                init_state = ActivationState.INACTIVE_INELIGIBLE
+                blocked = "UNKNOWN_AVAILABILITY_TIMING"
+            elif m.usage_evidence_status != UsageEvidenceStatus.UNUSED:
+                init_state = ActivationState.INACTIVE_INELIGIBLE
+                blocked = "USAGE_EVIDENCE_UNCERTAIN_FAIL_CLOSED"
+            else:
+                init_state = ActivationState.INACTIVE_ELIGIBLE
+                blocked = None
 
-                self._active_activations[m.member_key] = ActivationRecord(
-                    activation_id=format_activation_id(
-                        self.engine_id, self.source_timeframe, self.symbol, m.set_id, m.role, 0
-                    ),
-                    engine_id=self.engine_id,
-                    symbol=self.symbol,
-                    source_timeframe=self.source_timeframe,
-                    confirmation_timeframe=self.confirmation_timeframe,
-                    set_id=m.set_id,
-                    role=m.role,
-                    level_id=m.level_id,
-                    lower_edge=m.lower_edge,
-                    upper_edge=m.upper_edge,
-                    state=init_state,
-                    first_touch_time=None,
-                    first_touch_price=None,
-                    trigger_observation_id=None,
-                    prior_activation_id=None,
-                    rearm_armed=False,
-                    last_observed_position=None,
-                    usage_evidence_status=m.usage_evidence_status,
-                    generation_seq=0,
-                    terminal=False,
-                    blocked_reason=blocked,
-                )
+            if existing_rec is not None:
+                # Member existed: if usage or timing changed, update state without resetting ongoing activations if valid
+                if existing_rec.state in (
+                    ActivationState.PENDING_ACTIVATION,
+                    ActivationState.REARMED_PENDING,
+                    ActivationState.OUT_OF_ZONE_ARMED,
+                    ActivationState.CANCELLED_EXTERNAL_ENTRY,
+                ):
+                    if init_state == ActivationState.INACTIVE_INELIGIBLE:
+                        # Gating revoked! Transition to INACTIVE_INELIGIBLE
+                        self._active_activations[m.member_key] = replace(
+                            existing_rec,
+                            state=ActivationState.INACTIVE_INELIGIBLE,
+                            blocked_reason=blocked,
+                            usage_evidence_status=m.usage_evidence_status,
+                        )
+                    else:
+                        # Gating still valid: keep current active state
+                        self._active_activations[m.member_key] = replace(
+                            existing_rec,
+                            usage_evidence_status=m.usage_evidence_status,
+                        )
+                    continue
+
+            # First time registering member or re-registering an inactive slot
+            self._active_activations[m.member_key] = ActivationRecord(
+                activation_id=format_activation_id(
+                    self.engine_id, self.source_timeframe, self.symbol, m.set_id, m.role, 0
+                ),
+                engine_id=self.engine_id,
+                symbol=self.symbol,
+                source_timeframe=self.source_timeframe,
+                confirmation_timeframe=self.confirmation_timeframe,
+                set_id=m.set_id,
+                role=m.role,
+                level_id=m.level_id,
+                lower_edge=m.lower_edge,
+                upper_edge=m.upper_edge,
+                state=init_state,
+                first_touch_time=None,
+                first_touch_price=None,
+                trigger_observation_id=None,
+                prior_activation_id=None,
+                rearm_armed=False,
+                last_observed_position=None,
+                usage_evidence_status=m.usage_evidence_status,
+                generation_seq=0,
+                terminal=False,
+                blocked_reason=blocked,
+            )
 
         return self.get_snapshot()
 
@@ -187,6 +233,8 @@ class ActivationEngine:
             return self._process_candle_evidence(event)
         elif isinstance(event, CoverageEvidence):
             return self._process_coverage_evidence(event)
+        elif isinstance(event, RegisterMembersEvent):
+            return self._process_register_members_event(event)
         else:
             raise TypeError(f"Unsupported event type: {type(event)!r}")
 
@@ -201,15 +249,19 @@ class ActivationEngine:
             self._restore_checkpoint(checkpoint)
             raise
 
-    def replay(self, events: Sequence[Any]) -> List[ActivationSnapshot]:
-        """Performs fresh, deterministic replay from baseline, returning prefix snapshots."""
-        saved_members = list(self._current_members.values())
-        self.reset()
-        if saved_members:
-            self.register_source_members(saved_members)
+    def replay(
+        self,
+        events: Sequence[Any],
+        initial_members: Optional[Sequence[SourceMemberReference]] = None,
+    ) -> List[ActivationSnapshot]:
+        """Performs fresh, deterministic replay from baseline on an isolated engine, returning prefix snapshots."""
+        isolated_engine = ActivationEngine(self._config)
+        if initial_members:
+            isolated_engine.register_source_members(initial_members)
+
         snapshots = []
         for ev in events:
-            snap = self.process_event(ev)
+            snap = isolated_engine.process_event(ev)
             snapshots.append(snap)
         return snapshots
 
@@ -251,7 +303,7 @@ class ActivationEngine:
         event_id: str,
         sequence_domain: SequenceDomain,
         sequence_ref: int,
-        timestamp: datetime,
+        timestamp: Optional[datetime],
         event_payload: Any,
     ) -> bool:
         """Validates domain, monotonicity, and idempotence. Returns True if event is a duplicate no-op."""
@@ -269,22 +321,48 @@ class ActivationEngine:
                 f"Event ID {event_id!r} already processed with conflicting payload: {event_payload!r} vs {prev_event!r}"
             )
 
-        # Monotonicity check
-        if self._last_processed_sequence is not None and sequence_ref < self._last_processed_sequence:
-            raise SequenceOrderError(
-                f"Sequence ref {sequence_ref} is strictly less than last processed sequence {self._last_processed_sequence}"
-            )
-        if self._last_processed_timestamp is not None and timestamp < self._last_processed_timestamp:
-            raise SequenceOrderError(
-                f"Timestamp {timestamp} is strictly earlier than last processed timestamp {self._last_processed_timestamp}"
-            )
+        # Strict monotonic sequence ref for distinct events:
+        # Rejects sequence_ref <= last_processed_sequence
+        if self._last_processed_sequence is not None:
+            if sequence_ref <= self._last_processed_sequence:
+                raise SequenceOrderError(
+                    f"Sequence ref {sequence_ref} <= last processed sequence {self._last_processed_sequence}. "
+                    "Distinct events must have strictly increasing sequence references."
+                )
+
+        # Monotonic timestamp check (if timestamps are known)
+        if timestamp is not None and self._last_processed_timestamp is not None:
+            if timestamp < self._last_processed_timestamp:
+                raise SequenceOrderError(
+                    f"Timestamp {timestamp} is strictly earlier than last processed timestamp {self._last_processed_timestamp}"
+                )
 
         self._processed_events[event_id] = event_payload
         self._last_processed_sequence = sequence_ref
-        self._last_processed_timestamp = timestamp
+        if timestamp is not None:
+            self._last_processed_timestamp = timestamp
         return False
 
+    def _process_register_members_event(self, event: RegisterMembersEvent) -> ActivationSnapshot:
+        is_duplicate = self._validate_sequence_and_domain(
+            event_id=event.event_id,
+            sequence_domain=event.sequence_domain,
+            sequence_ref=event.sequence_ref,
+            timestamp=event.timestamp,
+            event_payload=event,
+        )
+        if is_duplicate:
+            return self.get_snapshot()
+
+        return self.register_source_members(event.members)
+
     def _process_exact_price_print(self, event: ExactPricePrint) -> ActivationSnapshot:
+        # Validate configured price basis
+        if event.price_basis != self.price_basis:
+            raise InvalidEvidenceError(
+                f"Event price basis {event.price_basis} does not match engine configured basis {self.price_basis}"
+            )
+
         is_duplicate = self._validate_sequence_and_domain(
             event_id=event.observation_id,
             sequence_domain=event.sequence_domain,
@@ -435,41 +513,45 @@ class ActivationEngine:
         if is_duplicate:
             return self.get_snapshot()
 
-        for member_key, rec in list(self._active_activations.items()):
-            if rec.state in (ActivationState.PENDING_ACTIVATION, ActivationState.REARMED_PENDING):
-                should_cancel = False
-                cancel_state = rec.state
+        # Identify all members affected by this source cancellation
+        members_to_cancel: List[str] = []
+        for member_key, member in list(self._current_members.items()):
+            if event.cancellation_reason == CancellationReason.SOURCE_CHOCH:
+                # Source CHOCH invalidates all levels in old direction (or all if not specified)
+                if event.affected_direction is None or member.direction == event.affected_direction:
+                    members_to_cancel.append(member_key)
+            elif event.cancellation_reason == CancellationReason.SOURCE_REPLACEMENT:
+                # Pullback t2 replacement invalidates outgoing set members
+                if event.target_set_id is None or member.set_id == event.target_set_id:
+                    members_to_cancel.append(member_key)
 
-                if event.cancellation_reason == CancellationReason.SOURCE_CHOCH:
-                    # CHOCH cancels old direction
-                    should_cancel = True
-                    cancel_state = ActivationState.CANCELLED_SOURCE_CHOCH
-                elif event.cancellation_reason == CancellationReason.SOURCE_REPLACEMENT:
-                    # Replacement cancels outgoing set
-                    if event.target_set_id is None or rec.set_id == event.target_set_id:
-                        should_cancel = True
-                        cancel_state = ActivationState.CANCELLED_SOURCE_REPLACEMENT
+        for member_key in members_to_cancel:
+            # 1. Remove membership eligibility permanently from current members
+            member = self._current_members.pop(member_key, None)
 
-                if should_cancel:
-                    term_rec = replace(
-                        rec,
-                        state=cancel_state,
-                        cancellation_reason=event.cancellation_reason,
-                        cancellation_time=event.timestamp,
-                        cancellation_sequence_ref=event.sequence_ref,
-                        terminal=True,
-                        rearm_armed=False,
-                    )
-                    self._terminal_activations.append(term_rec)
-                    # Reset active slot for this member
-                    self._active_activations[member_key] = replace(
-                        term_rec,
-                        state=ActivationState.INACTIVE_ELIGIBLE,
-                        first_touch_time=None,
-                        first_touch_price=None,
-                        trigger_observation_id=None,
-                        terminal=False,
-                    )
+            # 2. Transition active activation to terminal if it was active/pending/armed
+            rec = self._active_activations.pop(member_key, None)
+            if rec is not None and rec.state in (
+                ActivationState.PENDING_ACTIVATION,
+                ActivationState.REARMED_PENDING,
+                ActivationState.OUT_OF_ZONE_ARMED,
+                ActivationState.CANCELLED_EXTERNAL_ENTRY,
+            ):
+                cancel_state = (
+                    ActivationState.CANCELLED_SOURCE_CHOCH
+                    if event.cancellation_reason == CancellationReason.SOURCE_CHOCH
+                    else ActivationState.CANCELLED_SOURCE_REPLACEMENT
+                )
+                term_rec = replace(
+                    rec,
+                    state=cancel_state,
+                    cancellation_reason=event.cancellation_reason,
+                    cancellation_time=event.timestamp,
+                    cancellation_sequence_ref=event.sequence_ref,
+                    terminal=True,
+                    rearm_armed=False,
+                )
+                self._terminal_activations.append(term_rec)
 
         return self.get_snapshot()
 
@@ -484,8 +566,17 @@ class ActivationEngine:
         if is_duplicate:
             return self.get_snapshot()
 
-        # External commit cancels competing pending activations
+        # External commit cancels competing pending activations, excluding the winner
         for member_key, rec in list(self._active_activations.items()):
+            # Exclude winner from cancellation
+            is_winner = (
+                event.winning_engine_id == self.engine_id
+                and event.winning_set_id == rec.set_id
+                and event.winning_role == rec.role
+            )
+            if is_winner:
+                continue
+
             if rec.state in (ActivationState.PENDING_ACTIVATION, ActivationState.REARMED_PENDING):
                 # Save outgoing record to terminal history
                 term_rec = replace(
@@ -519,14 +610,28 @@ class ActivationEngine:
         return self.get_snapshot()
 
     def _process_candle_evidence(self, event: IntervalBoundedCandleEvidence) -> ActivationSnapshot:
+        is_duplicate = self._validate_sequence_and_domain(
+            event_id=event.event_id,
+            sequence_domain=event.sequence_domain,
+            sequence_ref=event.sequence_ref,
+            timestamp=event.timestamp or event.interval_close,
+            event_payload=event,
+        )
+        if is_duplicate:
+            return self.get_snapshot()
+
         # Check intra-candle availability or unknown sequence
         for member_key, member in list(self._current_members.items()):
+            rec = self._active_activations.get(member_key)
+            # Uncertain candle evidence must NOT erase an already-authoritative pending or rearmed activation
+            if rec is not None and rec.state in (ActivationState.PENDING_ACTIVATION, ActivationState.REARMED_PENDING):
+                continue
+
             avail = member.eligibility_available_time
             if avail is not None and event.interval_open < avail < event.interval_close:
                 # Intra-candle availability
                 if not event.sub_bar_sequence_available:
-                    # Cannot prove sequence relative to availability: fail closed
-                    rec = self._active_activations.get(member_key)
+                    # Cannot prove sequence relative to availability: fail closed for unactivated level
                     if rec is not None:
                         self._active_activations[member_key] = replace(
                             rec,
@@ -537,6 +642,16 @@ class ActivationEngine:
         return self.get_snapshot()
 
     def _process_coverage_evidence(self, event: CoverageEvidence) -> ActivationSnapshot:
+        is_duplicate = self._validate_sequence_and_domain(
+            event_id=event.event_id,
+            sequence_domain=event.sequence_domain,
+            sequence_ref=event.sequence_ref,
+            timestamp=event.timestamp,
+            event_payload=event,
+        )
+        if is_duplicate:
+            return self.get_snapshot()
+
         self._coverage_status = event.coverage_status
         return self.get_snapshot()
 
