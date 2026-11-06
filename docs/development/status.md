@@ -1492,3 +1492,71 @@ Last Updated: 2026-11-06 (Milestone 27 Read-Only Activation Dashboard Accepted �
   - *Engine Integrity Baseline*: Strategy engines (`msm_engine.py`, `choch_engine.py`, `iss_engine.py`, `tjl_coordinator.py`, `activation_engine.py`, `activation_adapter.py`) remain 100% untouched.
   - *Scope Exclusions*: Strictly zero UI order execution, zero MT5 trading calls, zero live account modification, zero confirmation arbitration/selection, zero usage ledger writes, zero trade entry signals.
   - *Branch Boundary*: Committed and pushed strictly on `feature/activation-dashboard`. No merging into `main`.
+
+
+---
+
+### HANDOFF-074: Controlled Offline Browser Validation of Activation Dashboard (Milestone 28)
+- **Active Branch**: `feature/activation-dashboard`
+- **Immediate Parent Commit**: `669114f11aad3f1e59de277ad5cb6682fdcd4eda`
+- **Accepted Implementation Baseline Commit**: `d6587a1200735fe6453ff24f043931699f21f407` (Milestone 27 accepted)
+- **Requirements Baseline Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d` (Milestone 26 / HANDOFF-066 accepted)
+- **Root Baseline Engine Commit**: `0867c740352297fb43e781fb654706218771d533` (Milestone 25 / HANDOFF-061)
+- **Objective**: Execute end-to-end controlled offline browser verification of the Activation Dashboard Integration using Playwright and Chromium under Milestone 28:
+  1. *Dual-Server Controlled Offline Browser Test Architecture (`tests/test_activation_browser_controlled.py`)*:
+     - **Server 1 (Port 8068)**: Live production dashboard application (`aladeen.app.create_app`) wired to `ControllableActivationMockAdapter` (simulating `CONNECTED_TO_BROKER` state with zero live MT5 or network interaction).
+     - **Server 2 (Port 8069)**: Local visual fixture harness (`_create_fixture_harness_app`) rendering the 16 offline acceptance scenarios from `tests/fixtures/activation_dashboard_acceptance.json` via pure `build_activation_inspection_elements()`.
+     - Automated teardown: Controlled test runner launches both Flask/Dash servers on background daemon threads, binds Playwright Chromium browser instances, runs complete verification pipelines, captures visual screenshots to `tests/evidence/activation_browser/`, and shuts down cleanly.
+  2. *Section A: Mounting, Readability, and Viewport Usability*:
+     - Verified `#activation-inspection-container`, `#activation-disclaimer-banner`, `#activation-context-card`, and `#activation-active-table` mount cleanly in live DOM.
+     - Verified prominent non-execution disclaimer banner: `⚠️ LIFECYCLE OBSERVATION ONLY — NOT AN ENTRY SIGNAL`.
+     - Verified desktop viewport (1280x800) readability: layout expands responsively without overlapping columns or unreadable overflow. Screenshot: `01_app_mounting_desktop.png`.
+     - Verified narrow mobile viewport (800x600) readability: responsive table scroll and wrapped flex containers. Screenshot: `02_app_mounting_narrow_viewport.png`.
+     - Verified 0 browser console errors and 0 uncaught page errors across entire test execution.
+  3. *Section B: Session Storage & Multi-Context Isolation*:
+     - Verified independent browser contexts (`ctx_a`, `ctx_b`) evaluate dynamic `app.layout()` and receive distinct, non-overlapping session IDs (`sid_a != sid_b`).
+     - Verified same-tab page reload preserves session ID identically from HTML5 `sessionStorage` via `ensure_dashboard_session_id`.
+     - Verified causal run domain advancement in Context A (`RUN_001` -> `RUN_002`) upon applying calculation mode `INTEGRATED_MSM_CHOCH_TJL`. Screenshots: `03_session_isolation_context_a.png` and `04_session_isolation_context_b.png`.
+     - Verified Context B remains completely isolated from mutations and state advancement in Context A.
+     - Verified new tab opened via URL navigation receives a distinct UUID session.
+     - **Documented Browser Isolation Finding**: Under the W3C Web Storage specification, opening a new tab via `window.open()` clones the parent tab's `sessionStorage` into the new browsing context (`session_id_clone == session_id_parent`). Independent session isolation across tabs therefore requires top-level navigation (`ctx.new_page()` / typing URL in address bar) rather than DOM tab duplication.
+  4. *Section C: Presentation Projection Across Acceptance Scenarios*:
+     - Scenario 2 (First Exact Touch Provenance): Verified `PENDING ACTIVATION` state, trigger observation `OBS_01`, and value-preserved first touch price `1.1370`. Screenshot: `05_scenario_02_first_exact_touch.png`.
+     - Scenario 3 (Repeated Touch Invariance): Verified first touch timestamp and `OBS_01` trigger observation remain unchanged upon repeated touch prints.
+     - Scenario 4 (Unknown Usage Gating): Verified fail-closed gating badge `USAGE UNCERTAIN (FAIL-CLOSED)`.
+     - Scenario 5 (Incomplete Coverage Gating): Verified coverage badge `INCOMPLETE` and fail-closed member badge.
+     - Scenario 6 (Unknown Availability Timing): Verified fail-closed gating badge `UNKNOWN AVAILABILITY`.
+     - Scenario 7 (Source Cancellation & Terminal History): Verified cancelled member moves from active table to terminal history table with state `CANCELLED_SOURCE_CHOCH`.
+     - Scenario 8 (Cancellation Unknown Time): Verified `Unknown` cancellation time rendered with dedicated sequence reference `#125`.
+     - Scenario 9 (External Cancellation Inside Zone): Verified rearm controller created with `CANCELLED (AWAITING DEPARTURE)`, `Gen 2`, and `rearm_armed == NO`.
+     - Scenario 10 (Armed Controller Out of Zone): Verified rearm controller displays `ARMED FOR RETOUCH` and `rearm_armed == YES`. Screenshot: `06_scenario_10_armed_controller.png`.
+     - Scenario 11 (Valid Reactivation Gen 2): Verified `REARMED PENDING (GEN 2)` active activation with `prior_activation_id` referencing canonical Gen 1 ID `ACT_G01`.
+     - Scenario 12 (Successor Set Persistent Level): Verified active table displays `SET_2` while terminal history table retains historical `SET_1` on the same physical level.
+     - Scenario 13 (Unresolved Source Banner): Verified canonical banner `🛑 LAST AUTHORITATIVE EVIDENCE — SOURCE UNRESOLVED` and diagnostic freeze indices `Bar #15` (processed) through `Bar #19` (received). Screenshot: `07_scenario_13_unresolved_source_banner.png`.
+     - Scenario 14 (Equal Coarse Timestamps Disambiguation): Verified equal timestamps sorted deterministically by sequence reference `#202` preceding `#201`.
+     - Custom Scenario 14b (Terminal History Bounded at 50 Records): Ingested 75 historical records; verified heading displays `75 total records (Showing latest 50 of 75 records)` and exactly 50 rows are rendered in DOM. Screenshot: `08_scenario_history_50_limit.png`.
+     - Custom Scenario 15 (Synchronization-Error Diagnostic Banner): Verified visible `⚠️ TJL cursor mismatch` banner rendered alongside active table without masking prior authoritative evidence. Screenshot: `09_scenario_sync_error_banner.png`.
+- **Completed Deliverables**:
+  1. [`tests/test_activation_browser_controlled.py`](file:///tests/test_activation_browser_controlled.py): Complete controlled Playwright browser test suite covering Sections A, B, and C.
+  2. `tests/evidence/activation_browser/`: 9 captured visual validation screenshots:
+     - `01_app_mounting_desktop.png` (439 KB)
+     - `02_app_mounting_narrow_viewport.png` (45 KB)
+     - `03_session_isolation_context_a.png` (83 KB)
+     - `04_session_isolation_context_b.png` (49 KB)
+     - `05_scenario_02_first_exact_touch.png` (60 KB)
+     - `06_scenario_10_armed_controller.png` (88 KB)
+     - `07_scenario_13_unresolved_source_banner.png` (44 KB)
+     - `08_scenario_history_50_limit.png` (303 KB)
+     - `09_scenario_sync_error_banner.png` (59 KB)
+  3. [`docs/development/status.md`](file:///docs/development/status.md): HANDOFF-074 documentation.
+- **Verification Summary**:
+  - Controlled browser validation suite: **All assertions passed, 0 failures, 9 screenshots captured** (`python tests/test_activation_browser_controlled.py`).
+  - Activation dashboard integration suite: **22 / 22 passed** in 1.91s (`pytest tests/test_activation_dashboard_integration.py`).
+  - Full offline repository test suite: **542 / 542 passed** in 12.27s (`pytest -q tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py --ignore=tests/test_activation_browser_controlled.py`).
+  - Strategy Engine Purity Audit: Exactly zero modifications to strategy engines (`msm_engine.py`, `choch_engine.py`, `iss_engine.py`, `tjl_coordinator.py`, `activation_engine.py`, `activation_adapter.py`). `git diff 3f6689c194c95ca3761833f8831bb8a3f5b4740d -- src/aladeen/strategy/` is completely clean.
+- **Scope Compliance & Standing Invariants**:
+  1. *Pure Read-Only Presentation*: Strictly zero UI order execution, zero MT5 live trading calls, zero live account modification.
+  2. *Downstream Invariant*: Strictly zero confirmation arbitration/selection, zero usage ledger writes, zero trade entry signals.
+  3. *Engine Integrity*: Strictly zero modification to accepted strategy engines (`msm_engine`, `choch_engine`, `iss_engine`, `tjl_coordinator`, `activation_engine`, `activation_adapter`).
+  4. *Core Ambiguities Preserved*: Upstream $c_1 == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
+  5. *Branch Boundary*: Committed and pushed strictly on `feature/activation-dashboard`. No merging into `main`.
