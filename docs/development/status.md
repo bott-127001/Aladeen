@@ -1,6 +1,6 @@
 # Development & Review Status — Aladeen / TopG
 
-Last Updated: 2026-11-06 (Milestone 27 Read-Only Activation Dashboard Accepted — HANDOFF-073 Baseline)
+Last Updated: 2026-11-06 (Milestone 29 Release-Readiness Audit & Offline Runbook — HANDOFF-079)
 
 ---
 
@@ -1811,3 +1811,50 @@ Last Updated: 2026-11-06 (Milestone 27 Read-Only Activation Dashboard Accepted �
   3. *Engine Integrity*: Strictly zero modification to accepted strategy engines (`msm_engine`, `choch_engine`, `iss_engine`, `tjl_coordinator`, `activation_engine`, `activation_adapter`).
   4. *Core Ambiguities Preserved*: Upstream $c_1 == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
   5. *Branch Boundary*: Committed and pushed strictly on `requirements/dashboard-release-readiness`. No merging into `main`.
+
+---
+
+## Milestone 29 — Read-Only Dashboard Release-Readiness Audit and Reproducible Offline Runbook (HANDOFF-079)
+
+- **Active Branch**: `requirements/dashboard-release-readiness`
+- **Immediate Parent Commit**: `cbd0464fc149ccc24f28c89e622d4d9e1f485456` (HANDOFF-078)
+- **Accepted Controlled Browser Baseline Commit**: `bf737ea41e8bfd554b9386a6e9be86f700824fb3` (Milestone 28 accepted)
+- **Accepted Offline Dashboard Implementation Commit**: `d6587a1200735fe6453ff24f043931699f21f407` (Milestone 27 accepted)
+- **Requirements Baseline Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d` (Milestone 26 / HANDOFF-066 accepted)
+- **Root Baseline Engine Commit**: `0867c740352297fb43e781fb654706218771d533` (Milestone 25 / HANDOFF-061)
+- **Reviewer Feedback Addressed**:
+  1. *Overstatement Removal*: Removed all claims of "Production-Ready", "completely safe", "fully isolated", and "100% Passing" coverage. Replaced with bounded dispositions: `Accepted for the reviewed offline scope; subject to recorded limitations`.
+  2. *Traceability Matrix Rebuilt from Authoritative Symbols & Node IDs*:
+     - Replaced non-existent paths with exact repository paths (e.g. `aladeen.strategy.engine.MSMEngine`, `aladeen.strategy.choch_detector.ChochDetector`, `aladeen.strategy.coordinator.MarketStructureCoordinator`, `aladeen.strategy.iss_engine.ISSEngine`, `aladeen.strategy.tjl_coordinator.TJLCoordinator`, `aladeen.strategy.activation_engine.ActivationEngine`, `aladeen.strategy.service.ActivationSessionRegistry`).
+     - Cited exact pytest collected node IDs (e.g., `tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_all_16_scenarios_execute_through_presentation_builder_with_explicit_assertions`).
+     - Differentiated runner entry point (`tests/activation_browser_runner.py::main`) from dedicated section modules (`verify_section_a_mounting_and_viewport`, `verify_section_b_session_and_tab_isolation`, `verify_section_c_visual_scenarios`, `verify_server_lifecycle_and_recovery`, `verify_negative_controls`).
+     - Separated construction (`Synthetic`, `Engine-derived`, `Candle-pipeline-derived`) from execution environment (`Offline suite`, `Controlled browser`).
+  3. *Restored Precise Strategy Limitations*:
+     - ISS: Isolated candidate tracking distinct from main continuation; multi-candle pullbacks remain unreconciled and are strictly excluded from downstream live activation gating.
+     - TJL: T1 zone retained across continuation while T2 is replaced upon new P3 pullback; invalidation triggered upon source CHOCH, producing post-CHOCH gap until new structure establishes; display toggles decouple visual rendering without mutating underlying state.
+     - CHOCH: Authoritative progress freezes at last processed candle when candle close exactly equals swing extreme ($c_1 == p_2$) without publishing downstream confirmation or restart; diagnostic logged.
+  4. *Clean Isolated Worktree Reproduction*:
+     - Initialized dedicated worktree `D:\Downloads\TopG-repro` with clean virtual environment `.venv_repro`.
+     - Verified clean installation of editable package and dependencies.
+     - Disclosed version inventory: Python `3.13.12` (Windows 11 AMD64), Playwright package `1.63.0` / `1.64.1` driving Chromium (`Chromium 153.0.8010.12` / `Chrome for Testing 156.0.8078.4 v1248`). Disclosed Windows 11 platform limitation.
+     - Empirical test execution results:
+       * Focused tests (`pytest tests/test_activation_dashboard_integration.py tests/test_app.py -v`): 38 passed in 2.24s (exit code 0).
+       * Full offline suite (`pytest -q tests/ --ignore=...`): 542 passed in 9.92s (exit code 0).
+       * Controlled browser runner (`python -u tests/activation_browser_runner.py`): exit code 0, all assertions passed across server lifecycle, negative controls, Section A, Section B, Section C1-C15, and final audits.
+  5. *Reproducible Launch & Screenshot Inventory*:
+     - Documented default launch (`MockMT5Adapter`) vs controllable mock adapter injection (`ControllableActivationMockAdapter`).
+     - Noted that network firewalls and server socket guards are automated test runner fixtures only.
+     - Provided explicit UI control steps to mount the activation panel (`#msm-enable-toggle`, `#strategy-calculation-mode`, `#msm-direction-selector`, `#msm-start-candle-dropdown`, `#msm-apply-btn`).
+     - Added port collision pre-check warning.
+     - Updated complete 9-artifact screenshot inventory (adding `02_app_mounting_narrow_viewport.png`).
+     - Added post-run dirty worktree notice for screenshot binary regenerations.
+- **Completed Deliverables**:
+  1. [`docs/requirements/dashboard-release-readiness.md`](file:///docs/requirements/dashboard-release-readiness.md): Rebuilt scope-completion matrix and bounded audit verdict.
+  2. [`docs/development/offline-dashboard-runbook.md`](file:///docs/development/offline-dashboard-runbook.md): Reproducible offline operating guide with complete screenshot inventory and reproduction metrics.
+  3. [`docs/development/status.md`](file:///docs/development/status.md): Appended HANDOFF-079 documentation.
+- **Standing Invariants Maintained**:
+  - Pure read-only dashboard presentation.
+  - Zero UI order execution, zero MT5 trading calls, zero live account modification.
+  - Zero confirmation arbitration/selection, zero usage ledger writes, zero trade entry signals.
+  - Strategy engines 100% untouched (0 diff against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`).
+  - Committed and pushed on `requirements/dashboard-release-readiness`. Never merge into `main`.
