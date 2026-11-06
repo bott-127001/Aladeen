@@ -1,4 +1,9 @@
 {
+  "case_0_empty_input_rejected": {
+    "status": "FAILED_EMPTY_EVALUATION_INPUT",
+    "exit_code": 1,
+    "passed": true
+  },
   "case_1_required_step_failure": {
     "status": "REQUIRED_STEP_FAILED",
     "exit_code": 1,
@@ -9,18 +14,29 @@
     "exit_code": 0,
     "passed": true
   },
-  "case_3_dirty_worktree_provenance_failure": {
+  "case_3_unobserved_browser_provenance_failure": {
     "status": "TESTS_PASSED_BUT_PROVENANCE_INCOMPLETE_OR_DIRTY",
     "exit_code": 1,
     "passed": true
   },
-  "case_4_wrong_editable_path_failure": {
+  "case_4_missing_provenance_key_failure": {
     "status": "TESTS_PASSED_BUT_PROVENANCE_INCOMPLETE_OR_DIRTY",
     "exit_code": 1,
     "passed": true
   },
-  "case_5_cli_subprocess_invalid_worktree": {
+  "case_5_controlled_cli_production_failure": {
+    "command": [
+      "D:\\DevTools\\python313\\python.exe",
+      "D:\\Downloads\\TopG\\scripts\\run_reproduction_m29.py",
+      "--inject-failing-step",
+      "--output-dir",
+      "D:\\Downloads\\TopG\\docs\\development\\evidence\\reproduction_m29\\controlled_cli_failure_evidence",
+      "--skip-self-test"
+    ],
     "exit_code": 1,
+    "retained_child_log": "controlled_cli_failure.log",
+    "retained_failure_manifest": "provenance_manifest.json",
+    "manifest_aggregate_result": "REQUIRED_STEP_FAILED",
     "passed": true
   }
 }

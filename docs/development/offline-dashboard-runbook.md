@@ -136,26 +136,48 @@ To ensure fully reproducible and verifiable execution, the reproduction suite is
 # Default execution against retained reproduction worktree
 python scripts/run_reproduction_m29.py
 
-# Injected failure propagation gate verification
+# Injected failure propagation gate verification (runs 5-case failure & CLI suite)
 python scripts/run_reproduction_m29.py --test-failure-gate
 
 # Parameterized paths for alternative environments
 python scripts/run_reproduction_m29.py --worktree <path_to_worktree> --python-exe <path_to_python> --output-dir <path_to_evidence>
 ```
 
-#### Fail-Closed Architecture & Provenance Manifest:
-1. **Failure Propagation**: The runner monitors all step return codes and exits immediately with nonzero status (`sys.exit(1)`) if any required test or validation step fails. This is verified by an automated unit test `--test-failure-gate`.
-2. **Interpreter Pinning**: The selected reproduction virtual environment Python executable is strictly utilized for every command invocation.
-3. **Durable Provenance Manifest**: Before execution begins, the runner records:
-   - Git checkout commit (`git rev-parse HEAD`).
-   - Pre-run worktree cleanliness status (`git status --porcelain`).
-   - Exact Python interpreter path and version (`python --version`).
-   - Editable project install location (`pip show aladeen`).
-   - Launched browser binary identification (`Chromium 156.0.8078.4`).
-   - Exact commands, return codes, and elapsed durations for each step.
-   The resulting provenance record is emitted in both JSON ([`docs/development/evidence/reproduction_m29/provenance_manifest.json`](evidence/reproduction_m29/provenance_manifest.json)) and Markdown ([`docs/development/evidence/reproduction_m29/provenance_manifest.md`](evidence/reproduction_m29/provenance_manifest.md)).
+#### Fail-Closed Architecture, Evaluator & Retained Failure Evidence:
+1. **Failure Propagation & Non-Empty Input Enforcement**: The runner monitors all step return codes and exits immediately with nonzero status (`sys.exit(1)`) if any required test or provenance check fails. Evaluator requires non-empty inputs and expected inventory of steps/checks.
+2. **Observed Browser Provenance Required**: Reproduction completeness requires five explicit checks: `valid_checkout_hash`, `clean_prerun_worktree`, `valid_python_interpreter`, `editable_install_matches_worktree`, and `observed_browser_binary`.
+3. **Controlled CLI Production Failure Testing**: `--test-failure-gate` exercises the production evaluation path by executing 5 failure scenarios, including a real CLI subprocess call with `--inject-failing-step` that produces nonzero exit code 1, writes a real failure manifest, and retains:
+   - Child execution transcript: [`docs/development/evidence/reproduction_m29/controlled_cli_failure.log`](evidence/reproduction_m29/controlled_cli_failure.log).
+   - Retained failure manifest: [`docs/development/evidence/reproduction_m29/controlled_cli_failure_evidence/provenance_manifest.json`](evidence/reproduction_m29/controlled_cli_failure_evidence/provenance_manifest.json).
+   - Complete failure test summary: [`docs/development/evidence/reproduction_m29/failure_injection_test_results.json`](evidence/reproduction_m29/failure_injection_test_results.json).
 
-### 5.2 Durable Clean-Reproduction Record (Milestone 29)
+### 5.2 Automated Reference Validator Script (`scripts/validate_matrix_references.py`)
+To prevent vacuous validation, the reference validator directly parses Section 2 of `docs/requirements/dashboard-release-readiness.md` and validates every cited symbol and pytest test node:
+
+```powershell
+# Run full matrix reference validation against real pytest collection
+python scripts/validate_matrix_references.py
+
+# Run simulated failure CLI negative control
+python scripts/validate_matrix_references.py --test-failing-cli
+```
+
+#### Verification Rules & Negative Controls:
+1. **Strict 38-Row Inventory Enforcement**: Directly parses all 38 requirement rows (`MSM-01`..`04`, `CHOCH-01`..`04`, `ISS-01`..`04`, `TJL-01`..`04`, `ACT-G1`..`G8`, `ACT-SC13`, `ACT-MTF`, `SES-01`..`05`, `VIEW-01`..`04`, `SEC-01`..`03`). Any missing, duplicate, or empty row triggers an immediate validation failure and nonzero exit.
+2. **Required Evidence for Accepted Rows**: Every row marked `Accepted` must contain at least one valid implementation code span and at least one valid verification code span.
+3. **Exact Pytest Node Collection vs. Explicit Browser Helpers**: Pytest test references must strictly match the real collected test node set (544 nodes) from `pytest --collect-only -q` (retained in [`docs/development/evidence/reproduction_m29/pytest_collection.log`](evidence/reproduction_m29/pytest_collection.log)). Reflection is strictly restricted to explicitly designated browser runner functions (`EXPLICIT_ALLOWED_BROWSER_HELPERS`); uncollected `test_*` functions cannot be relabeled as browser helpers.
+4. **Nonzero Exit on Failure**: If any row or negative control fails, the script retains the reports and exits immediately with code 1.
+5. **Eight Passing Negative Controls**:
+   - `empty_matrix_rejected`: Empty matrix correctly rejected.
+   - `missing_row_rejected`: Missing requirement row correctly rejected.
+   - `duplicate_row_rejected`: Duplicate requirement ID correctly rejected.
+   - `accepted_row_without_evidence_rejected`: Accepted row with empty evidence correctly rejected.
+   - `uncollected_test_helper_reflection_rejected`: Uncollected test function reflection strictly rejected.
+   - `wrong_class_node_rejected`: Wrong-class node strictly rejected.
+   - `collection_error_detection`: Nonzero pytest collection exit code detected and aborted.
+   - `failing_cli_produces_nonzero_exit`: Validator CLI verified to exit nonzero on validation failure.
+
+### 5.3 Durable Clean-Reproduction Record (Milestone 29)
 The replacement reproduction was executed from clean worktree checkout commit `3770989114997280b4f1b19406e294a16ec6c7b9`:
 - **Worktree Location**: `D:\Downloads\TopG-repro` (retained, branch `repro-run`)
 - **Pre-Run Working Tree Status**: `CLEAN`
@@ -164,7 +186,7 @@ The replacement reproduction was executed from clean worktree checkout commit `3
 - **Python**: `Python 3.13.12` (Editable location: `D:\Downloads\TopG-repro`)
 - **Installed Packages**: Captured in `docs/development/evidence/reproduction_m29/01_pip_list.txt`
 - **Browser Binary**: `Chromium 156.0.8078.4` via `playwright==1.64.1`
-- **Setup Provenance Note**: The virtual environment `.venv_repro` was initialized via `python -m venv .venv_repro` and dependencies were installed via `pip install -e . pytest pytest-asyncio playwright` in worktree `D:\Downloads\TopG-repro`. Exact package versions are captured in `01_pip_list.txt`. Unrecorded interactive setup transcripts are not reconstructed or claimed.
+- **Setup Provenance Note**: Setup commands are operator-reported ('python -m venv .venv_repro', 'pip install -e . pytest pytest-asyncio playwright'); interactive setup transcripts were not retained. Package inventory (01_pip_list.txt) and subsequent command execution were captured.
 
 #### Step Execution & Timing Summary:
 1. **Package Inventory (`pip list`)**:

@@ -2028,3 +2028,53 @@ Last Updated: 2026-11-06 (Milestone 29 Release-Readiness Audit & Offline Runbook
   - Zero confirmation arbitration/selection, zero usage ledger writes, zero trade entry signals.
   - Strategy engines 100% untouched (0 diff against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`).
   - Committed and pushed on `requirements/dashboard-release-readiness`. Never merge into `main`.
+
+---
+
+## Milestone 29 — Read-Only Dashboard Release-Readiness Audit and Reproducible Offline Runbook (HANDOFF-083)
+
+- **Active Branch**: `requirements/dashboard-release-readiness`
+- **Immediate Parent Commit**: `afb7457e82ba3dcdb23c4e3a20f7bc63001f214f` (HANDOFF-082)
+- **Accepted Controlled Browser Baseline Commit**: `bf737ea41e8bfd554b9386a6e9be86f700824fb3` (Milestone 28 accepted)
+- **Accepted Offline Dashboard Implementation Commit**: `d6587a1200735fe6453ff24f043931699f21f407` (Milestone 27 accepted)
+- **Requirements Baseline Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d` (Milestone 26 / HANDOFF-066 accepted)
+- **Root Baseline Engine Commit**: `0867c740352297fb43e781fb654706218771d533` (Milestone 25 / HANDOFF-061)
+- **Reviewer Feedback Addressed (HANDOFF-082 Review Directives 1–7)**:
+  1. *Complete Provenance-Key & Execution-Step Inventory with Observed Browser Requirement*:
+     - `evaluate_reproduction_results()` enforces non-empty input and strictly checks the required inventory of 5 provenance checks (`valid_checkout_hash`, `clean_prerun_worktree`, `valid_python_interpreter`, `editable_install_matches_worktree`, `observed_browser_binary`) and 5 execution steps.
+     - An unobserved browser binary (`browser_version == "UNKNOWN / NOT_OBSERVED"`) trips the provenance completeness gate with `TESTS_PASSED_BUT_PROVENANCE_INCOMPLETE_OR_DIRTY` (exit code 1).
+  2. *Reference Validation Produces Nonzero Exit on Validation Failure*:
+     - `scripts/validate_matrix_references.py` retains `reference_validation.json` and `reference_validation.md`, then evaluates `aggregate_validation_verdict`. If any error, inventory failure, or unverified reference exists, it prints `[ERROR]` and exits with code 1 (`sys.exit(1)`).
+     - Verified via automated CLI negative control `--test-failing-cli`.
+  3. *Matrix Row Inventory, Uniqueness & Required Reference Enforcement*:
+     - Directly validates the expected 38-row requirement inventory (`MSM-01`..`04`, `CHOCH-01`..`04`, `ISS-01`..`04`, `TJL-01`..`04`, `ACT-G1`..`G8`, `ACT-SC13`, `ACT-MTF`, `SES-01`..`05`, `VIEW-01`..`04`, `SEC-01`..`03`).
+     - Detects and rejects empty matrix documents, missing rows, and duplicate requirement keys.
+     - Requires non-empty implementation and verification evidence spans for every accepted row.
+     - Enforces explicit documented-gap representation for unsupported/unresolved rows.
+  4. *Separation of Exact Pytest Collection from Explicitly Allowed Helper Reflection*:
+     - Pytest test references must match the real collected test node set (544 nodes) from `pytest --collect-only -q`.
+     - Reflection is restricted exclusively to the 5 explicitly designated browser runner functions (`EXPLICIT_ALLOWED_BROWSER_HELPERS`).
+     - Any other `file.py::name` reference with `::` that is uncollected is strictly rejected (`UNCOLLECTED_PYTEST_NODE_REJECTED`); cannot be relabeled as a browser helper.
+  5. *Controlled Production CLI Failure Execution & Retained Evidence*:
+     - Wrapped `capture_command()` in a try/except block returning explicit execution failure records (`127`, error details) rather than crashing with unhandled tracebacks.
+     - Added `--inject-failing-step` flag allowing production pipeline execution with an injected failing step.
+     - In `--test-failure-gate`, executes real CLI subprocess, verifies exit code 1, verifies failure manifest generation, and permanently retains:
+       * Child transcript: [`docs/development/evidence/reproduction_m29/controlled_cli_failure.log`](file:///docs/development/evidence/reproduction_m29/controlled_cli_failure.log)
+       * Retained failure manifest: [`docs/development/evidence/reproduction_m29/controlled_cli_failure_evidence/provenance_manifest.json`](file:///docs/development/evidence/reproduction_m29/controlled_cli_failure_evidence/provenance_manifest.json)
+       * Test summary: [`docs/development/evidence/reproduction_m29/failure_injection_test_results.json`](file:///docs/development/evidence/reproduction_m29/failure_injection_test_results.json)
+  6. *Focused Tooling Tests & Passing Reproduction Record Preservation*:
+     - Executed focused tooling self-tests and reference collection/validation only; preserved existing passing reproduction records without unnecessary full/browser reruns.
+- **Completed Deliverables**:
+  1. [`scripts/run_reproduction_m29.py`](file:///scripts/run_reproduction_m29.py): Updated with complete provenance inventory, browser observation check, graceful command exception handling, and controlled CLI failure retention.
+  2. [`scripts/validate_matrix_references.py`](file:///scripts/validate_matrix_references.py): Updated with 38-row inventory validation, nonzero CLI exit on failure, restricted browser helper reflection, and 8 negative controls.
+  3. [`docs/development/evidence/reproduction_m29/controlled_cli_failure.log`](file:///docs/development/evidence/reproduction_m29/controlled_cli_failure.log) & [`controlled_cli_failure_evidence/`](file:///docs/development/evidence/reproduction_m29/controlled_cli_failure_evidence/): Retained child execution log and failure manifest.
+  4. [`docs/development/evidence/reproduction_m29/failure_injection_test_results.json`](file:///docs/development/evidence/reproduction_m29/failure_injection_test_results.json): Retained failure test results for 6 distinct cases (Cases 0–5).
+  5. [`docs/development/evidence/reproduction_m29/reference_validation.json`](file:///docs/development/evidence/reproduction_m29/reference_validation.json) & [`reference_validation.md`](file:///docs/development/evidence/reproduction_m29/reference_validation.md): Regenerated reports validating all 38 rows and 8 passing negative controls.
+  6. [`docs/development/offline-dashboard-runbook.md`](file:///docs/development/offline-dashboard-runbook.md): Updated runbook with failure gate details and validator inventory rules.
+  7. [`docs/development/status.md`](file:///docs/development/status.md): Appended HANDOFF-083 record.
+- **Standing Invariants Maintained**:
+  - Pure read-only dashboard presentation.
+  - Zero UI order execution, zero MT5 trading calls, zero live account modification.
+  - Zero confirmation arbitration/selection, zero usage ledger writes, zero trade entry signals.
+  - Strategy engines 100% untouched (0 diff against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`).
+  - Committed and pushed on `requirements/dashboard-release-readiness`. Never merge into `main`.

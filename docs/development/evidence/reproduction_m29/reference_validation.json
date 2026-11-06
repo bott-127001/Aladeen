@@ -1,13 +1,19 @@
 {
-  "report_version": "2.0",
+  "report_version": "2.1",
   "milestone": "Milestone 29 \u2014 Read-Only Dashboard Release-Readiness Audit and Reproducible Offline Runbook",
-  "timestamp_utc": "2026-11-06T16:33:45Z",
+  "timestamp_utc": "2026-11-06T16:43:38Z",
   "validation_environment": {
-    "checkout_commit": "235d8abf62c2e236edb14bc157d52444420b8a09",
+    "checkout_commit": "afb7457e82ba3dcdb23c4e3a20f7bc63001f214f",
     "python_interpreter": "D:\\DevTools\\python313\\python.exe",
     "python_version": "CPython 3.13.12",
     "operating_system": "Windows 11 AMD64",
     "matrix_source_file": "D:\\Downloads\\TopG\\docs\\requirements\\dashboard-release-readiness.md"
+  },
+  "inventory_validation": {
+    "expected_count": 38,
+    "extracted_count": 38,
+    "errors": [],
+    "status": "PASS"
   },
   "pytest_collection_summary": {
     "exit_code": 0,
@@ -15,34 +21,60 @@
     "collection_log": "pytest_collection.log"
   },
   "negative_controls": {
+    "empty_matrix_rejected": {
+      "errors": [
+        "Empty matrix or no requirement rows extracted from Section 2!"
+      ],
+      "rejected": true,
+      "detail": "Empty matrix content correctly rejected with inventory failure."
+    },
+    "missing_row_rejected": {
+      "errors": [
+        "Missing expected requirement rows: ['MSM-01']"
+      ],
+      "rejected": true,
+      "detail": "Missing MSM-01 row correctly detected and rejected."
+    },
+    "duplicate_row_rejected": {
+      "errors": [
+        "Duplicate requirement key detected: MSM-01",
+        "Missing expected requirement rows: ['MSM-02']"
+      ],
+      "rejected": true,
+      "detail": "Duplicate requirement key MSM-01 correctly detected and rejected."
+    },
+    "accepted_row_without_evidence_rejected": {
+      "row": "MSM-01",
+      "has_evidence": false,
+      "rejected": true,
+      "detail": "Accepted row with empty evidence spans correctly detected as invalid."
+    },
+    "uncollected_test_helper_reflection_rejected": {
+      "reference": "tests/test_activation_browser_controlled.py::test_uncollected_function_name",
+      "status": "UNCOLLECTED_PYTEST_NODE_REJECTED",
+      "rejected": true,
+      "detail": "Confirmed uncollected test_* function cannot be relabeled as browser runner helper."
+    },
     "wrong_class_node_rejected": {
       "reference": "tests/test_msm_engine.py::NonexistentWrongClass::test_msm_01_upward_standard",
-      "status": "NODE_OR_FUNCTION_NOT_FOUND",
+      "status": "UNCOLLECTED_PYTEST_NODE_REJECTED",
       "rejected": true,
       "detail": "Confirmed that wrong-class qualified node is strictly rejected."
-    },
-    "nonexistent_func_rejected": {
-      "reference": "tests/test_msm_engine.py::TestMSMAcceptanceFixtures::test_fictitious_nonexistent_case",
-      "status": "NODE_OR_FUNCTION_NOT_FOUND",
-      "rejected": true,
-      "detail": "Confirmed that fictitious test function is strictly rejected."
-    },
-    "nonexistent_browser_helper_rejected": {
-      "reference": "tests/test_activation_browser_controlled.py::verify_completely_fictitious_helper",
-      "status": "BROWSER_RUNNER_FUNCTION_NOT_FOUND",
-      "rejected": true,
-      "detail": "Confirmed that fictitious browser helper is strictly rejected."
-    },
-    "nonexistent_symbol_rejected": {
-      "symbol": "aladeen.strategy.engine.classify_levels",
-      "status": "ATTRIBUTE_NOT_FOUND",
-      "rejected": true,
-      "detail": "Confirmed that nonexistent strategy.engine.classify_levels is properly rejected."
     },
     "collection_error_detection": {
       "exit_code": 4,
       "detected": true,
       "detail": "Confirmed that nonzero collection exit code is detected."
+    },
+    "failing_cli_produces_nonzero_exit": {
+      "command": [
+        "D:\\DevTools\\python313\\python.exe",
+        "D:\\Downloads\\TopG\\scripts\\validate_matrix_references.py",
+        "--test-failing-cli"
+      ],
+      "exit_code": 1,
+      "passed": true,
+      "detail": "Confirmed that validate_matrix_references.py exits nonzero on validation failure."
     }
   },
   "matrix_rows_validated": [
@@ -64,9 +96,8 @@
         {
           "reference": "tests/test_msm_engine.py::TestMSMAcceptanceFixtures::test_msm_01_upward_standard",
           "column": "Verification Path",
-          "status": "COLLECTED_EXACT_MATCH",
-          "is_valid": true,
-          "exact_match": true
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
         }
       ],
       "unresolved_notes": [],
@@ -82,13 +113,14 @@
         {
           "reference": "tests/test_msm_engine.py::TestMSMAcceptanceFixtures::test_msm_12_two_pairs_and_trend_status",
           "column": "Verification Path",
-          "status": "COLLECTED_EXACT_MATCH",
-          "is_valid": true,
-          "exact_match": true
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
         }
       ],
-      "unresolved_notes": [],
-      "row_status": "VALIDATED"
+      "unresolved_notes": [
+        "Documented gap recorded in matrix: Strong/Weak level classification does not exist in source requirements (`docs/requirements/msm-acceptance.md`) or engine code; cited test verifies standard 2-pair trend status only."
+      ],
+      "row_status": "DOCUMENTED_GAP"
     },
     {
       "section": "2.1 Market Structure Marking (MSM) Module",
@@ -108,16 +140,14 @@
         {
           "reference": "tests/test_chart.py::TestCandlestickChart::test_creates_figure_from_h4",
           "column": "Verification Path",
-          "status": "COLLECTED_EXACT_MATCH",
-          "is_valid": true,
-          "exact_match": true
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
         },
         {
           "reference": "tests/test_activation_browser_controlled.py::verify_section_a_mounting_and_viewport",
           "column": "Verification Path",
-          "status": "BROWSER_RUNNER_FUNCTION_FOUND",
-          "is_valid": true,
-          "exact_match": false
+          "status": "ALLOWED_BROWSER_RUNNER_HELPER",
+          "is_valid": true
         }
       ],
       "unresolved_notes": [],
@@ -155,16 +185,14 @@
         {
           "reference": "tests/test_app.py::TestAppConstruction::test_no_mt5_import_required",
           "column": "Verification Path",
-          "status": "COLLECTED_EXACT_MATCH",
-          "is_valid": true,
-          "exact_match": true
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
         },
         {
           "reference": "tests/test_app.py::TestModeIsolationAndFallbackRejection::test_demo_mode_unaffected_by_mt5",
           "column": "Verification Path",
-          "status": "COLLECTED_EXACT_MATCH",
-          "is_valid": true,
-          "exact_match": true
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
         }
       ],
       "unresolved_notes": [],
@@ -188,16 +216,14 @@
         {
           "reference": "tests/test_choch_engine.py::TestCHOCHExecution::test_choch_bullish_basic_end_to_end_execution",
           "column": "Verification Path",
-          "status": "COLLECTED_EXACT_MATCH",
-          "is_valid": true,
-          "exact_match": true
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
         },
         {
           "reference": "tests/test_choch_engine.py::TestCHOCHExecution::test_choch_bearish_basic_end_to_end_execution",
           "column": "Verification Path",
-          "status": "COLLECTED_EXACT_MATCH",
-          "is_valid": true,
-          "exact_match": true
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
         }
       ],
       "unresolved_notes": [],
@@ -221,9 +247,8 @@
         {
           "reference": "tests/test_choch_engine.py::TestCHOCHExecution::test_wick_crossing_only_rejected",
           "column": "Verification Path",
-          "status": "COLLECTED_EXACT_MATCH",
-          "is_valid": true,
-          "exact_match": true
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
         }
       ],
       "unresolved_notes": [],
@@ -247,9 +272,8 @@
         {
           "reference": "tests/test_choch_engine.py::TestCHOCHExecution::test_continuation_reset_clears_pending_choch",
           "column": "Verification Path",
-          "status": "COLLECTED_EXACT_MATCH",
-          "is_valid": true,
-          "exact_match": true
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
         }
       ],
       "unresolved_notes": [],
@@ -273,20 +297,20 @@
         {
           "reference": "tests/test_choch_engine.py::TestCHOCHExecution::test_unresolved_same_close_diagnostic_and_downstream_non_publication",
           "column": "Verification Path",
-          "status": "COLLECTED_EXACT_MATCH",
-          "is_valid": true,
-          "exact_match": true
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
         },
         {
           "reference": "tests/test_choch_engine.py::TestCHOCHExecution::test_unresolved_containment_freezes_authoritative_state_across_later_candles",
           "column": "Verification Path",
-          "status": "COLLECTED_EXACT_MATCH",
-          "is_valid": true,
-          "exact_match": true
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
         }
       ],
-      "unresolved_notes": [],
-      "row_status": "VALIDATED"
+      "unresolved_notes": [
+        "Documented gap recorded in matrix: When candle close exactly equals prior swing extreme ($c_1 == p_2$), authoritative state freezes at `last_processed_index` without publishing downstream confirmation or restart; diagnostic logged. Awaiting formal strategy reconciliation."
+      ],
+      "row_status": "DOCUMENTED_GAP"
     },
     {
       "section": "2.3 Inside Swing Structure (ISS) Module",
@@ -306,16 +330,14 @@
         {
           "reference": "tests/test_iss_engine.py::TestISSEngineLifecycleExecution::test_iss_01_bearish_basic_end_to_end_execution",
           "column": "Verification Path",
-          "status": "COLLECTED_EXACT_MATCH",
-          "is_valid": true,
-          "exact_match": true
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
         },
         {
           "reference": "tests/test_iss_engine.py::TestISSEngineLifecycleExecution::test_iss_02_bullish_basic_end_to_end_execution",
           "column": "Verification Path",
-          "status": "COLLECTED_EXACT_MATCH",
-          "is_valid": true,
-          "exact_match": true
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
         }
       ],
       "unresolved_notes": [],
@@ -339,13 +361,14 @@
         {
           "reference": "tests/test_iss_engine.py::TestISSEngineAPIAndSafety::test_isolated_tracking_only_distinct_from_continuation_cancellation",
           "column": "Verification Path",
-          "status": "COLLECTED_EXACT_MATCH",
-          "is_valid": true,
-          "exact_match": true
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
         }
       ],
-      "unresolved_notes": [],
-      "row_status": "VALIDATED"
+      "unresolved_notes": [
+        "Documented gap recorded in matrix: Internal swing tracking only. Isolated candidate tracking distinct from main trend continuation; multi-candle pullbacks remain unreconciled with strategy documents and are strictly excluded from downstream live activation gating."
+      ],
+      "row_status": "DOCUMENTED_GAP"
     },
     {
       "section": "2.3 Inside Swing Structure (ISS) Module",
@@ -357,13 +380,14 @@
         {
           "reference": "tests/test_iss_engine.py::TestISSEngineAPIAndSafety::test_synthetic_missing_evidence_isolated_tracking_progression_and_cancellation",
           "column": "Verification Path",
-          "status": "COLLECTED_EXACT_MATCH",
-          "is_valid": true,
-          "exact_match": true
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
         }
       ],
-      "unresolved_notes": [],
-      "row_status": "VALIDATED"
+      "unresolved_notes": [
+        "Documented gap recorded in matrix: Awaiting formal strategy reconciliation; strictly excluded from downstream live activation gating."
+      ],
+      "row_status": "DOCUMENTED_GAP"
     },
     {
       "section": "2.3 Inside Swing Structure (ISS) Module",
@@ -383,16 +407,14 @@
         {
           "reference": "tests/test_iss_dashboard_integration.py::TestISSDashboardInspectionPanel::test_inspection_panel_renders_iss_tables",
           "column": "Verification Path",
-          "status": "COLLECTED_EXACT_MATCH",
-          "is_valid": true,
-          "exact_match": true
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
         },
         {
           "reference": "tests/test_iss_dashboard_integration.py::TestISSDashboardChartRendering::test_chart_renders_iss_markers_and_zones",
           "column": "Verification Path",
-          "status": "COLLECTED_EXACT_MATCH",
-          "is_valid": true,
-          "exact_match": true
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
         }
       ],
       "unresolved_notes": [],
@@ -416,9 +438,8 @@
         {
           "reference": "tests/test_tjl_coordinator.py::TestTJLCoordinator::test_bullish_basic_end_to_end_replay",
           "column": "Verification Path",
-          "status": "COLLECTED_EXACT_MATCH",
-          "is_valid": true,
-          "exact_match": true
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
         }
       ],
       "unresolved_notes": [],
@@ -442,16 +463,14 @@
         {
           "reference": "tests/test_tjl_coordinator.py::TestTJLCoordinator::test_continuation_t1_retention_and_t2_pullback_replacement",
           "column": "Verification Path",
-          "status": "COLLECTED_EXACT_MATCH",
-          "is_valid": true,
-          "exact_match": true
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
         },
         {
           "reference": "tests/test_tjl_coordinator.py::TestTJLCoordinator::test_source_choch_invalidation_and_post_choch_gap",
           "column": "Verification Path",
-          "status": "COLLECTED_EXACT_MATCH",
-          "is_valid": true,
-          "exact_match": true
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
         }
       ],
       "unresolved_notes": [],
@@ -475,9 +494,8 @@
         {
           "reference": "tests/test_tjl_dashboard_integration.py::TestTJLCandlestickChartOverlays::test_display_toggles_suppress_shapes_without_changing_calculation",
           "column": "Verification Path",
-          "status": "COLLECTED_EXACT_MATCH",
-          "is_valid": true,
-          "exact_match": true
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
         }
       ],
       "unresolved_notes": [],
@@ -501,9 +519,8 @@
         {
           "reference": "tests/test_tjl_dashboard_integration.py::TestTJLProductionServiceLifecycleAndPresentation::test_chart_window_excluding_authoritative_source_candle",
           "column": "Verification Path",
-          "status": "COLLECTED_EXACT_MATCH",
-          "is_valid": true,
-          "exact_match": true
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
         }
       ],
       "unresolved_notes": [],
@@ -511,7 +528,7 @@
     },
     {
       "section": "2.5 Activation Inspection Dashboard Module (Authoritative G1\u2013G8 Display Groups)",
-      "requirement": "ACT-G1 Context",
+      "requirement": "ACT-G1",
       "disposition": "Accepted for the reviewed offline scope; subject to recorded limitations",
       "construction": "`Synthetic`",
       "symbols": [
@@ -527,9 +544,8 @@
         {
           "reference": "tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_all_16_scenarios_execute_through_presentation_builder_with_explicit_assertions",
           "column": "Verification Path",
-          "status": "COLLECTED_EXACT_MATCH",
-          "is_valid": true,
-          "exact_match": true
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
         }
       ],
       "unresolved_notes": [],
@@ -537,7 +553,7 @@
     },
     {
       "section": "2.5 Activation Inspection Dashboard Module (Authoritative G1\u2013G8 Display Groups)",
-      "requirement": "ACT-G2 Membership",
+      "requirement": "ACT-G2",
       "disposition": "Accepted for the reviewed offline scope; subject to recorded limitations",
       "construction": "`Synthetic`",
       "symbols": [
@@ -553,9 +569,8 @@
         {
           "reference": "tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_all_16_scenarios_execute_through_presentation_builder_with_explicit_assertions",
           "column": "Verification Path",
-          "status": "COLLECTED_EXACT_MATCH",
-          "is_valid": true,
-          "exact_match": true
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
         }
       ],
       "unresolved_notes": [],
@@ -563,7 +578,7 @@
     },
     {
       "section": "2.5 Activation Inspection Dashboard Module (Authoritative G1\u2013G8 Display Groups)",
-      "requirement": "ACT-G3 Activation",
+      "requirement": "ACT-G3",
       "disposition": "Accepted for the reviewed offline scope; subject to recorded limitations",
       "construction": "`Synthetic`",
       "symbols": [
@@ -579,9 +594,8 @@
         {
           "reference": "tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_all_16_scenarios_execute_through_presentation_builder_with_explicit_assertions",
           "column": "Verification Path",
-          "status": "COLLECTED_EXACT_MATCH",
-          "is_valid": true,
-          "exact_match": true
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
         }
       ],
       "unresolved_notes": [],
@@ -589,7 +603,7 @@
     },
     {
       "section": "2.5 Activation Inspection Dashboard Module (Authoritative G1\u2013G8 Display Groups)",
-      "requirement": "ACT-G4 Gating",
+      "requirement": "ACT-G4",
       "disposition": "Accepted for the reviewed offline scope; subject to recorded limitations",
       "construction": "`Synthetic`",
       "symbols": [
@@ -605,9 +619,8 @@
         {
           "reference": "tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_all_16_scenarios_execute_through_presentation_builder_with_explicit_assertions",
           "column": "Verification Path",
-          "status": "COLLECTED_EXACT_MATCH",
-          "is_valid": true,
-          "exact_match": true
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
         }
       ],
       "unresolved_notes": [],
@@ -615,7 +628,7 @@
     },
     {
       "section": "2.5 Activation Inspection Dashboard Module (Authoritative G1\u2013G8 Display Groups)",
-      "requirement": "ACT-G5 Cancellation Audit",
+      "requirement": "ACT-G5",
       "disposition": "Accepted for the reviewed offline scope; subject to recorded limitations",
       "construction": "`Synthetic`",
       "symbols": [
@@ -631,9 +644,8 @@
         {
           "reference": "tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_all_16_scenarios_execute_through_presentation_builder_with_explicit_assertions",
           "column": "Verification Path",
-          "status": "COLLECTED_EXACT_MATCH",
-          "is_valid": true,
-          "exact_match": true
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
         }
       ],
       "unresolved_notes": [],
@@ -641,7 +653,7 @@
     },
     {
       "section": "2.5 Activation Inspection Dashboard Module (Authoritative G1\u2013G8 Display Groups)",
-      "requirement": "ACT-G6 Rearm",
+      "requirement": "ACT-G6",
       "disposition": "Accepted for the reviewed offline scope; subject to recorded limitations",
       "construction": "`Synthetic`",
       "symbols": [
@@ -657,9 +669,8 @@
         {
           "reference": "tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_all_16_scenarios_execute_through_presentation_builder_with_explicit_assertions",
           "column": "Verification Path",
-          "status": "COLLECTED_EXACT_MATCH",
-          "is_valid": true,
-          "exact_match": true
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
         }
       ],
       "unresolved_notes": [],
@@ -667,7 +678,7 @@
     },
     {
       "section": "2.5 Activation Inspection Dashboard Module (Authoritative G1\u2013G8 Display Groups)",
-      "requirement": "ACT-G7 History",
+      "requirement": "ACT-G7",
       "disposition": "Accepted for the reviewed offline scope; subject to recorded limitations",
       "construction": "`Synthetic`",
       "symbols": [
@@ -683,9 +694,8 @@
         {
           "reference": "tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_bounded_history_display_and_total_count",
           "column": "Verification Path",
-          "status": "COLLECTED_EXACT_MATCH",
-          "is_valid": true,
-          "exact_match": true
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
         }
       ],
       "unresolved_notes": [],
@@ -693,7 +703,7 @@
     },
     {
       "section": "2.5 Activation Inspection Dashboard Module (Authoritative G1\u2013G8 Display Groups)",
-      "requirement": "ACT-G8 Sync",
+      "requirement": "ACT-G8",
       "disposition": "Accepted for the reviewed offline scope; subject to recorded limitations",
       "construction": "`Synthetic` & `Engine-derived`",
       "symbols": [
@@ -709,16 +719,14 @@
         {
           "reference": "tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_all_16_scenarios_execute_through_presentation_builder_with_explicit_assertions",
           "column": "Verification Path",
-          "status": "COLLECTED_EXACT_MATCH",
-          "is_valid": true,
-          "exact_match": true
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
         },
         {
           "reference": "tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_same_run_successive_cancellation_sync_with_monotonic_sequences_and_error_preservation",
           "column": "Verification Path",
-          "status": "COLLECTED_EXACT_MATCH",
-          "is_valid": true,
-          "exact_match": true
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
         }
       ],
       "unresolved_notes": [],
@@ -742,16 +750,14 @@
         {
           "reference": "tests/test_activation_dashboard_fixture_integrity.py::TestActivationDashboardFixtureIntegrity::test_scenario_specific_assertion_contracts",
           "column": "Verification Path",
-          "status": "COLLECTED_EXACT_MATCH",
-          "is_valid": true,
-          "exact_match": true
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
         },
         {
           "reference": "tests/test_activation_browser_controlled.py::verify_section_c_lifecycle_scenarios",
           "column": "Verification Path",
-          "status": "BROWSER_RUNNER_FUNCTION_FOUND",
-          "is_valid": true,
-          "exact_match": false
+          "status": "ALLOWED_BROWSER_RUNNER_HELPER",
+          "is_valid": true
         }
       ],
       "unresolved_notes": [],
@@ -775,9 +781,8 @@
         {
           "reference": "tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_service_pipeline_execution_and_context_reset",
           "column": "Verification Path",
-          "status": "COLLECTED_EXACT_MATCH",
-          "is_valid": true,
-          "exact_match": true
+          "status": "EXACT_COLLECTED_PYTEST_NODE",
+          "is_valid": true
         }
       ],
       "unresolved_notes": [],
@@ -801,9 +806,8 @@
         {
           "reference": "tests/test_activation_browser_controlled.py::verify_section_b_session_isolation",
           "column": "Verification Path",
-          "status": "BROWSER_RUNNER_FUNCTION_FOUND",
-          "is_valid": true,
-          "exact_match": false
+          "status": "ALLOWED_BROWSER_RUNNER_HELPER",
+          "is_valid": true
         }
       ],
       "unresolved_notes": [],
@@ -827,9 +831,8 @@
         {
           "reference": "tests/test_activation_browser_controlled.py::verify_section_b_session_isolation",
           "column": "Verification Path",
-          "status": "BROWSER_RUNNER_FUNCTION_FOUND",
-          "is_valid": true,
-          "exact_match": false
+          "status": "ALLOWED_BROWSER_RUNNER_HELPER",
+          "is_valid": true
         }
       ],
       "unresolved_notes": [],
@@ -860,9 +863,8 @@
         {
           "reference": "tests/test_activation_browser_controlled.py::verify_section_b_session_isolation",
           "column": "Verification Path",
-          "status": "BROWSER_RUNNER_FUNCTION_FOUND",
-          "is_valid": true,
-          "exact_match": false
+          "status": "ALLOWED_BROWSER_RUNNER_HELPER",
+          "is_valid": true
         }
       ],
       "unresolved_notes": [],
@@ -886,9 +888,8 @@
         {
           "reference": "tests/test_activation_browser_controlled.py::verify_section_b_session_isolation",
           "column": "Verification Path",
-          "status": "BROWSER_RUNNER_FUNCTION_FOUND",
-          "is_valid": true,
-          "exact_match": false
+          "status": "ALLOWED_BROWSER_RUNNER_HELPER",
+          "is_valid": true
         }
       ],
       "unresolved_notes": [],
@@ -901,8 +902,10 @@
       "construction": "`Specification-only`",
       "symbols": [],
       "pytest_nodes": [],
-      "unresolved_notes": [],
-      "row_status": "VALIDATED"
+      "unresolved_notes": [
+        "Documented gap recorded in matrix: Native right-click tab duplication cannot be automated via Playwright API without manual desktop interaction."
+      ],
+      "row_status": "DOCUMENTED_GAP"
     },
     {
       "section": "2.7 Viewport Usability, Typography & Security Enforcement",
@@ -922,9 +925,8 @@
         {
           "reference": "tests/test_activation_browser_controlled.py::verify_section_a_mounting_and_viewport",
           "column": "Verification Path",
-          "status": "BROWSER_RUNNER_FUNCTION_FOUND",
-          "is_valid": true,
-          "exact_match": false
+          "status": "ALLOWED_BROWSER_RUNNER_HELPER",
+          "is_valid": true
         }
       ],
       "unresolved_notes": [],
@@ -948,9 +950,8 @@
         {
           "reference": "tests/test_activation_browser_controlled.py::verify_section_a_mounting_and_viewport",
           "column": "Verification Path",
-          "status": "BROWSER_RUNNER_FUNCTION_FOUND",
-          "is_valid": true,
-          "exact_match": false
+          "status": "ALLOWED_BROWSER_RUNNER_HELPER",
+          "is_valid": true
         }
       ],
       "unresolved_notes": [],
@@ -974,9 +975,8 @@
         {
           "reference": "tests/test_activation_browser_controlled.py::verify_section_c_lifecycle_scenarios",
           "column": "Verification Path",
-          "status": "BROWSER_RUNNER_FUNCTION_FOUND",
-          "is_valid": true,
-          "exact_match": false
+          "status": "ALLOWED_BROWSER_RUNNER_HELPER",
+          "is_valid": true
         }
       ],
       "unresolved_notes": [],
@@ -1000,9 +1000,8 @@
         {
           "reference": "tests/test_activation_browser_controlled.py::verify_section_c_lifecycle_scenarios",
           "column": "Verification Path",
-          "status": "BROWSER_RUNNER_FUNCTION_FOUND",
-          "is_valid": true,
-          "exact_match": false
+          "status": "ALLOWED_BROWSER_RUNNER_HELPER",
+          "is_valid": true
         }
       ],
       "unresolved_notes": [],
@@ -1026,9 +1025,8 @@
         {
           "reference": "tests/activation_browser_harness.py::verify_isolation_guards_negative_controls",
           "column": "Verification Path",
-          "status": "BROWSER_RUNNER_FUNCTION_FOUND",
-          "is_valid": true,
-          "exact_match": false
+          "status": "ALLOWED_BROWSER_RUNNER_HELPER",
+          "is_valid": true
         }
       ],
       "unresolved_notes": [],
@@ -1052,9 +1050,8 @@
         {
           "reference": "tests/activation_browser_harness.py::verify_isolation_guards_negative_controls",
           "column": "Verification Path",
-          "status": "BROWSER_RUNNER_FUNCTION_FOUND",
-          "is_valid": true,
-          "exact_match": false
+          "status": "ALLOWED_BROWSER_RUNNER_HELPER",
+          "is_valid": true
         }
       ],
       "unresolved_notes": [],
@@ -1078,14 +1075,14 @@
         {
           "reference": "tests/activation_browser_harness.py::verify_server_lifecycle_failure_injection",
           "column": "Verification Path",
-          "status": "BROWSER_RUNNER_FUNCTION_FOUND",
-          "is_valid": true,
-          "exact_match": false
+          "status": "ALLOWED_BROWSER_RUNNER_HELPER",
+          "is_valid": true
         }
       ],
       "unresolved_notes": [],
       "row_status": "VALIDATED"
     }
   ],
-  "aggregate_validation_verdict": "ALL_MATRIX_REFERENCES_VERIFIED_OR_DOCUMENTED_AS_GAPS"
+  "aggregate_validation_verdict": "ALL_MATRIX_REFERENCES_VERIFIED_OR_DOCUMENTED_AS_GAPS",
+  "cli_exit_code": 0
 }
