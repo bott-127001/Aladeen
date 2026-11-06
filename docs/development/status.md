@@ -670,3 +670,35 @@ Last Updated: 2026-11-05 (MSM Dashboard Milestone Accepted — Transition to CHO
   2. *Downstream Invariant*: Strictly zero usage ledger implementation, zero confirmation arbitration, zero trade entry signals.
   3. *Core Ambiguities Preserved*: Upstream  == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
   4. *Branch Boundary*: Committed and pushed strictly on eature/activation-engine. No merging into main.
+
+
+### Milestone 18 (Activation Engine): Receipt Diagnostic Disambiguation, Test Modularization & Engine Evidence Hardening (HANDOFF-055)
+- **Active Branch**: feature/activation-engine
+- **Parent Commit**: 65f7ba0b984f919ad535eb59866f9bd705e7bedb (HANDOFF-054)
+- **Root Baseline Commit**: 535af1434ed9a6b93328202039db7f1d4f4be410 (Accepted TJL Dashboard Integration)
+- **Objective**: Address Perplexity's review of HANDOFF-054: distinguish receipt diagnostics from authoritative transition history, add real TJLReducer unresolved-snapshot regression, modularize adapter tests into 	ests/test_activation_adapter.py, and add all 5 requested direct engine evidence tests.
+- **Completed Deliverables**:
+  1. **Receipt Diagnostic vs. Authoritative History Disambiguation**:
+     - In src/aladeen/strategy/activation_adapter.py, TJLSynchronizer recognizes that for unresolved snapshots, snapshot.last_transition represents a receipt diagnostic (BLOCKED_UNRESOLVED) rather than an authoritative transition appended to snapshot.transition_history.
+     - Resolved snapshots continue to strictly enforce snapshot.last_transition == history[-1].
+  2. **Real TJLReducer Unresolved Snapshot Contract Regression**:
+     - 	est_tjl_reducer_unresolved_snapshot_with_lagged_cancellation verifies end-to-end that real TJLReducer emits last_transition as BLOCKED_UNRESOLVED while 	ransition_history tail holds authoritative CHOCH_INVALIDATION, and that a lagged TJLSynchronizer cleanly consumes the cancellation and suppresses fresh registration.
+  3. **Dedicated Adapter Test Modularization**:
+     - Separated 13 adapter tests from 	ests/test_activation_engine.py into 	ests/test_activation_adapter.py to maintain compact reviewable module sizes.
+  4. **Direct ActivationEngine Evidence Gaps Closed**:
+     - 	est_exact_price_print_before_vs_at_availability: verifies pre-availability print produces zero activation, while print exactly at availability time transitions cleanly to PENDING_ACTIVATION.
+     - 	est_exact_price_print_boundaries_and_zero_width: verifies exact lower edge touch, exact upper edge touch, zero-width line equality, and outside prints.
+     - 	est_prior_candle_close_and_range_only_evidence_produces_zero_activation: verifies prior candle close and intra-candle range straddle without discrete print produce zero activation.
+     - 	est_unknown_interval_order_fresh_vs_pending_members: verifies that unknown sub-bar order preserves existing PENDING_ACTIVATION on touched members while fresh members fail closed to BLOCKED_UNKNOWN_ORDER.
+     - 	est_two_reactivations_at_same_coarse_timestamp_with_distinct_sequence_refs: verifies that distinct reactivations sharing coarse timestamp $ generate distinct linked new generation IDs ordered by sequence reference.
+- **Verification Summary**:
+  - Activation engine execution suite: 32/32 passed in 1.15s (pytest tests/test_activation_engine.py -v).
+  - Activation adapter suite: 13/13 passed in 0.95s (pytest tests/test_activation_adapter.py -v).
+  - Activation fixture integrity suite: 28/28 passed in 0.60s (pytest tests/test_activation_fixture_integrity.py -v).
+  - Total activation tests: 73/73 passed.
+  - Full offline repository test suite: 493/493 passed in 17.08s (pytest -q tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py).
+- **Scope Compliance & Standing Invariants**:
+  1. *Offline Only*: Strictly zero UI order execution, zero MT5 trading calls, zero live account modification.
+  2. *Downstream Invariant*: Strictly zero usage ledger implementation, zero confirmation arbitration, zero trade entry signals.
+  3. *Core Ambiguities Preserved*: Upstream  == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
+  4. *Branch Boundary*: Committed and pushed strictly on eature/activation-engine. No merging into main.

@@ -162,12 +162,18 @@ class TJLSynchronizer:
         # 2. Validate transition input completeness and authoritative history continuity
         history = snapshot.transition_history
         if snapshot.last_transition is not None:
-            if not history:
-                raise InvalidEvidenceError("Incomplete synchronization input: last_transition provided without transition_history")
-            if snapshot.last_transition != history[-1]:
-                raise InvalidEvidenceError(
-                    "Incomplete synchronization input: last_transition does not match the tail of authoritative transition_history"
-                )
+            # Distinguish receipt diagnostics (e.g. BLOCKED_UNRESOLVED) from authoritative transition history
+            is_unresolved_diag = (
+                snapshot.is_unresolved
+                or snapshot.last_transition.transition_type == TJLTransitionType.BLOCKED_UNRESOLVED
+            )
+            if not is_unresolved_diag:
+                if not history:
+                    raise InvalidEvidenceError("Incomplete synchronization input: last_transition provided without transition_history")
+                if snapshot.last_transition != history[-1]:
+                    raise InvalidEvidenceError(
+                        "Incomplete synchronization input: last_transition does not match the tail of authoritative transition_history"
+                    )
 
         if len(history) < len(self._consumed_transitions):
             raise InvalidEvidenceError(
