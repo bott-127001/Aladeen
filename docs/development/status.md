@@ -968,3 +968,33 @@ Last Updated: 2026-11-06 (Activation Engine Pure Offline Milestone Accepted — 
   4. *Standing Exclusions Preserved*: Acceptance does not resolve upstream $c_1 == p_2$ ambiguity or ISS multi-candle pullbacks. It does not authorize UI integration, ingestion, confirmation selection, arbitration, usage-ledger commits, signals, broker operations, or execution.
   5. *Branch Boundary*: No merge into `main`. The next milestone requires an explicit scope and acceptance contract before implementation begins.
 
+## 26. Milestone Requirements: Read-Only Activation Dashboard Integration (HANDOFF-062)
+- **Active Branch**: `requirements/activation-dashboard-acceptance`
+- **Immediate Parent Commit**: `3aed45bb9e0e3b9f61bb8d02cd40cff39a5f5bae` (Status update recording Milestone 25 acceptance)
+- **Root Baseline Engine Commit**: `0867c740352297fb43e781fb654706218771d533` (Milestone 25 / HANDOFF-061)
+- **Objective**: Deliver comprehensive requirements specification, acceptance fixture catalog, fixture integrity test suite, and integration-gap assessment for the read-only Activation Dashboard integration.
+- **Scope Boundary**: Pure requirements specification and fixture integrity validation. **Strictly zero UI order execution, zero MT5 trading calls, zero live account modification, zero confirmation arbitration, zero usage-ledger commits, zero trade entry signals, zero automated trading, zero runtime implementation modifications in this phase, and zero merging to `main`**.
+- **Completed Deliverables**:
+  1. [`docs/requirements/activation-dashboard-acceptance.md`](file:///docs/requirements/activation-dashboard-acceptance.md):
+     - Comprehensive bounded scope and strict exclusions (no execution, no confirmation selection, no arbitration, no usage-ledger writes).
+     - Non-negotiable presentation semantics (Pending != Actionable, History != Current Eligibility, Unknown stays Unknown, Unresolved stays visible).
+     - Specification of 8 required display groups: Context (G1), Membership (G2), Activation (G3), Evidence Gating (G4), Cancellation (G5), Rearm Controller (G6), Terminal History (G7), and Synchronization (G8).
+     - Architecture contract: pure presentation projection, single retained `TJLSynchronizer` owned by service layer, zero reducer mutation, deterministic sorting, explicit missing-data display, and bounded history presentation policy.
+     - 16 acceptance scenarios with exact expected views, disclaimers, and assertions.
+     - Integration-gap assessment: inspected `tjl_inspection.py`, `msm_callbacks.py`, `layout.py`, `service.py`, `activation_types.py`, and `activation_adapter.py`. Confirmed all required display fields are already present on public dataclasses; zero private dictionary exposure or engine changes required.
+  2. [`tests/fixtures/activation_dashboard_acceptance.json`](file:///tests/fixtures/activation_dashboard_acceptance.json):
+     - Standardized acceptance fixture catalog covering all 16 scenarios.
+     - Explicit evidence categories assigned (`synthetic`, `engine-derived`, `candle-pipeline-derived`).
+     - Includes explicit non-execution disclaimer distinguishing fixture data integrity from claimed executable UI integration.
+  3. [`tests/test_activation_dashboard_fixture_integrity.py`](file:///tests/test_activation_dashboard_fixture_integrity.py) (207 lines):
+     - 8 automated integrity tests validating schema, scenario completeness, evidence category compliance, display group completeness, strict `is_actionable == False` invariant, timestamp normalization, and scenario-specific assertion contracts.
+- **Verification Summary**:
+  - Activation dashboard fixture integrity suite: **8 / 8 passed** in 4.22s (`pytest tests/test_activation_dashboard_fixture_integrity.py -q`).
+  - Full offline repository test suite: **517 / 517 passed** in 14.47s (`pytest -q tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py`).
+- **Scope Compliance & Standing Invariants**:
+  1. *Requirements Phase Only*: Zero runtime modifications to strategy engine, adapter, or UI files.
+  2. *Offline Only*: Strictly zero UI order execution, zero MT5 trading calls, zero live account modification.
+  3. *Downstream Invariant*: Strictly zero usage ledger implementation, zero confirmation arbitration, zero trade entry signals.
+  4. *Core Ambiguities Preserved*: Upstream $c_1 == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
+  5. *Branch Boundary*: Committed and pushed strictly on `requirements/activation-dashboard-acceptance`. No merging into `main`.
+

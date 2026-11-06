@@ -1,0 +1,1034 @@
+{
+  "description": "Standardized Acceptance Fixtures for Activation Read-Only Dashboard Presentation",
+  "version": "1.0",
+  "authorities": [
+    "docs/requirements/activation-dashboard-acceptance.md",
+    "docs/strategy/MTF-Analysis.pdf (\u00a73, \u00a75, \u00a76, \u00a78, \u00a79, \u00a710, \u00a712)",
+    "docs/requirements/approved-clarifications.md (OPEN-03, OPEN-04, OPEN-05, OPEN-06, OPEN-08, OPEN-09, OPEN-10, OPEN-12)",
+    "AGENTS.md"
+  ],
+  "disclaimer": "FIXTURE INTEGRITY TEST ONLY. Verifies schema, data completeness, and assertion contracts. Does not claim executable UI integration or DOM coverage.",
+  "supported_evidence_categories": [
+    "synthetic",
+    "engine-derived",
+    "candle-pipeline-derived"
+  ],
+  "fixtures": {
+    "dash_act_01_eligible_untouched": {
+      "scenario_id": "dash_act_01_eligible_untouched",
+      "name": "Eligible, untouched member presentation",
+      "evidence_category": "engine-derived",
+      "description": "Active set SET_1 with TJL1 untouched. Zone and availability displayed with zero first-touch claim.",
+      "authority": "MTF-Analysis.pdf \u00a75; activation-dashboard-acceptance.md \u00a75",
+      "presentation_inputs": {
+        "context": {
+          "engine_id": "ENGINE_EURUSD_H1",
+          "symbol": "EURUSD",
+          "source_timeframe": "H1",
+          "confirmation_timeframe": "M1",
+          "sequence_domain": "DOMAIN_EURUSD_H1"
+        },
+        "membership": [
+          {
+            "set_id": "SET_1",
+            "role": "TJL1",
+            "level_id": {
+              "symbol_feed_id": "FEED_EURUSD_H1",
+              "source_timeframe": "H1",
+              "source_open_time": "2026-10-01T04:00:00+00:00",
+              "side": "HIGH"
+            },
+            "lower_edge": 1.135,
+            "upper_edge": 1.14,
+            "is_line": false,
+            "eligibility_available_time": "2026-10-02T08:00:00+00:00"
+          }
+        ],
+        "active_activations": [
+          {
+            "activation_id": "ACT_EURUSD_H1_SET_1_TJL1_GEN0",
+            "member_key": "[5:SET_1][4:TJL1]",
+            "state": "INACTIVE_ELIGIBLE",
+            "generation_seq": 0,
+            "first_touch_time": null,
+            "first_touch_price": null,
+            "trigger_observation_id": null,
+            "prior_activation_id": null,
+            "usage_evidence_status": "UNUSED",
+            "blocked_reason": null
+          }
+        ],
+        "evidence_gating": {
+          "usage_evidence_status": "UNUSED",
+          "coverage_status": "COMPLETE",
+          "blocked_reason": null
+        },
+        "cancellation": null,
+        "rearm_controllers": [],
+        "terminal_history": [],
+        "synchronization": {
+          "last_processed_sequence": 100,
+          "last_processed_timestamp": "2026-10-02T08:00:00+00:00",
+          "is_unresolved": false,
+          "unresolved_diagnostic": null
+        }
+      },
+      "expected_view": {
+        "badge_text": "ELIGIBLE (UNTOUCHED)",
+        "state_display": "INACTIVE_ELIGIBLE",
+        "first_touch_display": "\u2014",
+        "observation_display": "\u2014",
+        "availability_display": "2026-10-02 08:00:00 UTC",
+        "is_actionable": false,
+        "disclaimer_required": true
+      },
+      "assertions": {
+        "has_first_touch_claim": false,
+        "is_actionable": false,
+        "active_member_count": 1,
+        "terminal_history_count": 0
+      }
+    },
+    "dash_act_02_first_exact_touch": {
+      "scenario_id": "dash_act_02_first_exact_touch",
+      "name": "First exact touch pending activation",
+      "evidence_category": "engine-derived",
+      "description": "First exact price print inside zone establishes PENDING_ACTIVATION with observation ID and first-touch price.",
+      "authority": "MTF-Analysis.pdf \u00a75; activation-dashboard-acceptance.md \u00a75",
+      "presentation_inputs": {
+        "context": {
+          "engine_id": "ENGINE_EURUSD_H1",
+          "symbol": "EURUSD",
+          "source_timeframe": "H1",
+          "confirmation_timeframe": "M1",
+          "sequence_domain": "DOMAIN_EURUSD_H1"
+        },
+        "membership": [
+          {
+            "set_id": "SET_1",
+            "role": "TJL1",
+            "level_id": {
+              "symbol_feed_id": "FEED_EURUSD_H1",
+              "source_timeframe": "H1",
+              "source_open_time": "2026-10-01T04:00:00+00:00",
+              "side": "HIGH"
+            },
+            "lower_edge": 1.135,
+            "upper_edge": 1.14,
+            "is_line": false,
+            "eligibility_available_time": "2026-10-02T08:00:00+00:00"
+          }
+        ],
+        "active_activations": [
+          {
+            "activation_id": "ACT_EURUSD_H1_SET_1_TJL1_GEN1",
+            "member_key": "[5:SET_1][4:TJL1]",
+            "state": "PENDING_ACTIVATION",
+            "generation_seq": 1,
+            "first_touch_time": "2026-10-02T08:15:00+00:00",
+            "first_touch_price": 1.137,
+            "trigger_observation_id": "OBS_01",
+            "prior_activation_id": null,
+            "usage_evidence_status": "UNUSED",
+            "blocked_reason": null
+          }
+        ],
+        "evidence_gating": {
+          "usage_evidence_status": "UNUSED",
+          "coverage_status": "COMPLETE",
+          "blocked_reason": null
+        },
+        "cancellation": null,
+        "rearm_controllers": [],
+        "terminal_history": [],
+        "synchronization": {
+          "last_processed_sequence": 101,
+          "last_processed_timestamp": "2026-10-02T08:15:00+00:00",
+          "is_unresolved": false,
+          "unresolved_diagnostic": null
+        }
+      },
+      "expected_view": {
+        "badge_text": "PENDING ACTIVATION (GEN 1)",
+        "state_display": "PENDING_ACTIVATION",
+        "first_touch_display": "2026-10-02 08:15:00 UTC",
+        "observation_display": "OBS_01",
+        "first_touch_price_display": "1.13700",
+        "is_actionable": false,
+        "disclaimer_required": true
+      },
+      "assertions": {
+        "has_first_touch_claim": true,
+        "first_touch_price_exact": 1.137,
+        "trigger_observation_id": "OBS_01",
+        "is_actionable": false
+      }
+    },
+    "dash_act_03_repeated_touch": {
+      "scenario_id": "dash_act_03_repeated_touch",
+      "name": "Repeated touch preserves original first-touch evidence",
+      "evidence_category": "engine-derived",
+      "description": "Subsequent prints inside the zone do not overwrite the original activation timestamp or trigger observation ID.",
+      "authority": "MTF-Analysis.pdf \u00a75; activation-dashboard-acceptance.md \u00a75",
+      "presentation_inputs": {
+        "context": {
+          "engine_id": "ENGINE_EURUSD_H1",
+          "symbol": "EURUSD",
+          "source_timeframe": "H1",
+          "confirmation_timeframe": "M1",
+          "sequence_domain": "DOMAIN_EURUSD_H1"
+        },
+        "membership": [
+          {
+            "set_id": "SET_1",
+            "role": "TJL1",
+            "level_id": {
+              "symbol_feed_id": "FEED_EURUSD_H1",
+              "source_timeframe": "H1",
+              "source_open_time": "2026-10-01T04:00:00+00:00",
+              "side": "HIGH"
+            },
+            "lower_edge": 1.135,
+            "upper_edge": 1.14,
+            "is_line": false,
+            "eligibility_available_time": "2026-10-02T08:00:00+00:00"
+          }
+        ],
+        "active_activations": [
+          {
+            "activation_id": "ACT_EURUSD_H1_SET_1_TJL1_GEN1",
+            "member_key": "[5:SET_1][4:TJL1]",
+            "state": "PENDING_ACTIVATION",
+            "generation_seq": 1,
+            "first_touch_time": "2026-10-02T08:15:00+00:00",
+            "first_touch_price": 1.137,
+            "trigger_observation_id": "OBS_01",
+            "prior_activation_id": null,
+            "usage_evidence_status": "UNUSED",
+            "blocked_reason": null
+          }
+        ],
+        "evidence_gating": {
+          "usage_evidence_status": "UNUSED",
+          "coverage_status": "COMPLETE",
+          "blocked_reason": null
+        },
+        "cancellation": null,
+        "rearm_controllers": [],
+        "terminal_history": [],
+        "synchronization": {
+          "last_processed_sequence": 105,
+          "last_processed_timestamp": "2026-10-02T08:25:00+00:00",
+          "is_unresolved": false,
+          "unresolved_diagnostic": null
+        }
+      },
+      "expected_view": {
+        "badge_text": "PENDING ACTIVATION (GEN 1)",
+        "state_display": "PENDING_ACTIVATION",
+        "first_touch_display": "2026-10-02 08:15:00 UTC",
+        "observation_display": "OBS_01",
+        "first_touch_price_display": "1.13700",
+        "is_actionable": false
+      },
+      "assertions": {
+        "first_touch_time_preserved": "2026-10-02T08:15:00+00:00",
+        "trigger_observation_id_preserved": "OBS_01",
+        "is_actionable": false
+      }
+    },
+    "dash_act_04_unknown_usage": {
+      "scenario_id": "dash_act_04_unknown_usage",
+      "name": "Unknown usage evidence fail-closed gating",
+      "evidence_category": "engine-derived",
+      "description": "Usage evidence is UNKNOWN. Pending activation identity is preserved but blocked reason and fail-closed badge are prominently displayed.",
+      "authority": "MTF-Analysis.pdf \u00a78; activation-dashboard-acceptance.md \u00a75",
+      "presentation_inputs": {
+        "context": {
+          "engine_id": "ENGINE_EURUSD_H1",
+          "symbol": "EURUSD",
+          "source_timeframe": "H1",
+          "confirmation_timeframe": "M1",
+          "sequence_domain": "DOMAIN_EURUSD_H1"
+        },
+        "membership": [
+          {
+            "set_id": "SET_1",
+            "role": "TJL1",
+            "level_id": {
+              "symbol_feed_id": "FEED_EURUSD_H1",
+              "source_timeframe": "H1",
+              "source_open_time": "2026-10-01T04:00:00+00:00",
+              "side": "HIGH"
+            },
+            "lower_edge": 1.135,
+            "upper_edge": 1.14,
+            "is_line": false,
+            "eligibility_available_time": "2026-10-02T08:00:00+00:00"
+          }
+        ],
+        "active_activations": [
+          {
+            "activation_id": "ACT_EURUSD_H1_SET_1_TJL1_GEN1",
+            "member_key": "[5:SET_1][4:TJL1]",
+            "state": "PENDING_ACTIVATION",
+            "generation_seq": 1,
+            "first_touch_time": "2026-10-02T08:15:00+00:00",
+            "first_touch_price": 1.137,
+            "trigger_observation_id": "OBS_01",
+            "prior_activation_id": null,
+            "usage_evidence_status": "UNKNOWN",
+            "blocked_reason": "USAGE_EVIDENCE_UNCERTAIN_FAIL_CLOSED"
+          }
+        ],
+        "evidence_gating": {
+          "usage_evidence_status": "UNKNOWN",
+          "coverage_status": "COMPLETE",
+          "blocked_reason": "USAGE_EVIDENCE_UNCERTAIN_FAIL_CLOSED"
+        },
+        "cancellation": null,
+        "rearm_controllers": [],
+        "terminal_history": [],
+        "synchronization": {
+          "last_processed_sequence": 106,
+          "last_processed_timestamp": "2026-10-02T08:30:00+00:00",
+          "is_unresolved": false,
+          "unresolved_diagnostic": null
+        }
+      },
+      "expected_view": {
+        "badge_text": "PENDING (USAGE UNCERTAIN \u2014 BLOCKED)",
+        "state_display": "PENDING_ACTIVATION",
+        "gating_badge": "UNKNOWN (FAIL-CLOSED)",
+        "blocked_reason_display": "USAGE_EVIDENCE_UNCERTAIN_FAIL_CLOSED",
+        "is_actionable": false
+      },
+      "assertions": {
+        "is_actionable": false,
+        "blocked_reason_present": true,
+        "usage_evidence_status": "UNKNOWN"
+      }
+    },
+    "dash_act_05_incomplete_coverage": {
+      "scenario_id": "dash_act_05_incomplete_coverage",
+      "name": "Incomplete or uncertain coverage limitation",
+      "evidence_category": "synthetic",
+      "description": "Coverage is PARTIAL. Warning banner indicates missing observation coverage independently of state.",
+      "authority": "activation-dashboard-acceptance.md \u00a75",
+      "presentation_inputs": {
+        "context": {
+          "engine_id": "ENGINE_EURUSD_H1",
+          "symbol": "EURUSD",
+          "source_timeframe": "H1",
+          "confirmation_timeframe": "M1",
+          "sequence_domain": "DOMAIN_EURUSD_H1"
+        },
+        "membership": [],
+        "active_activations": [],
+        "evidence_gating": {
+          "usage_evidence_status": "UNKNOWN",
+          "coverage_status": "PARTIAL",
+          "blocked_reason": "COVERAGE_INCOMPLETE"
+        },
+        "cancellation": null,
+        "rearm_controllers": [],
+        "terminal_history": [],
+        "synchronization": {
+          "last_processed_sequence": 110,
+          "last_processed_timestamp": "2026-10-02T09:00:00+00:00",
+          "is_unresolved": false,
+          "unresolved_diagnostic": null
+        }
+      },
+      "expected_view": {
+        "coverage_badge": "COVERAGE INCOMPLETE (PARTIAL)",
+        "is_actionable": false
+      },
+      "assertions": {
+        "coverage_status": "PARTIAL",
+        "is_actionable": false
+      }
+    },
+    "dash_act_06_unknown_availability": {
+      "scenario_id": "dash_act_06_unknown_availability",
+      "name": "Unknown availability blocks activation without inferred time",
+      "evidence_category": "engine-derived",
+      "description": "Source member has null availability time. Rendered as Unknown with zero inferred activation time.",
+      "authority": "OPEN-04; activation-dashboard-acceptance.md \u00a75",
+      "presentation_inputs": {
+        "context": {
+          "engine_id": "ENGINE_EURUSD_H1",
+          "symbol": "EURUSD",
+          "source_timeframe": "H1",
+          "confirmation_timeframe": "M1",
+          "sequence_domain": "DOMAIN_EURUSD_H1"
+        },
+        "membership": [
+          {
+            "set_id": "SET_1",
+            "role": "TJL1",
+            "level_id": {
+              "symbol_feed_id": "FEED_EURUSD_H1",
+              "source_timeframe": "H1",
+              "source_open_time": "2026-10-01T04:00:00+00:00",
+              "side": "HIGH"
+            },
+            "lower_edge": 1.135,
+            "upper_edge": 1.14,
+            "is_line": false,
+            "eligibility_available_time": null
+          }
+        ],
+        "active_activations": [
+          {
+            "activation_id": "ACT_EURUSD_H1_SET_1_TJL1_GEN0",
+            "member_key": "[5:SET_1][4:TJL1]",
+            "state": "INACTIVE_INELIGIBLE",
+            "generation_seq": 0,
+            "first_touch_time": null,
+            "first_touch_price": null,
+            "trigger_observation_id": null,
+            "prior_activation_id": null,
+            "usage_evidence_status": "UNUSED",
+            "blocked_reason": "MISSING_AVAILABILITY_EVIDENCE"
+          }
+        ],
+        "evidence_gating": {
+          "usage_evidence_status": "UNUSED",
+          "coverage_status": "COMPLETE",
+          "blocked_reason": "MISSING_AVAILABILITY_EVIDENCE"
+        },
+        "cancellation": null,
+        "rearm_controllers": [],
+        "terminal_history": [],
+        "synchronization": {
+          "last_processed_sequence": 112,
+          "last_processed_timestamp": "2026-10-02T09:15:00+00:00",
+          "is_unresolved": false,
+          "unresolved_diagnostic": null
+        }
+      },
+      "expected_view": {
+        "availability_display": "Unknown (Pending Evidence)",
+        "state_display": "INACTIVE_INELIGIBLE",
+        "is_actionable": false
+      },
+      "assertions": {
+        "inferred_time_used": false,
+        "is_actionable": false
+      }
+    },
+    "dash_act_07_source_cancellation": {
+      "scenario_id": "dash_act_07_source_cancellation",
+      "name": "Source cancellation retires active member and preserves terminal history",
+      "evidence_category": "engine-derived",
+      "description": "Source CHOCH cancels SET_1. Membership removed from active view, terminal record retained in history.",
+      "authority": "MTF-Analysis.pdf \u00a79; activation-dashboard-acceptance.md \u00a75",
+      "presentation_inputs": {
+        "context": {
+          "engine_id": "ENGINE_EURUSD_H1",
+          "symbol": "EURUSD",
+          "source_timeframe": "H1",
+          "confirmation_timeframe": "M1",
+          "sequence_domain": "DOMAIN_EURUSD_H1"
+        },
+        "membership": [],
+        "active_activations": [],
+        "evidence_gating": {
+          "usage_evidence_status": "UNUSED",
+          "coverage_status": "COMPLETE",
+          "blocked_reason": null
+        },
+        "cancellation": {
+          "reason": "SOURCE_CHOCH",
+          "target_set_id": "SET_1",
+          "timestamp": "2026-10-02T09:30:00+00:00",
+          "sequence_ref": 120
+        },
+        "rearm_controllers": [],
+        "terminal_history": [
+          {
+            "activation_id": "ACT_EURUSD_H1_SET_1_TJL1_GEN1",
+            "member_key": "[5:SET_1][4:TJL1]",
+            "state": "CANCELLED_SOURCE_CHOCH",
+            "generation_seq": 1,
+            "first_touch_time": "2026-10-02T08:15:00+00:00",
+            "cancellation_reason": "SOURCE_CHOCH",
+            "cancellation_time": "2026-10-02T09:30:00+00:00",
+            "cancellation_sequence_ref": 120,
+            "terminal": true
+          }
+        ],
+        "synchronization": {
+          "last_processed_sequence": 120,
+          "last_processed_timestamp": "2026-10-02T09:30:00+00:00",
+          "is_unresolved": false,
+          "unresolved_diagnostic": null
+        }
+      },
+      "expected_view": {
+        "active_members_count": 0,
+        "terminal_history_count": 1,
+        "terminal_state_display": "CANCELLED_SOURCE_CHOCH",
+        "cancellation_reason_display": "SOURCE_CHOCH",
+        "is_actionable": false
+      },
+      "assertions": {
+        "active_member_count": 0,
+        "terminal_history_count": 1,
+        "is_actionable": false
+      }
+    },
+    "dash_act_08_cancellation_unknown_time": {
+      "scenario_id": "dash_act_08_cancellation_unknown_time",
+      "name": "Cancellation with unknown timestamp renders time as unknown and sequence separately",
+      "evidence_category": "synthetic",
+      "description": "Cancellation transition has null timestamp. Physical time rendered as Unknown and sequence reference rendered separately.",
+      "authority": "activation-dashboard-acceptance.md \u00a75",
+      "presentation_inputs": {
+        "context": {
+          "engine_id": "ENGINE_EURUSD_H1",
+          "symbol": "EURUSD",
+          "source_timeframe": "H1",
+          "confirmation_timeframe": "M1",
+          "sequence_domain": "DOMAIN_EURUSD_H1"
+        },
+        "membership": [],
+        "active_activations": [],
+        "evidence_gating": {
+          "usage_evidence_status": "UNUSED",
+          "coverage_status": "COMPLETE",
+          "blocked_reason": null
+        },
+        "cancellation": {
+          "reason": "SOURCE_REPLACEMENT",
+          "target_set_id": "SET_1",
+          "timestamp": null,
+          "sequence_ref": 125
+        },
+        "rearm_controllers": [],
+        "terminal_history": [
+          {
+            "activation_id": "ACT_EURUSD_H1_SET_1_TJL1_GEN1",
+            "member_key": "[5:SET_1][4:TJL1]",
+            "state": "CANCELLED_SOURCE_REPLACEMENT",
+            "generation_seq": 1,
+            "first_touch_time": "2026-10-02T08:15:00+00:00",
+            "cancellation_reason": "SOURCE_REPLACEMENT",
+            "cancellation_time": null,
+            "cancellation_sequence_ref": 125,
+            "terminal": true
+          }
+        ],
+        "synchronization": {
+          "last_processed_sequence": 125,
+          "last_processed_timestamp": null,
+          "is_unresolved": false,
+          "unresolved_diagnostic": null
+        }
+      },
+      "expected_view": {
+        "cancellation_time_display": "Unknown",
+        "sequence_ref_display": "#125",
+        "is_actionable": false
+      },
+      "assertions": {
+        "timestamp_shown_as_unknown": true,
+        "sequence_shown_separately": true,
+        "is_actionable": false
+      }
+    },
+    "dash_act_09_external_cancellation_inside": {
+      "scenario_id": "dash_act_09_external_cancellation_inside",
+      "name": "External cancellation inside zone creates awaiting-departure controller",
+      "evidence_category": "engine-derived",
+      "description": "External commit arrives while price is inside zone. Activation terminalized and separate controller created awaiting departure.",
+      "authority": "OPEN-05; activation-dashboard-acceptance.md \u00a75",
+      "presentation_inputs": {
+        "context": {
+          "engine_id": "ENGINE_EURUSD_H1",
+          "symbol": "EURUSD",
+          "source_timeframe": "H1",
+          "confirmation_timeframe": "M1",
+          "sequence_domain": "DOMAIN_EURUSD_H1"
+        },
+        "membership": [],
+        "active_activations": [],
+        "evidence_gating": {
+          "usage_evidence_status": "UNUSED",
+          "coverage_status": "COMPLETE",
+          "blocked_reason": null
+        },
+        "cancellation": {
+          "reason": "EXTERNAL_ENTRY",
+          "target_set_id": null,
+          "timestamp": "2026-10-02T09:45:00+00:00",
+          "sequence_ref": 130
+        },
+        "rearm_controllers": [
+          {
+            "member_key": "[5:SET_1][4:TJL1]",
+            "prior_activation_id": "ACT_EURUSD_H1_SET_1_TJL1_GEN1",
+            "generation_seq": 1,
+            "state": "CANCELLED_EXTERNAL_ENTRY",
+            "rearm_armed": false,
+            "last_observed_position": "INSIDE",
+            "cancellation_time": "2026-10-02T09:45:00+00:00",
+            "cancellation_sequence_ref": 130
+          }
+        ],
+        "terminal_history": [
+          {
+            "activation_id": "ACT_EURUSD_H1_SET_1_TJL1_GEN1",
+            "member_key": "[5:SET_1][4:TJL1]",
+            "state": "CANCELLED_EXTERNAL_ENTRY",
+            "generation_seq": 1,
+            "first_touch_time": "2026-10-02T08:15:00+00:00",
+            "cancellation_reason": "EXTERNAL_ENTRY",
+            "cancellation_time": "2026-10-02T09:45:00+00:00",
+            "cancellation_sequence_ref": 130,
+            "terminal": true
+          }
+        ],
+        "synchronization": {
+          "last_processed_sequence": 130,
+          "last_processed_timestamp": "2026-10-02T09:45:00+00:00",
+          "is_unresolved": false,
+          "unresolved_diagnostic": null
+        }
+      },
+      "expected_view": {
+        "rearm_controller_state": "CANCELLED_EXTERNAL_ENTRY",
+        "rearm_status_display": "Awaiting Departure Outside Zone",
+        "rearm_armed_display": "False",
+        "terminal_state_display": "CANCELLED_EXTERNAL_ENTRY",
+        "is_actionable": false
+      },
+      "assertions": {
+        "rearm_armed": false,
+        "rearm_controller_present": true,
+        "is_actionable": false
+      }
+    },
+    "dash_act_10_armed_controller": {
+      "scenario_id": "dash_act_10_armed_controller",
+      "name": "Rearm controller armed after outside departure",
+      "evidence_category": "engine-derived",
+      "description": "Price observed outside zone arms controller for retouch without creating a pending activation.",
+      "authority": "OPEN-05; activation-dashboard-acceptance.md \u00a75",
+      "presentation_inputs": {
+        "context": {
+          "engine_id": "ENGINE_EURUSD_H1",
+          "symbol": "EURUSD",
+          "source_timeframe": "H1",
+          "confirmation_timeframe": "M1",
+          "sequence_domain": "DOMAIN_EURUSD_H1"
+        },
+        "membership": [],
+        "active_activations": [],
+        "evidence_gating": {
+          "usage_evidence_status": "UNUSED",
+          "coverage_status": "COMPLETE",
+          "blocked_reason": null
+        },
+        "cancellation": null,
+        "rearm_controllers": [
+          {
+            "member_key": "[5:SET_1][4:TJL1]",
+            "prior_activation_id": "ACT_EURUSD_H1_SET_1_TJL1_GEN1",
+            "generation_seq": 1,
+            "state": "OUT_OF_ZONE_ARMED",
+            "rearm_armed": true,
+            "last_observed_position": "OUTSIDE",
+            "cancellation_time": "2026-10-02T09:45:00+00:00",
+            "cancellation_sequence_ref": 130
+          }
+        ],
+        "terminal_history": [
+          {
+            "activation_id": "ACT_EURUSD_H1_SET_1_TJL1_GEN1",
+            "member_key": "[5:SET_1][4:TJL1]",
+            "state": "CANCELLED_EXTERNAL_ENTRY",
+            "generation_seq": 1,
+            "first_touch_time": "2026-10-02T08:15:00+00:00",
+            "cancellation_reason": "EXTERNAL_ENTRY",
+            "cancellation_time": "2026-10-02T09:45:00+00:00",
+            "cancellation_sequence_ref": 130,
+            "terminal": true
+          }
+        ],
+        "synchronization": {
+          "last_processed_sequence": 135,
+          "last_processed_timestamp": "2026-10-02T10:00:00+00:00",
+          "is_unresolved": false,
+          "unresolved_diagnostic": null
+        }
+      },
+      "expected_view": {
+        "rearm_controller_state": "OUT_OF_ZONE_ARMED",
+        "rearm_status_display": "Armed for Retouch",
+        "rearm_armed_display": "True",
+        "active_activations_count": 0,
+        "is_actionable": false
+      },
+      "assertions": {
+        "rearm_armed": true,
+        "active_activations_count": 0,
+        "is_actionable": false
+      }
+    },
+    "dash_act_11_valid_reactivation": {
+      "scenario_id": "dash_act_11_valid_reactivation",
+      "name": "Valid reactivation links generation 2 to prior generation",
+      "evidence_category": "engine-derived",
+      "description": "Retouch on armed controller activates REARMED_PENDING generation 2 linked to generation 1.",
+      "authority": "OPEN-05; activation-dashboard-acceptance.md \u00a75",
+      "presentation_inputs": {
+        "context": {
+          "engine_id": "ENGINE_EURUSD_H1",
+          "symbol": "EURUSD",
+          "source_timeframe": "H1",
+          "confirmation_timeframe": "M1",
+          "sequence_domain": "DOMAIN_EURUSD_H1"
+        },
+        "membership": [],
+        "active_activations": [
+          {
+            "activation_id": "ACT_EURUSD_H1_SET_1_TJL1_GEN2",
+            "member_key": "[5:SET_1][4:TJL1]",
+            "state": "REARMED_PENDING",
+            "generation_seq": 2,
+            "first_touch_time": "2026-10-02T10:15:00+00:00",
+            "first_touch_price": 1.1375,
+            "trigger_observation_id": "OBS_10",
+            "prior_activation_id": "ACT_EURUSD_H1_SET_1_TJL1_GEN1",
+            "usage_evidence_status": "UNUSED",
+            "blocked_reason": null
+          }
+        ],
+        "evidence_gating": {
+          "usage_evidence_status": "UNUSED",
+          "coverage_status": "COMPLETE",
+          "blocked_reason": null
+        },
+        "cancellation": null,
+        "rearm_controllers": [],
+        "terminal_history": [
+          {
+            "activation_id": "ACT_EURUSD_H1_SET_1_TJL1_GEN1",
+            "member_key": "[5:SET_1][4:TJL1]",
+            "state": "CANCELLED_EXTERNAL_ENTRY",
+            "generation_seq": 1,
+            "first_touch_time": "2026-10-02T08:15:00+00:00",
+            "cancellation_reason": "EXTERNAL_ENTRY",
+            "cancellation_time": "2026-10-02T09:45:00+00:00",
+            "cancellation_sequence_ref": 130,
+            "terminal": true
+          }
+        ],
+        "synchronization": {
+          "last_processed_sequence": 140,
+          "last_processed_timestamp": "2026-10-02T10:15:00+00:00",
+          "is_unresolved": false,
+          "unresolved_diagnostic": null
+        }
+      },
+      "expected_view": {
+        "badge_text": "REARMED PENDING (GEN 2)",
+        "state_display": "REARMED_PENDING",
+        "prior_activation_display": "ACT_EURUSD_H1_SET_1_TJL1_GEN1",
+        "terminal_history_count": 1,
+        "is_actionable": false
+      },
+      "assertions": {
+        "prior_activation_id": "ACT_EURUSD_H1_SET_1_TJL1_GEN1",
+        "generation_seq": 2,
+        "is_actionable": false
+      }
+    },
+    "dash_act_12_successor_set_persistent_level": {
+      "scenario_id": "dash_act_12_successor_set_persistent_level",
+      "name": "Successor set preserves persistent physical level with distinct set identity",
+      "evidence_category": "engine-derived",
+      "description": "SET_2 registers containing identical physical level as cancelled SET_1. Distinct set ID displayed cleanly.",
+      "authority": "MTF-Analysis.pdf \u00a74, \u00a79; activation-dashboard-acceptance.md \u00a75",
+      "presentation_inputs": {
+        "context": {
+          "engine_id": "ENGINE_EURUSD_H1",
+          "symbol": "EURUSD",
+          "source_timeframe": "H1",
+          "confirmation_timeframe": "M1",
+          "sequence_domain": "DOMAIN_EURUSD_H1"
+        },
+        "membership": [
+          {
+            "set_id": "SET_2",
+            "role": "TJL1",
+            "level_id": {
+              "symbol_feed_id": "FEED_EURUSD_H1",
+              "source_timeframe": "H1",
+              "source_open_time": "2026-10-01T04:00:00+00:00",
+              "side": "HIGH"
+            },
+            "lower_edge": 1.135,
+            "upper_edge": 1.14,
+            "is_line": false,
+            "eligibility_available_time": "2026-10-02T10:30:00+00:00"
+          }
+        ],
+        "active_activations": [
+          {
+            "activation_id": "ACT_EURUSD_H1_SET_2_TJL1_GEN0",
+            "member_key": "[5:SET_2][4:TJL1]",
+            "state": "INACTIVE_ELIGIBLE",
+            "generation_seq": 0,
+            "first_touch_time": null,
+            "first_touch_price": null,
+            "trigger_observation_id": null,
+            "prior_activation_id": null,
+            "usage_evidence_status": "UNUSED",
+            "blocked_reason": null
+          }
+        ],
+        "evidence_gating": {
+          "usage_evidence_status": "UNUSED",
+          "coverage_status": "COMPLETE",
+          "blocked_reason": null
+        },
+        "cancellation": null,
+        "rearm_controllers": [],
+        "terminal_history": [
+          {
+            "activation_id": "ACT_EURUSD_H1_SET_1_TJL1_GEN1",
+            "member_key": "[5:SET_1][4:TJL1]",
+            "state": "CANCELLED_SOURCE_CHOCH",
+            "generation_seq": 1,
+            "first_touch_time": "2026-10-02T08:15:00+00:00",
+            "cancellation_reason": "SOURCE_CHOCH",
+            "cancellation_time": "2026-10-02T09:30:00+00:00",
+            "cancellation_sequence_ref": 120,
+            "terminal": true
+          }
+        ],
+        "synchronization": {
+          "last_processed_sequence": 145,
+          "last_processed_timestamp": "2026-10-02T10:30:00+00:00",
+          "is_unresolved": false,
+          "unresolved_diagnostic": null
+        }
+      },
+      "expected_view": {
+        "active_set_id": "SET_2",
+        "historical_set_id": "SET_1",
+        "state_display": "INACTIVE_ELIGIBLE",
+        "is_actionable": false
+      },
+      "assertions": {
+        "active_set_id": "SET_2",
+        "distinct_set_identity": true,
+        "level_identity_continuous": true,
+        "is_actionable": false
+      }
+    },
+    "dash_act_13_unresolved_source_snapshot": {
+      "scenario_id": "dash_act_13_unresolved_source_snapshot",
+      "name": "Unresolved source snapshot diagnostic banner",
+      "evidence_category": "candle-pipeline-derived",
+      "description": "Source snapshot is unresolved. Amber diagnostic banner displayed with frozen authoritative bar vs received bar.",
+      "authority": "activation-dashboard-acceptance.md \u00a75",
+      "presentation_inputs": {
+        "context": {
+          "engine_id": "ENGINE_EURUSD_H1",
+          "symbol": "EURUSD",
+          "source_timeframe": "H1",
+          "confirmation_timeframe": "M1",
+          "sequence_domain": "DOMAIN_EURUSD_H1"
+        },
+        "membership": [],
+        "active_activations": [],
+        "evidence_gating": {
+          "usage_evidence_status": "UNKNOWN",
+          "coverage_status": "COMPLETE",
+          "blocked_reason": "SOURCE_UNRESOLVED_DIAGNOSTIC"
+        },
+        "cancellation": null,
+        "rearm_controllers": [],
+        "terminal_history": [],
+        "synchronization": {
+          "last_processed_sequence": 150,
+          "last_processed_timestamp": "2026-10-02T11:00:00+00:00",
+          "is_unresolved": true,
+          "unresolved_diagnostic": "Simultaneous c1==p2 touch at bar #15",
+          "last_processed_index": 15,
+          "last_received_index": 19
+        }
+      },
+      "expected_view": {
+        "unresolved_banner_text": "LAST AUTHORITATIVE EVIDENCE (SOURCE UNRESOLVED)",
+        "diagnostic_text": "Simultaneous c1==p2 touch at bar #15",
+        "processed_bar_text": "Bar #15",
+        "received_bar_text": "Bar #19",
+        "is_actionable": false
+      },
+      "assertions": {
+        "is_unresolved": true,
+        "processed_bar_index": 15,
+        "received_bar_index": 19,
+        "is_actionable": false
+      }
+    },
+    "dash_act_14_equal_coarse_timestamps": {
+      "scenario_id": "dash_act_14_equal_coarse_timestamps",
+      "name": "Equal coarse timestamps disambiguated by sequence",
+      "evidence_category": "synthetic",
+      "description": "Events share coarse timestamp. Disambiguated by canonical ID and separate sequence references.",
+      "authority": "OPEN-12; activation-dashboard-acceptance.md \u00a75",
+      "presentation_inputs": {
+        "context": {
+          "engine_id": "ENGINE_EURUSD_H1",
+          "symbol": "EURUSD",
+          "source_timeframe": "H1",
+          "confirmation_timeframe": "M1",
+          "sequence_domain": "DOMAIN_EURUSD_H1"
+        },
+        "membership": [],
+        "active_activations": [],
+        "evidence_gating": {
+          "usage_evidence_status": "UNUSED",
+          "coverage_status": "COMPLETE",
+          "blocked_reason": null
+        },
+        "cancellation": null,
+        "rearm_controllers": [],
+        "terminal_history": [
+          {
+            "activation_id": "ACT_EURUSD_H1_SET_1_TJL1_GEN1",
+            "member_key": "[5:SET_1][4:TJL1]",
+            "state": "CANCELLED_EXTERNAL_ENTRY",
+            "generation_seq": 1,
+            "first_touch_time": "2026-10-02T08:15:00+00:00",
+            "cancellation_reason": "EXTERNAL_ENTRY",
+            "cancellation_time": "2026-10-02T11:00:00+00:00",
+            "cancellation_sequence_ref": 201,
+            "terminal": true
+          },
+          {
+            "activation_id": "ACT_EURUSD_H1_SET_1_TJL2_GEN1",
+            "member_key": "[5:SET_1][11:TJL2_A_PLUS]",
+            "state": "CANCELLED_EXTERNAL_ENTRY",
+            "generation_seq": 1,
+            "first_touch_time": "2026-10-02T08:20:00+00:00",
+            "cancellation_reason": "EXTERNAL_ENTRY",
+            "cancellation_time": "2026-10-02T11:00:00+00:00",
+            "cancellation_sequence_ref": 202,
+            "terminal": true
+          }
+        ],
+        "synchronization": {
+          "last_processed_sequence": 202,
+          "last_processed_timestamp": "2026-10-02T11:00:00+00:00",
+          "is_unresolved": false,
+          "unresolved_diagnostic": null
+        }
+      },
+      "expected_view": {
+        "terminal_history_count": 2,
+        "distinct_record_keys": true,
+        "is_actionable": false
+      },
+      "assertions": {
+        "terminal_history_count": 2,
+        "distinct_sequences": [
+          201,
+          202
+        ],
+        "is_actionable": false
+      }
+    },
+    "dash_act_15_multiple_source_timeframes": {
+      "scenario_id": "dash_act_15_multiple_source_timeframes",
+      "name": "Multiple source timeframes and metadata mapping",
+      "evidence_category": "engine-derived",
+      "description": "Displays exact timeframe mapping without cross-timeframe arbitration or winner selection.",
+      "authority": "MTF-Analysis.pdf \u00a76; activation-dashboard-acceptance.md \u00a75",
+      "presentation_inputs": {
+        "context": {
+          "engine_id": "ENGINE_EURUSD_H4",
+          "symbol": "EURUSD",
+          "source_timeframe": "H4",
+          "confirmation_timeframe": "M5",
+          "sequence_domain": "DOMAIN_EURUSD_H4"
+        },
+        "membership": [],
+        "active_activations": [],
+        "evidence_gating": {
+          "usage_evidence_status": "UNUSED",
+          "coverage_status": "COMPLETE",
+          "blocked_reason": null
+        },
+        "cancellation": null,
+        "rearm_controllers": [],
+        "terminal_history": [],
+        "synchronization": {
+          "last_processed_sequence": 300,
+          "last_processed_timestamp": "2026-10-02T12:00:00+00:00",
+          "is_unresolved": false,
+          "unresolved_diagnostic": null
+        }
+      },
+      "expected_view": {
+        "source_timeframe_display": "H4",
+        "confirmation_timeframe_display": "M5",
+        "mapping_disclaimer": "Confirmation TF is metadata mapping only; no confirmation arbitration active.",
+        "is_actionable": false
+      },
+      "assertions": {
+        "source_timeframe": "H4",
+        "confirmation_timeframe": "M5",
+        "cross_timeframe_arbitration": false,
+        "is_actionable": false
+      }
+    },
+    "dash_act_16_repeated_rendering": {
+      "scenario_id": "dash_act_16_repeated_rendering",
+      "name": "Repeated rendering pure function invariance",
+      "evidence_category": "engine-derived",
+      "description": "Repeated projection calls yield bit-for-bit identical view data without mutating underlying state or cursor.",
+      "authority": "activation-dashboard-acceptance.md \u00a75",
+      "presentation_inputs": {
+        "context": {
+          "engine_id": "ENGINE_EURUSD_H1",
+          "symbol": "EURUSD",
+          "source_timeframe": "H1",
+          "confirmation_timeframe": "M1",
+          "sequence_domain": "DOMAIN_EURUSD_H1"
+        },
+        "membership": [],
+        "active_activations": [],
+        "evidence_gating": {
+          "usage_evidence_status": "UNUSED",
+          "coverage_status": "COMPLETE",
+          "blocked_reason": null
+        },
+        "cancellation": null,
+        "rearm_controllers": [],
+        "terminal_history": [],
+        "synchronization": {
+          "last_processed_sequence": 400,
+          "last_processed_timestamp": "2026-10-02T13:00:00+00:00",
+          "is_unresolved": false,
+          "unresolved_diagnostic": null
+        }
+      },
+      "expected_view": {
+        "render_invariant": true,
+        "is_actionable": false
+      },
+      "assertions": {
+        "render_invariant": true,
+        "state_mutation_free": true,
+        "is_actionable": false
+      }
+    }
+  }
+}
