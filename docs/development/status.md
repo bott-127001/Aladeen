@@ -3074,30 +3074,32 @@ Last Updated: 2026-11-07 (Milestone 33 Interleaved Chronological Schedules & Spl
 
 ---
 
-## 54. Milestone 34 — Offline Authority-Propagation Requirements & Acceptance Specification (HANDOFF-111)
+## 54. Milestone 34 — Offline Authority-Propagation Requirements & Acceptance Specification (HANDOFF-112)
 - **Active Branch**: `feature/confirmation-monitor`
-- **Parent Commit**: `90d35e7370cb622193294b1023ee1000179688e6` (HANDOFF-110)
+- **Parent Commit**: `c21aa1f073c63643c5bacdec7f1015ab8a9b5b1e` (HANDOFF-111)
 - **Accepted Milestone 33 Baseline Commit**: `b05a391554c73f80652d4dada5310510ba20fbf5` (HANDOFF-106)
 - **Documentation Closeout Commit**: `b18810127f830eff7807e86e0786e881e68a90e9` (HANDOFF-108)
 - **Accepted Milestone 32 Baseline Commit**: `3f7de9d7da935b3e05fcc4233a28555796486fb3`
 - **Requirements Baseline Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d`
 - **Scope**: Documentation, contract schemas expressed in documentation/types, and acceptance-fixture planning only. Zero runtime layer additions, zero candidate arbitration/ranking, zero usage writes, zero final signal publication, zero network ingestion, zero broker activity.
-- **Key Deliverables in HANDOFF-111**:
+- **Key Deliverables in HANDOFF-112**:
   1. *Comprehensive Coverage Acceptance Predicate*:
-     - Replaced partial rules with a unified 7-condition predicate: approved issuer, valid schema/identity, exact scope match (feed/domain/timeframe/config), `status == CoverageStatus.COMPLETE`, full spatial interval coverage ($T_{	ext{covered\_start}} \le T_{	ext{req\_start}}$ and $T_{	ext{covered\_end}} \ge T_{	ext{req\_end}}$), knowledge availability by boundary ($T_{	ext{available}} \le T_{	ext{eval}}$), and no active supersession/revocation.
-  2. *Deterministic Supersession & Conflict Precedence*:
+     - Formalized complete 7-condition predicate: approved issuer, valid schema/identity, exact scope match (feed/domain/timeframe/config), `status == CoverageStatus.COMPLETE`, full spatial interval coverage ($T_{	ext{covered\_start}} \le T_{	ext{req\_start}}$ and $T_{	ext{covered\_end}} \ge T_{	ext{req\_end}}$), knowledge availability by boundary ($T_{	ext{available}} \le T_{	ext{eval}}$), and no active supersession.
+  2. *Deterministic Replacement-Chain Validation & Precedence*:
+     - Established replacement-chain validation rules before retiring prior authority: predecessor existence and visibility at boundary, strict scope match, strictly higher revision sequence, acyclic graph validation, rejection of ambiguous forks, and successor validity.
      - Formally distinguished valid causal lifecycle state transitions (`UNUSED` $ightarrow$ `USED` via `predecessor_record_id`) from contradictory simultaneous assertions (which degrade to `UNKNOWN_USAGE`).
-     - Specified whole-certificate replacement via `supersedes_record_id` with `revision_seq`, point-in-time visibility before and after replacement, and fail-closed degradation to `CoverageStatus.UNCERTAIN` for unsequenced equal-time updates or unrelated overlapping conflicts.
+     - Established independent interval coverage rule: compatible certificates covering different or overlapping extents do not shrink valid coverage. Conflicting statuses inside the required interval degrade to `CoverageStatus.UNCERTAIN`; conflicts outside the required interval do not impair an independently valid certificate.
+     - Documented equal-time causality: explicit predecessor link establishes causal order even when availability timestamps tie; unlinked conflicting updates degrade to `CoverageStatus.UNCERTAIN`.
   3. *Proposed Preprocessing Boundary Separation*:
      - Specified `AuthorityContextBuilder` as the explicit architectural boundary that ingests proposed records, enforces trust/availability/supersession, and maps validated authority into accepted matcher structures (`MatchingContext.coverage_status`, `SourceMemberReference.usage_evidence_status`, `MatchingContext.source_resolution_status`). Clarified that passing an individual gate is a precondition, not an independent match.
-  4. *Repaired 41-Case Acceptance Inventory*:
-     - Cataloged exactly 41 cases across 4 categories:
+  4. *Executable and Honest 49-Case Acceptance Inventory*:
+     - Cataloged exactly 49 cases across 4 categories:
        * **Existing Executable Evidence (16 Cases)**: Exact test function names and files documented: INT-01 (`test_actual_candle_derived_choch_pattern_pre_tap_formation_post_tap_completion`), INT-02 (`test_actual_candle_derived_iss_authoritative_matching_and_unresolved_blocking`), INT-03 (`test_int_03_genuine_source_exact_print_choch_chronological_schedule`), INT-04 (`test_int_04_genuine_source_exact_print_iss_chronological_schedule`), ACT-01 (`test_act_01_rearm_path_a_inside_at_cancel_with_immutable_predecessor`), ACT-02 (`test_act_02_source_set_replacement_terminal_non_revival`), ACT-03 (`test_act_03_source_main_choch_invalidation_terminal_non_revival`), ACT-04 (`test_act_04_rearm_path_b_already_outside_at_cancel_with_immutable_predecessor`), ORD-01..04 (`test_equal_time_causal_ordering_matrix`), BND-A..D (`test_supplied_synthetic_authority_boundaries`).
-       * **Proposed Synthetic Authority Contracts (15 Cases)**: AUT-SYN-01 (contradictory usage), AUT-SYN-02 (retroactive coverage rejection), AUT-SYN-03 (coverage config mismatch), AUT-SYN-04 (conflicting activation payloads), AUT-SYN-05 (conflicting confirmation payloads), AUT-SYN-06 (persistent usage across set replacement), AUT-SYN-07 (evaluation preceding availability), AUT-SYN-08 (unresolved source cursor notice), AUT-SYN-09 (uncertain coverage degradation), AUT-SYN-10 (incomplete confirmation candle), AUT-SYN-11 (missing authority record), AUT-SYN-12 (wrong feed/timeframe scope), AUT-SYN-13 (future usage knowledge availability), AUT-SYN-14 (superseded certificate precedence), AUT-SYN-15 (conflicting authority-record IDs).
+       * **Proposed Synthetic Authority Contracts (23 Cases)**: AUT-SYN-01 (contradictory usage), AUT-SYN-02 (retroactive coverage rejection), AUT-SYN-03 (coverage config mismatch), AUT-SYN-04 (conflicting activation payloads), AUT-SYN-05 (conflicting confirmation payloads), AUT-SYN-06 (persistent usage across set replacement), AUT-SYN-07 (evaluation preceding availability), AUT-SYN-08 (unresolved source cursor notice), AUT-SYN-09 (uncertain coverage degradation), AUT-SYN-10 (incomplete confirmation candle), AUT-SYN-11 (missing authority record), AUT-SYN-12 (wrong feed, run, timeframe scope), AUT-SYN-13 (future usage knowledge availability), AUT-SYN-14 (superseded certificate precedence), AUT-SYN-15 (conflicting authority-record IDs), AUT-SYN-16 (unknown predecessor reference), AUT-SYN-17 (wrong-scope supersession), AUT-SYN-18 (cyclic predecessor link), AUT-SYN-19 (forked successors), AUT-SYN-20 (compatible overlapping certificates), AUT-SYN-21 (overlapping conflict inside required interval), AUT-SYN-22 (overlapping conflict outside required interval), AUT-SYN-23 (equal-time linked vs unlinked precedence).
        * **Proposed Traceable Offline Integration Cases (6 Cases)**: AUT-INT-01 (traceable usage ledger audit), AUT-INT-02 (traceable feed coverage audit), AUT-INT-03 (point-in-time multi-step replay), AUT-INT-04 (concurrent multi-level gating), AUT-INT-05 (persistent usage lingering proof consuming externally supplied usage history), AUT-INT-06 (rearm audit trail).
        * **Blocked Cases (4 Cases)**: AUT-BLK-01 (live MT5 tick authority), AUT-BLK-02 (broker calendar session reconciliation), AUT-BLK-03 (automated usage writes), AUT-BLK-04 (distributed event-bus).
   5. *Unresolved Decisions & Open Questions*:
-     - Formally recorded broker calendar session reconciliation, persistent usage storage contract, upstream cursor synchronization proof, and multi-feed disambiguation authority as pending reconciliation per `AGENTS.md`.
+     - Formally recorded broker calendar session reconciliation, persistent usage storage contract, explicit revocation records, upstream cursor synchronization proof, and multi-feed disambiguation authority as pending reconciliation per `AGENTS.md`.
 - **Verification Summary**:
   - Modular integration proof suites: **9 / 9 passed** in 0.67s across all 6 modules on commit `b188101`.
   - Full offline repository test suite: **652 / 652 passed** in 8.40s on commit `b188101`.

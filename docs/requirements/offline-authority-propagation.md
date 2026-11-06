@@ -13,10 +13,10 @@ In Milestone 33 (accepted at `b05a391554c73f80652d4dada5310510ba20fbf5`), source
 
 The objective of Milestone 34 is to formally specify how these currently supplied authority assertions transition into **traceable offline inputs** without inventing upstream facts, broker feeds, or execution rights. This specification defines:
 1. Exact evidence origin, identity, scope, availability, and fail-closed validation for each authority domain, strictly separating coverage extent from knowledge availability time.
-2. Complete coverage acceptance predicates and deterministic supersession/conflict precedence rules.
-3. Separation between proposed authority-record preprocessing and accepted matcher runtime behavior.
+2. Complete coverage acceptance predicates and deterministic replacement-chain, supersession, and conflict precedence rules.
+3. Separation between proposed authority-record preprocessing (`AuthorityContextBuilder`) and accepted matcher runtime behavior.
 4. Concrete schemas, fields, trust boundaries, and supersession behaviors for proposed authority records.
-5. An executable and honest 41-case acceptance inventory distinguishing existing executable evidence, proposed synthetic authority contracts, proposed traceable offline integration cases, and blocked cases.
+5. An executable and honest 49-case acceptance inventory distinguishing existing executable evidence, proposed synthetic authority contracts, proposed traceable offline integration cases, and blocked cases.
 6. Authority-to-origin mapping across strategy layers.
 
 ---
@@ -56,7 +56,7 @@ A container, boolean, or enum is a representation—not its own proof. Every aut
 | **Coverage Extent** | The closed interval $[T_{\text{covered\_start}}, T_{\text{covered\_end}}]$ across which continuous, gap-free bar data has been verified. |
 | **Knowledge Availability Time** | The timestamp $T_{\text{available}}$ when the coverage certificate became available to the evaluator store. (Separated from $T_{\text{issued}}$: issuance alone does not imply delivery or knowledge). |
 | **Required Evaluation Interval** | The stream interval $[T_{\text{req\_start}}, T_{\text{req\_end}}]$ required by the confirmation configuration up to $T_{\text{eval}}$. |
-| **Complete Coverage Acceptance Predicate** | An evaluation at $T_{\text{eval}}$ is authorized for coverage **if and only if ALL of the following 7 conditions hold simultaneously**:<br>1. **Approved Issuer**: `issuer_id` belongs to the configured trusted issuer set under an explicitly declared trust assumption.<br>2. **Valid Schema & Identity**: `schema_version == "v1"` and `record_id` is unique with no payload conflict.<br>3. **Exact Scope Match**: `feed_id`, `sequence_domain`, `timeframe`, and `confirmation_config_id` match the evaluation request exactly.<br>4. **Complete Status**: `status == CoverageStatus.COMPLETE` (neither `INCOMPLETE` nor `UNCERTAIN`).<br>5. **Full Spatial Extent**: $T_{\text{covered\_start}} \le T_{\text{req\_start}}$ AND $T_{\text{covered\_end}} \ge T_{\text{req\_end}}$.<br>6. **Knowledge Availability by Boundary**: $T_{\text{available}} \le T_{\text{eval}}$ (no retroactive authorization from later-arriving certificates).<br>7. **No Active Supersession/Revocation**: Certificate has not been superseded or revoked by a higher-revision certificate available at or before $T_{\text{eval}}$. |
+| **Complete Coverage Acceptance Predicate** | An evaluation at $T_{\text{eval}}$ is authorized for coverage **if and only if ALL of the following 7 conditions hold simultaneously**:<br>1. **Approved Issuer**: `issuer_id` belongs to the configured trusted issuer set under an explicitly declared trust assumption.<br>2. **Valid Schema & Identity**: `schema_version == "v1"` and `record_id` is unique with no payload conflict.<br>3. **Exact Scope Match**: `feed_id`, `sequence_domain`, `timeframe`, and `confirmation_config_id` match the evaluation request exactly.<br>4. **Complete Status**: `status == CoverageStatus.COMPLETE` (neither `INCOMPLETE` nor `UNCERTAIN`).<br>5. **Full Spatial Extent**: $T_{\text{covered\_start}} \le T_{\text{req\_start}}$ AND $T_{\text{covered\_end}} \ge T_{\text{req\_end}}$.<br>6. **Knowledge Availability by Boundary**: $T_{\text{available}} \le T_{\text{eval}}$ (no retroactive authorization from later-arriving certificates).<br>7. **No Active Supersession**: Certificate has not been superseded by a higher-revision valid certificate available at or before $T_{\text{eval}}$. |
 | **Retroactive Prohibition** | A certificate with $T_{\text{available}} > T_{\text{eval}}$ cannot retroactively authorize an evaluation at $T_{\text{eval}}$, even if its covered extent covers that historical time. |
 | **Accepted Runtime Contract** | `CoverageStatus`: `COMPLETE`, `INCOMPLETE`, `UNCERTAIN`. Both `INCOMPLETE` and `UNCERTAIN` reject fail-closed as `ConfirmationRejectionReason.INCOMPLETE_COVERAGE`. |
 | **Invariant: No Gap Absence Proof** | Absence of a detected candle gap does **NOT** prove completeness. The interval must be actively certified. |
@@ -94,7 +94,7 @@ A container, boolean, or enum is a representation—not its own proof. Every aut
 
 ---
 
-## 3. Explicit Proposed Authority Record Schemas & Deterministic Precedence
+## 3. Explicit Proposed Authority Record Schemas, Preprocessing Boundary & Precedence
 
 To transition from synthetic assertions to traceable inputs, we propose explicit, typed schemas and a distinct preprocessing boundary. These schemas are proposed contract extensions and do not modify existing accepted runtime types.
 
@@ -108,7 +108,7 @@ The accepted `ConfirmationMatcher` consumes `MatchingContext` and does **not** c
      * Validated coverage $\rightarrow$ `MatchingContext.coverage_status` (`COMPLETE`, `INCOMPLETE`, or `UNCERTAIN`).
      * Validated level usage $\rightarrow$ `SourceMemberReference.usage_evidence_status` (`UNUSED`, `USED`, or `UNKNOWN`).
      * Validated source resolution $\rightarrow$ `MatchingContext.source_resolution_status` (`True` or `False`).
-  4. Preserves detailed audit diagnostics separately at the preprocessor boundary.
+  4. Preserves detailed authority-specific diagnostics (`AuthorityDiagnosticReason`) separately at the preprocessor boundary, keeping them distinct from accepted matcher rejection reasons.
 
 ### 3.2 Proposed Usage Evidence Record (`ProposedUsageEvidenceRecord`)
 
@@ -162,29 +162,39 @@ class ProposedFeedCoverageRecord:
     supersedes_record_id: Optional[str] = None # Explicit reference to superseded certificate
 ```
 
-**Deterministic Revision & Conflict Precedence**:
-1. **Predecessor Identity & Scope of Replacement**:
-   - A revision explicitly references its predecessor via `supersedes_record_id` and must have `revision_seq > predecessor.revision_seq`.
-   - A superseding certificate replaces the entire prior certificate for that feed/timeframe/config scope upon receipt.
+**Deterministic Replacement-Chain Validation & Precedence**:
+1. **Replacement-Chain Validation Before Retiring Prior Authority**:
+   - A superseding revision is recognized and permitted to replace prior authority **if and only if all of the following validation checks pass**:
+     a) **Predecessor Existence & Visibility**: The predecessor record identified by `supersedes_record_id` exists and is visible at the evaluation boundary ($T_{\text{predecessor.available}} \le T_{\text{eval}}$). If the predecessor is unknown or unavailable at $T_{\text{eval}}$, the replacement is invalid; the predecessor (if visible) remains authoritative or matching fails closed.
+     b) **Strict Scope Match**: Both records belong to the exact same scope: identical `feed_id`, `sequence_domain`, `timeframe`, `confirmation_config_id`, and `issuer_id`. A mismatch in scope makes the replacement invalid $\rightarrow$ fails closed.
+     c) **Strictly Higher Revision**: `successor.revision_seq > predecessor.revision_seq`.
+     d) **Acyclic Chain**: Predecessor links form a strictly acyclic chain. A cycle (e.g. A $\rightarrow$ B $\rightarrow$ A) is detected and fails closed.
+     e) **No Ambiguous Forks**: If two distinct successor records both claim the same `supersedes_record_id` with conflicting payloads, the chain is an ambiguous fork $\rightarrow$ preprocessor fails closed for the affected scope with `CoverageStatus.UNCERTAIN`.
+     f) **Successor Validity**: The successor itself satisfies all schema, trust, identity, and temporal availability ($T_{\text{successor.available}} \le T_{\text{eval}}$) rules.
+   - An invalid replacement must **never silently retire** valid prior authority.
 2. **Point-in-Time Visibility of Revisions**:
-   - For $T_{\text{eval}} < \text{available\_time}_{\text{new}}$: The prior certificate remains authoritative.
-   - For $T_{\text{eval}} \ge \text{available\_time}_{\text{new}}$: The new certificate governs.
-3. **Unrelated Overlapping Conflicts**:
-   - If two records cover overlapping intervals for the same scope without an explicit supersession link:
-     * If statuses agree: Coverage is the intersection of the two intervals.
-     * If statuses disagree (e.g. one asserts `COMPLETE`, the other asserts `INCOMPLETE`): Preprocessor immediately degrades coverage to `CoverageStatus.UNCERTAIN` $\rightarrow$ fail-closed as `INCOMPLETE_COVERAGE`.
-4. **Equal-Time Updates Without Sequence Authority**:
-   - If two conflicting certificates arrive at the exact same `available_time` without sequence authority, preprocessor degrades status to `CoverageStatus.UNCERTAIN`. It never arbitrarily selects the latest timestamp.
+   - For $T_{\text{eval}} < \text{available\_time}_{\text{successor}}$: The prior certificate remains authoritative.
+   - For $T_{\text{eval}} \ge \text{available\_time}_{\text{successor}}$: The successor replaces the prior certificate in its entirety.
+3. **Overlapping Coverage Extent Evaluation (No Unsupported Shrinking)**:
+   - Each valid certificate is evaluated independently against the required evaluation interval $[T_{\text{req\_start}}, T_{\text{req\_end}}]$.
+   - A certificate that independently covers the entire required interval ($T_{\text{covered\_start}} \le T_{\text{req\_start}}$ and $T_{\text{covered\_end}} \ge T_{\text{req\_end}}$) satisfies the extent condition.
+   - Additional compatible certificates covering different or overlapping extents **do not shrink** valid coverage; intersection is never applied to compatible certificates.
+   - If two certificates assert conflicting statuses on an overlapping interval:
+     * If the conflict intersects the required evaluation interval: Status degrades to `CoverageStatus.UNCERTAIN` $\rightarrow$ fail-closed as `INCOMPLETE_COVERAGE`.
+     * If the conflict lies entirely outside the required evaluation interval: A valid certificate independently covering the entire required interval remains authoritative.
+4. **Equal-Time Updates & Causality**:
+   - An explicit, validated predecessor link (`supersedes_record_id == predecessor.record_id` with `revision_seq > predecessor.revision_seq`) establishes causal order even when availability timestamps tie ($T_{\text{avail\_succ}} == T_{\text{avail\_pred}}$).
+   - Unlinked conflicting equal-time records without an explicit predecessor reference lack causal sequence and MUST degrade to `CoverageStatus.UNCERTAIN` $\rightarrow$ fail-closed.
 
 ---
 
-## 4. Acceptance Inventory (41 Cases)
+## 4. Acceptance Inventory (49 Cases)
 
-The inventory catalogs 41 discrete cases across 4 categories:
+The inventory catalogs 49 discrete cases across 4 categories:
 
 ### 4.1 Existing Executable Evidence (16 Cases)
 
-| Case ID | Contract & File Reference | Input Evidence | Expected Status / Reason | Result Assertion |
+| Case ID | Contract & Exact Test Function | Input Evidence | Expected Status / Reason | Result Assertion |
 | :--- | :--- | :--- | :--- | :--- |
 | **INT-01** | `test_actual_candle_derived_choch_pattern_pre_tap_formation_post_tap_completion`<br>(`tests/test_confirmation_matcher.py` L2092) | Synthetic member + H1 CHOCH envelope | `MATCHED` | 1 SELL candidate (1.0850) |
 | **INT-02** | `test_actual_candle_derived_iss_authoritative_matching_and_unresolved_blocking`<br>(`tests/test_confirmation_matcher.py` L2192) | Synthetic member + H1 ISS envelope | `MATCHED` | 1 SELL candidate (1.1120) |
@@ -203,12 +213,12 @@ The inventory catalogs 41 discrete cases across 4 categories:
 | **BND-C** | `test_supplied_synthetic_authority_boundaries`<br>(`tests/test_source_candidate_authority_boundaries.py` L170) | `source_resolution_status == False` | `BLOCKED_UNRESOLVED_SOURCE_DEPENDENCY` | Zero candidates |
 | **BND-D** | `test_supplied_synthetic_authority_boundaries`<br>(`tests/test_source_candidate_authority_boundaries.py` L187) | `has_unresolved_dependencies == True` | `UNRESOLVED_DEPENDENCY` | Zero candidates |
 
-### 4.2 Proposed Synthetic Authority Contracts (15 Cases)
+### 4.2 Proposed Synthetic Authority Contracts (23 Cases)
 
-| Case ID | Contract Description | Test Setup | Expected Reason | Candidate Assertion |
+| Case ID | Contract Description | Test Setup | Expected Preprocessor/Matcher Diagnostic | Candidate Assertion |
 | :--- | :--- | :--- | :--- | :--- |
-| **AUT-SYN-01** | Contradictory Usage Evidence | Two records for same `level_id` asserting `UNUSED` and `USED` without causal sequence | Proposed preprocessor degrades to `UNKNOWN_USAGE` | Zero candidates |
-| **AUT-SYN-02** | Retroactive Coverage Rejection | Coverage extent covers interval, but $T_{\text{available}} > T_{\text{eval}}$ | `INCOMPLETE_COVERAGE` (not yet available at $T_{\text{eval}}$) | Zero candidates |
+| **AUT-SYN-01** | Contradictory Usage Evidence | Two records for same `level_id` asserting `UNUSED` and `USED` without causal sequence | Preprocessor degrades to `UNKNOWN_USAGE` | Zero candidates |
+| **AUT-SYN-02** | Retroactive Coverage Rejection | Coverage extent covers interval, but $T_{\text{available}} > T_{\text{eval}}$ | `INCOMPLETE_COVERAGE` (not available at $T_{\text{eval}}$) | Zero candidates |
 | **AUT-SYN-03** | Coverage Config Mismatch | Certificate generated for `CONF_CFG_02`, evaluation requests `CONF_CFG_01` | `INCOMPLETE_COVERAGE` | Zero candidates |
 | **AUT-SYN-04** | Duplicate Conflicting Activations | Duplicate `activation_id` with contradictory touch prices | `CONFLICTING_IDENTITY` | Zero candidates |
 | **AUT-SYN-05** | Duplicate Conflicting Confirmations | Duplicate `event_id` with contradictory close prices | `CONFLICTING_IDENTITY` | Zero candidates |
@@ -218,10 +228,18 @@ The inventory catalogs 41 discrete cases across 4 categories:
 | **AUT-SYN-09** | Uncertain Coverage Degradation | Coverage status explicitly set to `CoverageStatus.UNCERTAIN` | `INCOMPLETE_COVERAGE` | Zero candidates |
 | **AUT-SYN-10** | Incomplete Confirmation Candle | Candle has `is_forming == True` or `bar_status != "CONFIRMED_COMPLETED"` | `INCOMPLETE_EVIDENCE` | Zero candidates |
 | **AUT-SYN-11** | Missing Authority Record | Level omitted entirely from usage records (no record exists) | Defaults to `UNKNOWN_USAGE` (no negative proof) | Zero candidates |
-| **AUT-SYN-12** | Wrong Feed/Timeframe Scope | Coverage certificate for `FEED_GBPUSD` evaluated against `FEED_EURUSD` | Scope mismatch $\rightarrow$ `INCOMPLETE_COVERAGE` | Zero candidates |
+| **AUT-SYN-12** | Wrong Scope (Feed, Run, Timeframe) | Certificate scope mismatches: wrong `feed_id`, wrong `run_id`, or wrong `timeframe` | Preprocessor rejects scope $\rightarrow$ `INCOMPLETE_COVERAGE` | Zero candidates |
 | **AUT-SYN-13** | Future Usage Knowledge Availability | Usage record established at $T_1 \le T_{\text{eval}}$ but $T_{\text{available}} > T_{\text{eval}}$ | Unavailable at $T_{\text{eval}} \rightarrow$ `UNKNOWN_USAGE` | Zero candidates |
 | **AUT-SYN-14** | Superseded Certificate Precedence | Rev 2 available at $T_2 > T_1$; evaluated at $T_{\text{eval}} \ge T_2$ | Rev 2 replaces Rev 1 in its entirety | Governed by Rev 2 |
 | **AUT-SYN-15** | Conflicting Authority-Record IDs | Two authority records share `record_id` with differing payloads | `CONFLICTING_IDENTITY` | Zero candidates |
+| **AUT-SYN-16** | Unknown Predecessor Reference | Successor claims non-existent `supersedes_record_id` | Invalid supersession $\rightarrow$ predecessor remains or fails closed | Predecessor preserved or 0 candidates |
+| **AUT-SYN-17** | Wrong-Scope Supersession | Successor has different `feed_id` or `run_id` than predecessor | Invalid supersession $\rightarrow$ `INCOMPLETE_COVERAGE` | Zero candidates |
+| **AUT-SYN-18** | Cyclic Predecessor Link | Predecessor chain forms a cycle (A $\rightarrow$ B $\rightarrow$ A) | Cyclic chain detected $\rightarrow$ `CoverageStatus.UNCERTAIN` | Zero candidates |
+| **AUT-SYN-19** | Forked Successors | Successor B and Successor C both claim Predecessor A with conflicting payloads | Ambiguous fork $\rightarrow$ `CoverageStatus.UNCERTAIN` | Zero candidates |
+| **AUT-SYN-20** | Compatible Overlapping Certificates | Cert A $[T_0, T_2]$ and Cert B $[T_1, T_3]$ both `COMPLETE`; Cert A covers $[T_{\text{req\_start}}, T_{\text{req\_end}}]$ | Extent satisfied independently $\rightarrow$ coverage authorized | Candidate match permitted |
+| **AUT-SYN-21** | Overlapping Conflict Inside Required Interval | Cert A (`COMPLETE`) and Cert B (`INCOMPLETE`) overlap inside required interval | Intersecting conflict $\rightarrow$ `CoverageStatus.UNCERTAIN` | Zero candidates |
+| **AUT-SYN-22** | Overlapping Conflict Outside Required Interval | Conflict between Cert B and Cert C is entirely outside required interval; Cert A covers required interval | Cert A independently satisfies required interval | Candidate match permitted |
+| **AUT-SYN-23** | Equal-Time Linked vs Unlinked Precedence | Sub-case A: Equal-time linked update (`supersedes_record_id` valid) $\rightarrow$ successor valid.<br>Sub-case B: Equal-time unlinked conflicting update $\rightarrow$ `UNCERTAIN`. | Linked: Successor governs.<br>Unlinked: Degrades to `CoverageStatus.UNCERTAIN`. | Sub-case A: Valid.<br>Sub-case B: 0 candidates. |
 
 ### 4.3 Proposed Traceable Offline Integration Cases (6 Cases)
 
@@ -286,8 +304,9 @@ Per `AGENTS.md` (Strict Non-Invention Rule), the following items are formally re
 
 1. **Broker Calendar Reconciliation**: Offline tests assume continuous 24-hour daily sessions starting at 00:00 UTC. Live broker trading sessions, Sunday opens, Friday closes, and bank holidays remain unreconciled and cannot be assumed.
 2. **Persistent Usage Storage Contract**: Format, concurrency model, and durability guarantees for persistent usage recording across dashboard sessions remain unspecified. Writes remain strictly excluded under current read-only boundaries.
-3. **Upstream Cursor Synchronization Proof**: The formal mechanism linking upstream MSM/TJL cursor synchronization (`processed_bar_index == received_bar_index`) to explicit `source_resolution_status` mapping remains pending reconciliation.
-4. **Multi-Feed Disambiguation Authority**: When multiple feeds provide overlapping quotes for the same instrument, tie-breaking authority has not been established. Cross-domain sequence comparison is decisively rejected (`CROSS_DOMAIN_ORDERING_REJECTED`).
+3. **Explicit Revocation Records**: Formal schemas and delivery protocols for explicit coverage revocation notices remain unspecified and pending reconciliation.
+4. **Upstream Cursor Synchronization Proof**: The formal mechanism linking upstream MSM/TJL cursor synchronization (`processed_bar_index == received_bar_index`) to explicit `source_resolution_status` mapping remains pending reconciliation.
+5. **Multi-Feed Disambiguation Authority**: When multiple feeds provide overlapping quotes for the same instrument, tie-breaking authority has not been established. Cross-domain sequence comparison is decisively rejected (`CROSS_DOMAIN_ORDERING_REJECTED`).
 
 ---
 
