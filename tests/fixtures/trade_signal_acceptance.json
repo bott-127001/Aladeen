@@ -1,6 +1,6 @@
 {
   "description": "Standardized Acceptance Fixtures for Trade-Signal Business Logic Module",
-  "version": "1.1",
+  "version": "1.2",
   "authorities": [
     "docs/strategy/MTF-Analysis.pdf (§1, §2, §3, §4, §5, §6, §7, §8, §9, §10, §12)",
     "docs/requirements/approved-clarifications.md (OPEN-03, OPEN-04, OPEN-05, OPEN-06, OPEN-07, OPEN-08, OPEN-09, OPEN-10, OPEN-11, OPEN-12)",
@@ -816,14 +816,37 @@
         "arrival_order_independent": true
       }
     },
-    "sig_28_incomplete_timeframe_coverage_blocks_arbitration": {
-      "category": ["edge_boundary_specification"],
-      "description": "Candidate on H4 at 09:00 arrives, but D1 coverage is only available through 08:00 (unclosed coverage). Arbitration blocks fail-closed until D1 coverage through 09:00 is confirmed.",
+    "sig_28_m1_confirmation_between_htf_closes_eligible": {
+      "category": ["source_settled", "edge_boundary_specification"],
+      "description": "M1 confirmation at 08:05:00 is fully complete and eligible while H1 bar [08:00, 09:00) is normally forming, because all evidence due at 08:05:00 is present.",
       "authority": "trade-signal-acceptance.md §2 (Stage 5)",
-      "evaluated_timestamp": "2026-10-02T09:00:00+00:00",
-      "timeline_coverage": {
-        "H4": "2026-10-02T09:00:00+00:00",
-        "D1": "2026-10-02T08:00:00+00:00"
+      "evaluated_timestamp": "2026-10-02T08:05:00+00:00",
+      "due_events_received": true,
+      "htf_bar_forming": {
+        "timeframe": "H1",
+        "open_time": "2026-10-02T08:00:00+00:00",
+        "close_due_at": "2026-10-02T09:00:00+00:00"
+      },
+      "m1_candidate": {
+        "candidate_id": "CAND_H1_M1",
+        "close_timestamp": "2026-10-02T08:05:00+00:00",
+        "pattern": "CHOCH"
+      },
+      "expected": {
+        "arbitration_allowed": true,
+        "winning_candidate_id": "CAND_H1_M1",
+        "blocked_by_forming_htf": false
+      }
+    },
+    "sig_29_missing_due_event_blocks_arbitration": {
+      "category": ["edge_boundary_specification"],
+      "description": "Candidate arrives at 08:05:00, but an event due at 08:05:00 (e.g. M5 close) is missing from the data stream. Fails closed with BLOCKED_INCOMPLETE_EVIDENCE_COVERAGE.",
+      "authority": "trade-signal-acceptance.md §2 (Stage 5)",
+      "evaluated_timestamp": "2026-10-02T08:05:00+00:00",
+      "missing_due_event": {
+        "timeframe": "M5",
+        "due_at": "2026-10-02T08:05:00+00:00",
+        "status": "UNRECEIVED"
       },
       "expected": {
         "arbitration_allowed": false,
@@ -831,43 +854,117 @@
         "signal_published": false
       }
     },
-    "sig_29_late_arriving_second_confirmation_does_not_mutate_published_signal": {
+    "sig_30_known_ordered_same_coarse_candle": {
       "category": ["source_settled", "edge_boundary_specification"],
-      "description": "CHOCH confirms at 08:35, immediately publishing BUY signal. Second confirmation (ISS) completes on later candle at 08:45. Published signal at 08:35 remains immutable with original single confirmation; late confirmation does not retrospectively mutate it.",
-      "authority": "approved-clarifications.md (OPEN-07, OPEN-09), trade-signal-acceptance.md §2 (Stage 6)",
-      "early_confirmation": {
-        "pattern_type": "CHOCH",
-        "close_timestamp": "2026-10-02T08:35:00+00:00",
-        "event_id": "EVT_CHOCH_EARLY"
+      "description": "Tap and confirmation share coarse H4 bar [08:00, 12:00), but monotonic sequence indices prove tap (seq 101) occurred before confirmation completion (seq 105). Eligible timing.",
+      "authority": "trade-signal-acceptance.md §2 (Stage 3 Case B), OPEN-04",
+      "coarse_bar": {
+        "open_time": "2026-10-02T08:00:00+00:00",
+        "close_time": "2026-10-02T12:00:00+00:00"
       },
-      "late_confirmation": {
-        "pattern_type": "AUTHORITATIVE_CONFIRMED_ISS",
-        "close_timestamp": "2026-10-02T08:45:00+00:00",
-        "event_id": "EVT_ISS_LATE"
+      "tap_event": {
+        "price": 1.1365,
+        "sequence_index": 101
+      },
+      "confirmation_event": {
+        "pattern": "CHOCH",
+        "sequence_index": 105,
+        "close_timestamp": "2026-10-02T12:00:00+00:00"
       },
       "expected": {
-        "signal_published_at": "2026-10-02T08:35:00+00:00",
-        "published_confirmation_ids": ["EVT_CHOCH_EARLY"],
-        "retrospective_mutation_applied": false,
+        "causality_valid": true,
+        "signal_published": true,
+        "order_established_by_sequence": true
+      }
+    },
+    "sig_31_late_candidate_before_batch_finalization": {
+      "category": ["synthetic_event_sequence"],
+      "description": "Candidate CAND_M5 arrives slightly late before batch finalization at timestamp T. Evaluator defers final commit until all due events arrive, correctly evaluating both candidates.",
+      "authority": "trade-signal-acceptance.md §2 (Stage 6)",
+      "batch_timestamp": "2026-10-02T09:00:00+00:00",
+      "events": [
+        {"candidate_id": "CAND_H1", "received_at": "2026-10-02T09:00:01+00:00", "close_timestamp": "2026-10-02T09:00:00+00:00", "timeframe": "H1"},
+        {"candidate_id": "CAND_M5", "received_at": "2026-10-02T09:00:02+00:00", "close_timestamp": "2026-10-02T09:00:00+00:00", "timeframe": "M5"}
+      ],
+      "expected": {
+        "deferred_until_complete": true,
+        "winning_candidate_id": "CAND_M5",
+        "tie_broken_by_lower_timeframe": true
+      }
+    },
+    "sig_32_late_confirmation_after_finalization_ignored": {
+      "category": ["source_settled", "edge_boundary_specification"],
+      "description": "CHOCH confirms at 08:35, immediately publishing BUY signal. Second confirmation completes on later candle at 08:45 after 08:35 batch was finalized. Late confirmation cannot mutate published signal.",
+      "authority": "approved-clarifications.md (OPEN-07, OPEN-09), trade-signal-acceptance.md §2 (Stage 6)",
+      "finalized_signal": {
+        "signal_id": "SIG_0835",
+        "published_at": "2026-10-02T08:35:00+00:00",
+        "confirmation_ids": ["EVT_CHOCH_0835"]
+      },
+      "late_event": {
+        "received_at": "2026-10-02T08:45:00+00:00",
+        "confirmation_id": "EVT_ISS_0845"
+      },
+      "expected": {
+        "published_signal_mutated": false,
+        "late_event_status": "LATE_CONFIRMATION_IGNORED",
         "is_immutable": true
       }
     },
-    "sig_30_scoped_ledger_namespace_prevents_cross_session_consumption": {
+    "sig_33_idempotent_duplicate_commit": {
+      "category": ["synthetic_event_sequence"],
+      "description": "Retrying an identical conceptual commit (same commit_id, winner, level, and signal) succeeds idempotently and returns the existing commit record.",
+      "authority": "trade-signal-acceptance.md §2 (Stage 6)",
+      "commit_request_1": {
+        "commit_id": "COMMIT_20261002_0835",
+        "winner_id": "CAND_H4_M5",
+        "consumed_level_key": "FEED_EURUSD_H4:H4:HIGH"
+      },
+      "commit_request_2": {
+        "commit_id": "COMMIT_20261002_0835",
+        "winner_id": "CAND_H4_M5",
+        "consumed_level_key": "FEED_EURUSD_H4:H4:HIGH"
+      },
+      "expected": {
+        "commit_success": true,
+        "is_idempotent": true,
+        "duplicate_signal_created": false
+      }
+    },
+    "sig_34_conflicting_commit_retry_rejected": {
+      "category": ["edge_boundary_specification"],
+      "description": "Retrying the same commit_id with conflicting content (different winner candidate) is strictly rejected with COMMIT_CONFLICT_REJECTED.",
+      "authority": "trade-signal-acceptance.md §2 (Stage 6)",
+      "commit_initial": {
+        "commit_id": "COMMIT_20261002_0835",
+        "winner_id": "CAND_H4_M5"
+      },
+      "commit_conflicting": {
+        "commit_id": "COMMIT_20261002_0835",
+        "winner_id": "CAND_D1_H1"
+      },
+      "expected": {
+        "commit_success": false,
+        "rejection_reason": "COMMIT_CONFLICT_REJECTED",
+        "state_mutated": false
+      }
+    },
+    "sig_35_scoped_ledger_namespace_prevents_cross_session_consumption": {
       "category": ["source_settled", "edge_boundary_specification"],
-      "description": "Level consumed in SESSION_A (start candle Oct 1) remains available and unconsumed in independent SESSION_B (start candle Oct 5).",
-      "authority": "approved-clarifications.md (OPEN-08), trade-signal-acceptance.md §2 (Stage 7)",
+      "description": "Level consumed in SESSION_A (start candle Oct 1) remains available and unconsumed in independent SESSION_B (start candle Oct 5) with identical settings.",
+      "authority": "approved-clarifications.md (OPEN-08), trade-signal-acceptance.md §2 (Stage 5 & 7)",
       "level_key": "FEED_EURUSD_H4:H4:2026-10-01T04:00:00+00:00:HIGH",
       "session_a_identity": {
         "server": "DEMO_SERVER",
         "symbol": "EURUSD",
-        "manual_start_time": "2026-10-01T00:00:00+00:00",
-        "rule_version": "V1"
+        "session_id": "SESSION_ALPHA",
+        "manual_start_time": "2026-10-01T00:00:00+00:00"
       },
       "session_b_identity": {
         "server": "DEMO_SERVER",
         "symbol": "EURUSD",
-        "manual_start_time": "2026-10-05T00:00:00+00:00",
-        "rule_version": "V1"
+        "session_id": "SESSION_BETA",
+        "manual_start_time": "2026-10-05T00:00:00+00:00"
       },
       "expected": {
         "consumed_in_session_a": true,
@@ -875,7 +972,7 @@
         "cross_session_leakage": false
       }
     },
-    "sig_31_isolated_tracking_record_cannot_confirm_signal": {
+    "sig_36_isolated_tracking_record_cannot_confirm_signal": {
       "category": ["source_settled", "edge_boundary_specification"],
       "description": "An isolated tracking record (ISOLATED_TRACKING_ONLY) is not an authoritative confirmed directional ISS event and cannot confirm a trade signal.",
       "authority": "trade-signal-acceptance.md §2 (Stage 3), MTF-Analysis.pdf §6",

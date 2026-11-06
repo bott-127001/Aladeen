@@ -2257,3 +2257,65 @@ Last Updated: 2026-11-06 (Milestone 29 Release-Readiness Audit & Offline Runbook
   - Zero confirmation arbitration implementation, zero usage ledger runtime writes, zero automated trading.
   - Strategy engines 100% untouched (0 diff against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`).
   - Committed and pushed strictly on `requirements/trade-signal-acceptance`. Never merge into `main`.
+
+
+---
+
+## Milestone 30 — Trade-Signal Business Logic Requirements and Acceptance Contract (HANDOFF-087)
+
+- **Active Branch**: `requirements/trade-signal-acceptance`
+- **Immediate Parent Commit**: `d0ab437c87cc036901a856c6a7cc37156ad78490` (HANDOFF-086)
+- **Accepted Milestone 29 Baseline Commit**: `0144ddb8150b4132a7b60d24698105d897514cb2`
+- **Accepted Milestone 28 Controlled Browser Baseline**: `bf737ea41e8bfd554b9386a6e9be86f700824fb3`
+- **Requirements Baseline Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d`
+- **Root Baseline Engine Commit**: `0867c740352297fb43e781fb654706218771d533`
+- **Reviewer Feedback Addressed (HANDOFF-086 Review Directives 1–10 & HANDOFF-087 Closeout)**:
+  1. *Three-Tier Calculation Identity & Namespace Separation*:
+     - In `docs/requirements/trade-signal-acceptance.md` §2 (Stage 5 & Stage 7), separated configuration identity from runtime execution and replay namespaces:
+       * **Strategy Configuration Identity**: `(server, symbol, price_basis, timeframe_configuration, manual_start_time, rule_version)`.
+       * **Domain Session / Calculation Namespace**: `(calculation_identity, session_id, sequence_domain_run_id)`. Usage ledger and arbitration state are strictly scoped to this runtime namespace; independent research sessions do not cross-consume levels (verified via `sig_35`).
+       * **Replay Version**: A versioned replay run (`revision_id`) rebuilds its usage ledger from historical events; it never mutates or leaks into parallel runs.
+  2. *Completeness Defined by Due Events at Timestamp T*:
+     - Clarified in Stage 5 that completeness is defined strictly by the arrival of evidence due and expected on participating timelines at or before timestamp $T$.
+     - A normally forming higher-timeframe bar (e.g., H1 bar `[08:00, 09:00)` during an 08:05 M1 close) is **not** missing evidence; M1 confirmations are fully complete and eligible immediately upon candle close (verified via `sig_28`).
+     - Genuinely missing due events at or before $T$ block arbitration fail-closed (`BLOCKED_INCOMPLETE_EVIDENCE_COVERAGE`, verified via `sig_29`).
+  3. *Three Same-Candle Causality Cases*:
+     - In Stage 3, formalized the three causal timing cases for tap and confirmation sharing the same candle interval:
+       * **Case A (Exact Sub-Bar Print Timing)**: Sub-bar tick/print timestamp of tap strictly precedes confirmation bar close ($t_{tap} < t_{close}$) $\rightarrow$ Eligible (verified via `sig_03`).
+       * **Case B (Monotonic Sequence Evidence)**: Shared coarse timestamp interval where discrete monotonic sequence index proves tap occurred before confirmation completion ($seq_{tap} < seq_{conf}$) $\rightarrow$ Eligible (verified via `sig_30`).
+       * **Case C (Coarse OHLC Overlap Without Ordering Evidence)**: Coarse candle overlap where sequence evidence cannot prove tap preceded confirmation $\rightarrow$ Fails closed with `UNKNOWN_ORDER` (verified via `sig_22`).
+  4. *Batch Finalization, Retries, and Conflict Rejection*:
+     - In Stage 6, specified atomic transaction semantics for candidate evaluation and commits:
+       * Candidates arriving before batch finalization are evaluated together; lower timeframe breaks ties (verified via `sig_31`).
+       * Confirmations arriving after batch finalization are ignored and cannot retrospectively mutate published signals (`LATE_CONFIRMATION_IGNORED`, verified via `sig_32`).
+       * Idempotent duplicate commits succeed cleanly without duplicate signals or double consumption (verified via `sig_33`).
+       * Conflicting commit retries (same commit ID, different winner/level) are strictly rejected fail-closed with `COMMIT_CONFLICT_REJECTED` (verified via `sig_34`).
+  5. *Source-Settled Rules vs Proposed Operational Policies*:
+     - Explicitly distinguished source-settled rules (`MTF-Analysis.pdf`, `Choch.pdf`, `ISS.pdf`, `TJL.pdf`) from operational consolidation proposals (`OPEN-07`).
+     - Setup key includes activation identity + confirmation configuration to avoid conflation.
+  6. *Authoritative Confirmation Provenance*:
+     - In Stage 3, required authoritative confirmation provenance and completion status: isolated tracking records (`ISOLATED_TRACKING_ONLY`) cannot confirm signals (verified via `sig_36`), while unresolved structural gaps fail closed with `BLOCKED_UNRESOLVED_CONFIRMATION_GAP` (verified via `sig_21`).
+  7. *Qualified Citations in Open Questions*:
+     - Rewrote `docs/requirements/trade-signal-open-questions.md` to ground citations in actual transcribed source passages and framed resolutions strictly under Samarth's authority.
+  8. *Comprehensive 36-Fixture Acceptance Suite*:
+     - Updated [`tests/fixtures/trade_signal_acceptance.json`](file:///tests/fixtures/trade_signal_acceptance.json) with 36 comprehensive fixtures (`sig_01` to `sig_36`).
+  9. *Automated Integrity & Regression Verification*:
+     - Updated [`tests/test_trade_signal_fixture_integrity.py`](file:///tests/test_trade_signal_fixture_integrity.py) with 22 automated integrity checks covering all 36 fixtures.
+     - Full offline test suite passed 564/564 tests.
+  10. *Recommended Implementation Pathway (Milestone 31)*:
+     - Multi-Timeframe Confirmation Monitor: Stateless/passive monitor validating incoming CHOCH/ISS candidate confirmations against active activation zones prior to stateful commit ledger.
+- **Verification Summary**:
+  - Trade-Signal fixture integrity suite: 22/22 passed in 0.26s (`pytest tests/test_trade_signal_fixture_integrity.py -v`).
+  - Full offline repository test suite: 564/564 passed in 16.68s (`pytest -q tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py --ignore=tests/test_activation_browser_controlled.py --ignore=tests/activation_browser_runner.py --ignore=tests/activation_browser_harness.py`).
+- **Completed Deliverables**:
+  1. [`docs/requirements/trade-signal-acceptance.md`](file:///docs/requirements/trade-signal-acceptance.md): Complete requirements contract with 3-tier namespace separation, due-event completeness, 3-case same-candle causality, atomic commit/retry/conflict semantics, and operational policy labeling.
+  2. [`tests/fixtures/trade_signal_acceptance.json`](file:///tests/fixtures/trade_signal_acceptance.json): Standardized 36-fixture acceptance test suite.
+  3. [`tests/test_trade_signal_fixture_integrity.py`](file:///tests/test_trade_signal_fixture_integrity.py): 22 automated integrity test methods validating all 36 fixtures.
+  4. [`docs/requirements/trade-signal-open-questions.md`](file:///docs/requirements/trade-signal-open-questions.md): Qualified consequential open questions with source citations.
+  5. [`docs/development/status.md`](file:///docs/development/status.md): Milestone 30 HANDOFF-087 status update.
+- **Standing Invariants Maintained**:
+  - Pure requirements reconciliation, fixture design, and test specification.
+  - Strictly zero runtime signal engine implementation, zero UI order execution, zero MT5 live trading calls, zero live account modification.
+  - Zero confirmation arbitration implementation, zero usage ledger runtime writes, zero automated trading.
+  - Strategy engines 100% untouched (0 diff against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`).
+  - Dedicated branch boundary: committed and pushed strictly on `requirements/trade-signal-acceptance`. Never merge into `main`.
