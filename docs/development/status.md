@@ -1171,3 +1171,52 @@ Last Updated: 2026-11-06 (Activation Engine Pure Offline Milestone Accepted — 
   3. *Engine Integrity*: Strictly zero modification to accepted strategy engines (`msm_engine`, `choch_engine`, `iss_engine`, `tjl_coordinator`, `activation_engine`).
   4. *Core Ambiguities Preserved*: Upstream $c_1 == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
   5. *Branch Boundary*: Committed and pushed strictly on `feature/activation-dashboard`. No merging into `main`.
+
+### HANDOFF-068: Service-Owned Activation Coordination, Value-Preserving Formatting, and Comprehensive Scenario Integration
+- **Active Branch**: `feature/activation-dashboard`
+- **Immediate Parent Commit**: `a460a70d88c0f0fd15af165eaac2892e636a516b` (HANDOFF-067)
+- **Requirements Baseline Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d` (Milestone 26 / HANDOFF-066 accepted)
+- **Root Baseline Engine Commit**: `0867c740352297fb43e781fb654706218771d533` (Milestone 25 / HANDOFF-061)
+- **Objective**: Deliver complete closure of all items from Perplexity's review of HANDOFF-067:
+  1. *Service/Session Ownership & Production*: Implemented `ActivationSessionCoordinator` in `src/aladeen/strategy/service.py` that retains active `ActivationEngine` and `TJLSynchronizer`, synchronizes authoritative `TJLSnapshot` from `TJLCoordinator` during `INTEGRATED_MSM_CHOCH_TJL` calculations, and resets cleanly upon context switches (symbol, timeframe, start candle time). In candle-only offline runs, zero tick prints are fabricated and usage defaults to `UNKNOWN` (fail-closed `USAGE UNCERTAIN (FAIL-CLOSED)` / `INACTIVE_INELIGIBLE`), verifying the actual service path.
+  2. *Value-Preserving Price and UTC Timestamp Formatting*:
+     - `_format_price()` preserves exact precision up to 8 decimal places while formatting cleanly without arbitrary 4-decimal truncation; ensures narrow-zone bounds (e.g. 1.135001 vs 1.135002) remain distinctly identifiable. Emits `[INVALID_PRICE:...]` for invalid types.
+     - `_format_datetime()` preserves subsecond precision (e.g. microseconds), converts valid timezone-aware datetimes to UTC via `.astimezone(timezone.utc)`, and produces clear diagnostic `[NAIVE_TIMESTAMP:...]` for naive datetimes rather than fabricating UTC attribution. Emits `[INVALID_TIMESTAMP:...]` for non-datetime inputs.
+  3. *Required Identity & Provenance Fields*:
+     - Renamed active table heading to `🎯 Registered Members & Lifecycle Activations ({count} registered/active members)`.
+     - Added explicit columns for activation's own `activation_id`, stable physical `level_id`, and physical `side`.
+     - In Terminal History table, added explicit columns for `activation_id`, `set_id`, `role`, and stable physical `level_id`.
+     - Members with active rearm controllers and no active activation record are accurately rendered as `CONTROLLER-MANAGED (AWAITING DEPARTURE)` or `CONTROLLER-MANAGED (ARMED)`, never labeled `UNREGISTERED`.
+  4. *Orthogonal Evidence-Gating Presentation*:
+     - Separated Lifecycle State badge from Evidence Gating & Eligibility badge. Gating badge applies consistently across pending, rearmed, untouched, and controller-managed records.
+     - Coverage limitations (`COVERAGE INCOMPLETE`, `COVERAGE UNCERTAIN`) are distinctly displayed on per-member gating.
+     - Usage status `USED` is explicitly rendered as `USAGE BLOCKED (USED)`, never labeled "unknown usage".
+  5. *Lossless Fixture Loading & Comprehensive Scenario Assertions*:
+     - Replaced lossy fixture loader with canonical length-prefixed key offset parser (`parse_canonical_member_key`) and exact physical `StableLevelId` reconstruction.
+     - Added explicit scenario-specific assertions for ALL 16 acceptance scenarios (including 3, 7, 12, and 16).
+     - Component tree inspection uses recursive component serializer (`serialize_component`, `find_component`, `extract_all_text`) instead of bare `repr()` string matches.
+     - Purity test strictly compares complete engine checkpoints (`cp_before == cp_after`), sequence cursor, and internal caches.
+     - Added test for malformed non-null inputs and naive/aware timestamps.
+     - Added real service pipeline integration test executing `calculate_msm()` with candle data and session coordinator.
+  6. *History Limit & Test Inventory Reconciled*:
+     - Accurately documented 50-row bounded DOM history display.
+     - Test collection and execution accurately reconciled: 520 baseline tests + 8 integration tests = 528 passing offline tests.
+- **Completed Deliverables**:
+  1. [`src/aladeen/strategy/service.py`](file:///src/aladeen/strategy/service.py): `ActivationSessionCoordinator` class, coordinator accessors, and service integration in `calculate_msm`.
+  2. [`src/aladeen/strategy/__init__.py`](file:///src/aladeen/strategy/__init__.py): Exported `ActivationSessionCoordinator`, `get_default_activation_coordinator`, `reset_activation_coordinator`.
+  3. [`src/aladeen/ui/activation_inspection.py`](file:///src/aladeen/ui/activation_inspection.py) (738 lines): Value-preserving formatting, required identity columns (activation ID, level ID, side), orthogonal gating presentation, controller-managed states.
+  4. [`tests/test_activation_dashboard_integration.py`](file:///tests/test_activation_dashboard_integration.py) (840 lines): 8 comprehensive tests covering all 16 scenarios, service pipeline, engine reactivation, purity checkpoints, value formatting, malformed inputs, bounded history, and context switching.
+  5. [`docs/development/status.md`](file:///docs/development/status.md): HANDOFF-068 documentation.
+- **Verification Summary**:
+  - Activation dashboard integration suite: **8 / 8 passed** in 0.58s (`pytest tests/test_activation_dashboard_integration.py -q`).
+  - Activation dashboard fixture integrity suite: **11 / 11 passed** in 0.51s (`pytest tests/test_activation_dashboard_fixture_integrity.py -q`).
+  - Full offline repository test suite: **528 / 528 passed** in 13.59s (`pytest -q tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py`).
+  - Reconciled Test Inventory: 520 baseline tests (including 11 fixture integrity tests) + 8 integration tests = 528 tests total.
+  - Runtime Engine Modification Audit: Exactly zero modifications to strategy engines (`msm_engine`, `choch_engine`, `iss_engine`, `tjl_coordinator`, `activation_engine`, `activation_adapter`).
+  - Visual Limitation: Offline test suite verifies HTML DOM tree structure and Dash component properties; visual browser acceptance remains unverified until live browser testing.
+- **Scope Compliance & Standing Invariants**:
+  1. *Pure Read-Only Presentation*: Strictly zero UI order execution, zero MT5 trading calls, zero live account modification.
+  2. *Downstream Invariant*: Strictly zero confirmation arbitration/selection, zero usage ledger writes, zero trade entry signals.
+  3. *Engine Integrity*: Strictly zero modification to accepted strategy engines (`msm_engine`, `choch_engine`, `iss_engine`, `tjl_coordinator`, `activation_engine`, `activation_adapter`).
+  4. *Core Ambiguities Preserved*: Upstream $c_1 == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
+  5. *Branch Boundary*: Committed and pushed strictly on `feature/activation-dashboard`. No merging into `main`.

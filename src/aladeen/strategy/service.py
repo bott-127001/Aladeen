@@ -19,7 +19,15 @@ from typing import Any, Dict, List, Optional, Set, Tuple, Union
 import numpy as np
 import pandas as pd
 
-from .activation_types import ActivationSnapshot
+from .activation_engine import ActivationEngine, ActivationEngineConfig
+from .activation_adapter import TJLSynchronizer
+from .activation_types import (
+    ActivationSnapshot,
+    PriceBasis,
+    SequenceDomain,
+    TIMEFRAME_CONFIRMATION_MAP,
+    UsageEvidenceStatus,
+)
 from .coordinator import CoordinatorSnapshot, MSMChochCoordinator
 from .choch_types import ChochDiagnostic, ConfirmedChoch
 from .engine import MSMEngine
@@ -32,7 +40,7 @@ from .iss_types import (
     ISSZone,
 )
 from .tjl_coordinator import TJLCoordinator
-from .tjl_types import TJLSnapshot
+from .tjl_types import StableLevelId, TJLSnapshot
 from .types import (
     Direction,
     EngineState,
@@ -309,6 +317,130 @@ class MSMServiceResult:
         return self.snapshot is not None and self.error is None
 
 
+class ActivationSessionCoordinator:
+    """Session coordinator owning the activation engine and TJL-to-activation synchronizer.
+
+    Responsibilities:
+    -----------------
+    - Retains single active ActivationEngine and TJLSynchronizer across sequential service calculations.
+    - Synchronizes authoritative TJLSnapshot outputs produced during integrated calculations.
+    - Enforces context boundaries: resets engine and synchronizer state when symbol, timeframe, or start candle changes.
+    - Maintains synchronizer transition cursor and provides immutable ActivationSnapshot output.
+    - Preserves engine state (checkpoints, caches, controllers, history) across repeated calculations with unchanged context.
+    - Strictly non-inventing: never synthesizes price prints or overrides fail-closed UNKNOWN usage status in candle-only runs.
+    """
+
+    def __init__(self, sequence_domain_run_id: str = "OFFLINE_SERVICE_RUN") -> None:
+        self._run_id = sequence_domain_run_id
+        self._engine: Optional[ActivationEngine] = None
+        self._synchronizer: Optional[TJLSynchronizer] = None
+        self._bound_context_key: Optional[Tuple[str, str, str, datetime]] = None
+        self._last_synced_transition_index: Optional[int] = None
+
+    @property
+    def engine(self) -> Optional[ActivationEngine]:
+        return self._engine
+
+    @property
+    def synchronizer(self) -> Optional[TJLSynchronizer]:
+        return self._synchronizer
+
+    @property
+    def last_synced_transition_index(self) -> Optional[int]:
+        return self._last_synced_transition_index
+
+    @property
+    def exact_observation_count(self) -> Optional[int]:
+        """Diagnostic count of exact observation events processed by the engine."""
+        if self._engine is not None:
+            return len(self._engine._processed_events)
+        return None
+
+    def reset(self) -> None:
+        """Resets engine, synchronizer, and context binding to clean initial baseline."""
+        if self._engine is not None:
+            self._engine.reset()
+        self._engine = None
+        self._synchronizer = None
+        self._bound_context_key = None
+        self._last_synced_transition_index = None
+
+    def sync_tjl_snapshot(
+        self,
+        tjl_snapshot: TJLSnapshot,
+        context: MSMContext,
+        *,
+        usage_evidence: Optional[Mapping[StableLevelId, UsageEvidenceStatus]] = None,
+        sequence_ref_start: int = 0,
+    ) -> Optional[ActivationSnapshot]:
+        """Synchronizes an authoritative TJLSnapshot into the session ActivationEngine.
+
+        Resets and rebinds if the context (symbol, timeframe, start_candle_time, engine_id) has changed.
+        """
+        if not isinstance(tjl_snapshot, TJLSnapshot):
+            raise TypeError(f"Expected TJLSnapshot, got {type(tjl_snapshot).__name__}")
+
+        engine_id = tjl_snapshot.source_engine_id
+        symbol = tjl_snapshot.symbol_feed_id
+        tf = tjl_snapshot.source_timeframe
+        start_time = context.start_candle_time
+
+        context_key = (engine_id, symbol, tf, start_time)
+
+        # Detect context switch
+        if self._bound_context_key != context_key:
+            self.reset()
+            self._bound_context_key = context_key
+
+            # Only initialize if source timeframe is in confirmation map
+            if tf not in TIMEFRAME_CONFIRMATION_MAP:
+                return None
+
+            seq_domain = SequenceDomain(
+                feed_id=f"FEED_{symbol}_{tf}",
+                run_id=self._run_id,
+            )
+            config = ActivationEngineConfig(
+                engine_id=engine_id,
+                symbol=symbol,
+                source_timeframe=tf,
+                sequence_domain=seq_domain,
+                price_basis=PriceBasis.BID,
+            )
+            self._engine = ActivationEngine(config)
+            self._synchronizer = TJLSynchronizer(engine=self._engine)
+
+        if self._synchronizer is None or self._engine is None:
+            return None
+
+        act_snap = self._synchronizer.sync(
+            snapshot=tjl_snapshot,
+            sequence_ref_start=sequence_ref_start,
+            usage_evidence=usage_evidence,
+        )
+        self._last_synced_transition_index = self._synchronizer.last_synced_transition_index
+        return act_snap
+
+
+_default_session_coordinator: Optional[ActivationSessionCoordinator] = None
+
+
+def get_default_activation_coordinator() -> ActivationSessionCoordinator:
+    """Returns the process-level default ActivationSessionCoordinator."""
+    global _default_session_coordinator
+    if _default_session_coordinator is None:
+        _default_session_coordinator = ActivationSessionCoordinator()
+    return _default_session_coordinator
+
+
+def reset_activation_coordinator() -> None:
+    """Resets the process-level default ActivationSessionCoordinator."""
+    global _default_session_coordinator
+    if _default_session_coordinator is not None:
+        _default_session_coordinator.reset()
+
+
+
 def adapt_chart_dataframe(df: pd.DataFrame) -> List[StrategyCandle]:
     """Adapts a chart OHLC DataFrame into a sequence of validated StrategyCandle objects.
 
@@ -402,7 +534,13 @@ def adapt_chart_dataframe(df: pd.DataFrame) -> List[StrategyCandle]:
     return candles
 
 
-def calculate_msm(df: pd.DataFrame, context: MSMContext) -> MSMServiceResult:
+def calculate_msm(
+    df: pd.DataFrame,
+    context: MSMContext,
+    *,
+    activation_coordinator: Optional[ActivationSessionCoordinator] = None,
+    usage_evidence: Optional[Mapping[StableLevelId, UsageEvidenceStatus]] = None,
+) -> MSMServiceResult:
     """Performs a deterministic, fresh batch MSM calculation on *df* using *context*.
 
     Returns an MSMServiceResult. Fails closed with descriptive error messages
@@ -501,6 +639,22 @@ def calculate_msm(df: pd.DataFrame, context: MSMContext) -> MSMServiceResult:
                     f"Eligible Set: {curr_set_id} | Labeled Zones: {labeled_zone_count}"
                 )
 
+            # Synchronize authoritative TJLSnapshot to session-managed ActivationEngine
+            act_snap = None
+            last_sync_idx = None
+            exact_obs_count = None
+            try:
+                act_coordinator = activation_coordinator or ActivationSessionCoordinator()
+                act_snap = act_coordinator.sync_tjl_snapshot(
+                    tjl_snapshot=tjl_snap,
+                    context=context,
+                    usage_evidence=usage_evidence,
+                )
+                last_sync_idx = act_coordinator.last_synced_transition_index
+                exact_obs_count = act_coordinator.exact_observation_count
+            except Exception:
+                act_snap = None
+
             return MSMServiceResult(
                 context=context,
                 snapshot=snapshot,
@@ -511,6 +665,9 @@ def calculate_msm(df: pd.DataFrame, context: MSMContext) -> MSMServiceResult:
                 coordinator_snapshot=coord_snap,
                 confirmed_choch_events=coord_snap.confirmed_choch_events,
                 tjl_snapshot=tjl_snap,
+                activation_snapshot=act_snap,
+                last_synced_transition_index=last_sync_idx,
+                exact_observation_count=exact_obs_count,
                 is_unresolved=tjl_snap.is_unresolved or coord_snap.is_unresolved,
                 unresolved_diagnostic=coord_snap.unresolved_diagnostic,
                 unresolved_candle_index=coord_snap.unresolved_candle_index,

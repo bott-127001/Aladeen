@@ -20,13 +20,16 @@ from .types import (
 from .validator import adapt_candles, validate_start_candle
 from .engine import MSMEngine
 from .service import (
+    ActivationSessionCoordinator,
     MSMContext,
     MSMServiceResult,
     SUPPORTED_RULE_VERSIONS,
     adapt_chart_dataframe,
     calculate_msm,
+    get_default_activation_coordinator,
     is_candle_completed,
     is_context_compatible,
+    reset_activation_coordinator,
     validate_candle_completion,
 )
 
@@ -190,4 +193,7 @@ __all__ = [
     "adapt_tjl_cancellation_record",
     "adapt_tjl_current_set",
     "sync_tjl_snapshot_to_activation_engine",
+    "ActivationSessionCoordinator",
+    "get_default_activation_coordinator",
+    "reset_activation_coordinator",
 ]
