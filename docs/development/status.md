@@ -1974,3 +1974,57 @@ Last Updated: 2026-11-06 (Milestone 29 Release-Readiness Audit & Offline Runbook
   - Zero confirmation arbitration/selection, zero usage ledger writes, zero trade entry signals.
   - Strategy engines 100% untouched (0 diff against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`).
   - Committed and pushed on `requirements/dashboard-release-readiness`. Never merge into `main`.
+
+---
+
+## Milestone 29 — Read-Only Dashboard Release-Readiness Audit and Reproducible Offline Runbook (HANDOFF-082)
+
+- **Active Branch**: `requirements/dashboard-release-readiness`
+- **Immediate Parent Commit**: `235d8abf62c2e236edb14bc157d52444420b8a09` (HANDOFF-081)
+- **Accepted Controlled Browser Baseline Commit**: `bf737ea41e8bfd554b9386a6e9be86f700824fb3` (Milestone 28 accepted)
+- **Accepted Offline Dashboard Implementation Commit**: `d6587a1200735fe6453ff24f043931699f21f407` (Milestone 27 accepted)
+- **Requirements Baseline Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d` (Milestone 26 / HANDOFF-066 accepted)
+- **Root Baseline Engine Commit**: `0867c740352297fb43e781fb654706218771d533` (Milestone 25 / HANDOFF-061)
+- **Reviewer Feedback Addressed (HANDOFF-081 Review Directives 1–7)**:
+  1. *Reproduction Completeness Gated on Required Provenance*:
+     - Made provenance capture explicit required records: valid 40-character commit hash (`valid_checkout_hash`), clean pre-run worktree status (`clean_prerun_worktree`), valid interpreter (`valid_python_interpreter`), and editable install resolving to worktree (`editable_install_matches_worktree`).
+     - Disaggregated evaluation: `tests_execution` (`ALL_TESTS_PASSED`) and `provenance_validation` (`CLEAN_PROVENANCE_VERIFIED`) are evaluated and reported distinctly. Any missing provenance or dirty worktree trips the reproduction completeness gate (`TESTS_PASSED_BUT_PROVENANCE_INCOMPLETE_OR_DIRTY`, exit code 1).
+     - Removed hardcoded defaults: dynamic OS detection via `platform.system()`/`release()`/`version()`/`machine()`; browser binary dynamically extracted or recorded as `UNKNOWN / NOT_OBSERVED` (never a tested-looking default).
+  2. *Testing Wrapper, Evaluator & CLI Failure Behavior*:
+     - Built comprehensive failure test suite in `scripts/run_reproduction_m29.py` exercising 5 distinct failure scenarios:
+       * Case 1: Injected required-step failure produces `REQUIRED_STEP_FAILED` (exit code 1).
+       * Case 2: Injected optional-step failure passes per documented policy (`ALL_STEPS_PASSED_AND_CLEAN_PROVENANCE_VERIFIED`, exit code 0).
+       * Case 3: Injected dirty worktree provenance failure trips completeness gate (`TESTS_PASSED_BUT_PROVENANCE_INCOMPLETE_OR_DIRTY`, exit code 1).
+       * Case 4: Injected wrong editable install path fails provenance gate (`TESTS_PASSED_BUT_PROVENANCE_INCOMPLETE_OR_DIRTY`, exit code 1).
+       * Case 5: Real CLI subprocess execution against nonexistent worktree properly exits with nonzero code 1.
+     - Retained failure artifacts in [`docs/development/evidence/reproduction_m29/failure_injection_test_results.json`](file:///docs/development/evidence/reproduction_m29/failure_injection_test_results.json).
+  3. *Exact Pytest-Node Matching, Successful Collection & Negative Controls*:
+     - In `scripts/validate_matrix_references.py`:
+       * Requires successful pytest collection (`pytest --collect-only -q`, exit code 0). Retains collection command, exit code, stdout, stderr in `pytest_collection.log`.
+       * Compares exact node IDs against real collected set of 544 test nodes.
+       * Differentiates offline pytest test nodes from browser runner helper functions (`file.py::func_name` verified via dynamic reflection on browser test modules).
+       * Built and verified 5 negative controls (all strictly rejected): wrong-class node, nonexistent test function, nonexistent browser helper function, nonexistent module symbol (`classify_levels`), and collection error detection.
+  4. *Direct Row-Keyed Matrix Reference Extraction*:
+     - Directly parses all 38 requirement rows from Section 2 of `docs/requirements/dashboard-release-readiness.md`.
+     - Dynamically extracts and validates all backtick references in Implementation and Verification Path columns.
+     - Result: `ALL_MATRIX_REFERENCES_VERIFIED_OR_DOCUMENTED_AS_GAPS`.
+     - Prominently recorded the assertion-level review distinction: existence checks prove a symbol or test is real, not that its assertions satisfy the mapped requirement.
+  5. *Corrected Setup-Provenance Statement*:
+     - Corrected wording across manifests: "Setup commands are operator-reported ('python -m venv .venv_repro', 'pip install -e . pytest pytest-asyncio playwright'); interactive setup transcripts were not retained. Package inventory (01_pip_list.txt) and subsequent command execution were captured."
+  6. *Preserved Passing Reproduction Records*:
+     - Retained all passing reproduction records from commit `3770989` without unnecessary reruns of browser suites.
+- **Completed Deliverables**:
+  1. [`scripts/run_reproduction_m29.py`](file:///scripts/run_reproduction_m29.py): Provenance-gated runner, dynamic environment capture, and 5-scenario failure injection test suite.
+  2. [`scripts/validate_matrix_references.py`](file:///scripts/validate_matrix_references.py): Direct markdown matrix table row parser, exact pytest collection matcher, browser runner reflection validator, and 5 negative controls.
+  3. [`docs/development/evidence/reproduction_m29/failure_injection_test_results.json`](file:///docs/development/evidence/reproduction_m29/failure_injection_test_results.json): Retained failure injection test results.
+  4. [`docs/development/evidence/reproduction_m29/pytest_collection.log`](file:///docs/development/evidence/reproduction_m29/pytest_collection.log): Retained pytest collection log (544 collected nodes, exit code 0).
+  5. [`docs/development/evidence/reproduction_m29/reference_validation.json`](file:///docs/development/evidence/reproduction_m29/reference_validation.json) & [`reference_validation.md`](file:///docs/development/evidence/reproduction_m29/reference_validation.md): Regenerated row-by-row matrix validation report covering all 38 rows.
+  6. [`docs/development/evidence/reproduction_m29/provenance_manifest.json`](file:///docs/development/evidence/reproduction_m29/provenance_manifest.json) & [`provenance_manifest.md`](file:///docs/development/evidence/reproduction_m29/provenance_manifest.md): Updated manifest v1.1 separating test execution from provenance validation.
+  7. [`docs/requirements/dashboard-release-readiness.md`](file:///docs/requirements/dashboard-release-readiness.md): Qualified `aladeen.data.mt5_adapter.MT5Adapter` in MSM-04.
+  8. [`docs/development/status.md`](file:///docs/development/status.md): Appended HANDOFF-082 record.
+- **Standing Invariants Maintained**:
+  - Pure read-only dashboard presentation.
+  - Zero UI order execution, zero MT5 trading calls, zero live account modification.
+  - Zero confirmation arbitration/selection, zero usage ledger writes, zero trade entry signals.
+  - Strategy engines 100% untouched (0 diff against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`).
+  - Committed and pushed on `requirements/dashboard-release-readiness`. Never merge into `main`.

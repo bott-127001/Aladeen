@@ -1,0 +1,26 @@
+{
+  "case_1_required_step_failure": {
+    "status": "REQUIRED_STEP_FAILED",
+    "exit_code": 1,
+    "passed": true
+  },
+  "case_2_optional_step_failure": {
+    "status": "ALL_STEPS_PASSED_AND_CLEAN_PROVENANCE_VERIFIED",
+    "exit_code": 0,
+    "passed": true
+  },
+  "case_3_dirty_worktree_provenance_failure": {
+    "status": "TESTS_PASSED_BUT_PROVENANCE_INCOMPLETE_OR_DIRTY",
+    "exit_code": 1,
+    "passed": true
+  },
+  "case_4_wrong_editable_path_failure": {
+    "status": "TESTS_PASSED_BUT_PROVENANCE_INCOMPLETE_OR_DIRTY",
+    "exit_code": 1,
+    "passed": true
+  },
+  "case_5_cli_subprocess_invalid_worktree": {
+    "exit_code": 1,
+    "passed": true
+  }
+}

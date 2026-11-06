@@ -1,191 +1,447 @@
+#!/usr/bin/env python3
+"""Automated Matrix Reference Validator with Exact Pytest Collection Matching and Negative Controls.
+
+Milestone 29: Read-Only Dashboard Release-Readiness Audit and Reproducible Offline Runbook.
+Extracts all references from docs/requirements/dashboard-release-readiness.md,
+validates exact Python symbols via reflection, and validates exact Pytest node IDs
+against real pytest collection output. Includes negative controls to ensure no false acceptance.
+"""
+
+from __future__ import annotations
+
 import importlib
 import json
+import os
+from pathlib import Path
+import platform
+import re
 import subprocess
 import sys
-from pathlib import Path
+import time
+from typing import Any, Dict, List, Set, Tuple
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "src"))
 sys.path.insert(0, str(REPO_ROOT))
 
-# Authoritative Verified Module Symbols
-MODULE_SYMBOLS = [
-    ("aladeen.strategy.engine", "MSMEngine", "MSM strategy engine class"),
-    ("aladeen.ui.chart", "create_candlestick_chart", "Plotly candlestick chart builder"),
-    ("aladeen.ui.chart", "create_empty_chart", "Plotly empty chart fallback"),
-    ("aladeen.data.fixtures", "load_fixture", "Offline demo candle data loader"),
-    ("aladeen.data.mt5_adapter", "MT5Adapter", "MT5 adapter with demo fallback"),
-    ("aladeen.strategy.choch_detector", "ChochDetector", "CHOCH detector class"),
-    ("aladeen.strategy.coordinator", "MSMChochCoordinator", "MSM and CHOCH coordinator class"),
-    ("aladeen.strategy.iss_engine", "ISSEngine", "ISS strategy engine class"),
-    ("aladeen.ui.market_coordinator", "generate_chart_and_status_from_snapshot", "Market coordinator handling MSM/CHOCH/ISS modes"),
-    ("aladeen.strategy.tjl_coordinator", "TJLCoordinator", "TJL coordinator class"),
-    ("aladeen.ui.tjl_chart", "apply_tjl_overlays", "TJL chart overlay function"),
-    ("aladeen.ui.tjl_chart", "resolve_authoritative_endpoint", "TJL endpoint resolution function"),
-    ("aladeen.ui.tjl_inspection", "build_tjl_inspection_elements", "TJL inspection UI builder"),
-    ("aladeen.ui.activation_inspection", "build_activation_inspection_elements", "Activation inspection UI builder"),
-    ("aladeen.strategy.activation_engine", "ActivationEngine", "Activation engine class"),
-    ("aladeen.strategy.service", "ActivationSessionRegistry", "Activation in-memory session registry"),
-    ("aladeen.strategy.service", "ActivationSessionCoordinator", "Activation session coordinator"),
-    ("aladeen.strategy.activation_types", "TIMEFRAME_CONFIRMATION_MAP", "Timeframe confirmation metadata map"),
-    ("tests.activation_browser_runner", "run_activation_browser_validation", "Controlled browser runner entry point"),
-    ("tests.test_activation_browser_controlled", "verify_section_a_mounting_and_viewport", "Browser Section A verification"),
-    ("tests.test_activation_browser_controlled", "verify_section_b_session_isolation", "Browser Section B verification"),
-    ("tests.test_activation_browser_controlled", "verify_section_c_lifecycle_scenarios", "Browser Section C verification"),
-    ("tests.activation_browser_harness", "verify_isolation_guards_negative_controls", "Browser negative controls"),
-    ("tests.activation_browser_harness", "verify_server_lifecycle_failure_injection", "Server lifecycle failure injection"),
-    ("tests.activation_browser_harness", "ControlledServerHandle", "Controlled server lifecycle handle"),
-    ("tests.activation_browser_harness", "ContextSecurityFirewall", "Playwright routed origin firewall"),
-    ("tests.activation_browser_harness", "install_server_socket_guard", "Server socket monkeypatch guard"),
-    ("tests.activation_browser_harness", "ControllableActivationMockAdapter", "Controllable mock adapter with spy"),
-    ("tests.activation_browser_harness", "_create_fixture_harness_app", "Fixture harness app builder"),
-]
+MATRIX_PATH = REPO_ROOT / "docs" / "requirements" / "dashboard-release-readiness.md"
+EVIDENCE_DIR = REPO_ROOT / "docs" / "development" / "evidence" / "reproduction_m29"
 
-# Authoritative Collected Pytest Node IDs
-PYTEST_NODE_IDS = [
-    "tests/test_msm_engine.py::TestMSMAcceptanceFixtures::test_msm_01_upward_standard",
-    "tests/test_msm_engine.py::TestMSMAcceptanceFixtures::test_msm_02_downward_standard",
-    "tests/test_msm_engine.py::TestMSMAcceptanceFixtures::test_msm_03_strict_equality_failures",
-    "tests/test_msm_engine.py::TestMSMAcceptanceFixtures::test_msm_07_forming_bar_exclusion",
-    "tests/test_msm_engine.py::TestMSMAcceptanceFixtures::test_msm_12_two_pairs_and_trend_status",
-    "tests/test_msm_engine.py::TestMSMAcceptanceFixtures::test_msm_14_prefix_consistency_and_replay",
-    "tests/test_chart.py::TestCandlestickChart::test_creates_figure_from_h4",
-    "tests/test_app.py::TestAppConstruction::test_no_mt5_import_required",
-    "tests/test_app.py::TestModeIsolationAndFallbackRejection::test_demo_mode_unaffected_by_mt5",
-    "tests/test_choch_engine.py::TestCHOCHExecution::test_choch_bullish_basic_end_to_end_execution",
-    "tests/test_choch_engine.py::TestCHOCHExecution::test_choch_bearish_basic_end_to_end_execution",
-    "tests/test_choch_engine.py::TestCHOCHExecution::test_wick_crossing_only_rejected",
-    "tests/test_choch_engine.py::TestCHOCHExecution::test_continuation_reset_clears_pending_choch",
-    "tests/test_choch_engine.py::TestCHOCHExecution::test_unresolved_same_close_diagnostic_and_downstream_non_publication",
-    "tests/test_choch_engine.py::TestCHOCHExecution::test_unresolved_containment_freezes_authoritative_state_across_later_candles",
-    "tests/test_iss_engine.py::TestISSEngineLifecycleExecution::test_iss_01_bearish_basic_end_to_end_execution",
-    "tests/test_iss_engine.py::TestISSEngineLifecycleExecution::test_iss_02_bullish_basic_end_to_end_execution",
-    "tests/test_iss_engine.py::TestISSEngineAPIAndSafety::test_isolated_tracking_only_distinct_from_continuation_cancellation",
-    "tests/test_iss_engine.py::TestISSEngineAPIAndSafety::test_synthetic_missing_evidence_isolated_tracking_progression_and_cancellation",
-    "tests/test_iss_dashboard_integration.py::TestISSDashboardInspectionPanel::test_inspection_panel_renders_iss_tables",
-    "tests/test_iss_dashboard_integration.py::TestISSDashboardChartRendering::test_chart_renders_iss_markers_and_zones",
-    "tests/test_tjl_coordinator.py::TestTJLCoordinator::test_bullish_basic_end_to_end_replay",
-    "tests/test_tjl_coordinator.py::TestTJLCoordinator::test_continuation_t1_retention_and_t2_pullback_replacement",
-    "tests/test_tjl_coordinator.py::TestTJLCoordinator::test_source_choch_invalidation_and_post_choch_gap",
-    "tests/test_tjl_dashboard_integration.py::TestTJLCandlestickChartOverlays::test_display_toggles_suppress_shapes_without_changing_calculation",
-    "tests/test_tjl_dashboard_integration.py::TestTJLProductionServiceLifecycleAndPresentation::test_chart_window_excluding_authoritative_source_candle",
-    "tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_all_16_scenarios_execute_through_presentation_builder_with_explicit_assertions",
-    "tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_bounded_history_display_and_total_count",
-    "tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_real_engine_lifecycle_reactivation_presentation",
-    "tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_same_run_successive_cancellation_sync_with_monotonic_sequences_and_error_preservation",
-    "tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_service_pipeline_execution_and_context_reset",
-    "tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_recalculation_in_session_a_cannot_reset_session_b",
-    "tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_application_boundary_session_initialization_and_refresh_retention",
-    "tests/test_activation_dashboard_fixture_integrity.py::TestActivationDashboardFixtureIntegrity::test_scenario_specific_assertion_contracts",
-]
 
-# Explicit documented gaps & negative validation findings
-UNRESOLVED_REFERENCES = [
-    {
-        "claimed_reference": "aladeen.strategy.engine.classify_levels",
-        "requirement": "MSM-02 Strong/Weak Level Classification",
-        "reason": "Function does not exist in codebase; strong/weak level classification is not defined in authoritative strategy acceptance contract (docs/requirements/msm-acceptance.md).",
-        "disposition": "UNRESOLVED / EXCLUDED FROM SCOPE"
-    },
-    {
-        "claimed_reference": "aladeen.data.mock_adapter.MockMT5Adapter",
-        "requirement": "MSM-04 Demo Data Mode",
-        "reason": "Module aladeen.data.mock_adapter does not exist; production demo mode uses aladeen.data.fixtures.load_fixture and MT5Adapter fallback; tests use tests.activation_browser_harness.ControllableActivationMockAdapter.",
-        "disposition": "RESOLVED TO ACTUAL CODEBASE ADAPTERS"
-    },
-    {
-        "claimed_reference": "aladeen.ui.iss_inspection",
-        "requirement": "ISS-04 Browser Inspection Component",
-        "reason": "Dedicated module aladeen.ui.iss_inspection does not exist; ISS inspection elements are constructed within aladeen.ui.market_coordinator and tested in tests/test_iss_dashboard_integration.py.",
-        "disposition": "RESOLVED TO MARKET_COORDINATOR"
-    },
-    {
-        "claimed_reference": "tests/test_activation_dashboard_fixture_integrity.py::test_fixture_13_unresolved_source_snapshot_matches_requirements",
-        "requirement": "ACT-SC13 Fixture Integrity Contract",
-        "reason": "Dedicated function does not exist; Scenario 13 fixture integrity is validated within the combined test_scenario_specific_assertion_contracts.",
-        "disposition": "RESOLVED TO COMBINED FIXTURE CONTRACT TEST"
-    }
-]
+def capture_command(cmd: List[str], cwd: Path) -> Tuple[int, str, str, float]:
+    """Execute command and return returncode, stdout, stderr, and elapsed duration."""
+    start_time = time.time()
+    proc = subprocess.run(
+        cmd,
+        cwd=str(cwd),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace"
+    )
+    duration = time.time() - start_time
+    return proc.returncode, proc.stdout, proc.stderr, duration
 
-def validate_all():
-    results = {
-        "symbols": [],
-        "pytest_nodes": [],
-        "unresolved_gaps": UNRESOLVED_REFERENCES
-    }
 
-    print("=== VALIDATING PYTHON MODULE SYMBOLS ===")
-    all_symbols_ok = True
-    for mod_name, sym_name, desc in MODULE_SYMBOLS:
+def parse_matrix_rows(matrix_file: Path) -> List[Dict[str, Any]]:
+    """Extract table rows from Section 2 of the audit matrix markdown."""
+    content = matrix_file.read_text(encoding="utf-8")
+    rows: List[Dict[str, Any]] = []
+
+    current_section = "Unknown"
+    for line in content.splitlines():
+        if line.startswith("### 2."):
+            current_section = line.strip("# ").strip()
+            continue
+        if line.startswith("## 3."):
+            break
+
+        if line.startswith("| **") and "|" in line:
+            cols = [col.strip() for col in line.split("|")[1:-1]]
+            if len(cols) >= 7:
+                req_match = re.match(r"\*\*([^*]+)\*\*", cols[0])
+                req_id = req_match.group(1).split(":")[0].strip() if req_match else cols[0]
+                rows.append({
+                    "section": current_section,
+                    "requirement": req_id,
+                    "requirement_full": cols[0],
+                    "implementation_raw": cols[1],
+                    "verification_raw": cols[2],
+                    "construction": cols[3],
+                    "environment": cols[4],
+                    "disposition": cols[5],
+                    "limitations": cols[6],
+                })
+    return rows
+
+
+def extract_code_spans(text: str) -> List[str]:
+    """Extract content inside backticks `...` from markdown text."""
+    return re.findall(r"`([^`]+)`", text)
+
+
+def run_pytest_collection(repo_root: Path, log_path: Path) -> Tuple[int, Set[str], str, str]:
+    """Execute pytest --collect-only and return exit code, exact collected node IDs, stdout, stderr."""
+    cmd = [sys.executable, "-m", "pytest", "--collect-only", "-q"]
+    rc, stdout, stderr, duration = capture_command(cmd, repo_root)
+
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(log_path, "w", encoding="utf-8") as f:
+        f.write("# Step: Pytest Collection\n")
+        f.write(f"# Command: {' '.join(cmd)}\n")
+        f.write(f"# Exit Code: {rc}\n")
+        f.write(f"# Duration: {duration:.2f}s\n\n")
+        f.write("=== STDOUT ===\n")
+        f.write(stdout)
+        if stderr:
+            f.write("\n=== STDERR ===\n")
+            f.write(stderr)
+
+    if rc != 0:
+        raise RuntimeError(f"Pytest collection failed with exit code {rc}!\nSTDERR:\n{stderr}")
+
+    collected_nodes: Set[str] = set()
+    for line in stdout.splitlines():
+        line = line.strip()
+        # Collect lines containing test nodes (format: path/to/file.py::Class::func or path/to/file.py::func)
+        if "::" in line and not line.startswith("=") and not line.startswith("collected"):
+            # Handle possible parametrization or suffixes
+            node_id = line.split(" ")[0].strip()
+            collected_nodes.add(node_id)
+
+    return rc, collected_nodes, stdout, stderr
+
+
+def validate_symbol(symbol_ref: str) -> Tuple[str, bool, str]:
+    """Verify whether a symbol reference exists via dynamic reflection.
+
+    Returns:
+        (status_string, is_valid, description)
+    """
+    # Clean ref
+    clean_ref = symbol_ref.strip()
+
+    # Exclude non-Python symbols (e.g. UI IDs, specifications, None)
+    if (
+        clean_ref.startswith("#")
+        or clean_ref.startswith("http")
+        or " " in clean_ref
+        or clean_ref in {"None", "Deferred", "dash_act_13_unresolved_source_snapshot", "window.name"}
+        or clean_ref.endswith(".png")
+    ):
+        return "NON_PYTHON_SPECIFICATION", True, "UI element / specification artifact"
+
+    # Try importing directly as module
+    try:
+        mod = importlib.import_module(clean_ref)
+        return "MODULE_FOUND", True, f"Python module: {clean_ref}"
+    except ImportError:
+        pass
+
+    # Split into module and attribute
+    if "." in clean_ref:
+        mod_name, attr_name = clean_ref.rsplit(".", 1)
         try:
             mod = importlib.import_module(mod_name)
-            exists = hasattr(mod, sym_name)
-            status = "FOUND" if exists else "ATTRIBUTE_NOT_FOUND"
+            if hasattr(mod, attr_name):
+                return "SYMBOL_FOUND", True, f"Attribute {attr_name} in module {mod_name}"
+            else:
+                return "ATTRIBUTE_NOT_FOUND", False, f"Attribute {attr_name} not found in {mod_name}"
         except Exception as e:
-            status = f"IMPORT_ERROR: {e}"
-        if status != "FOUND":
-            all_symbols_ok = False
-        print(f"[{status}] {mod_name}.{sym_name} ({desc})")
-        results["symbols"].append({
-            "module": mod_name,
-            "symbol": sym_name,
-            "description": desc,
-            "status": status,
-            "verified": (status == "FOUND")
-        })
+            return f"IMPORT_ERROR: {e}", False, f"Failed importing {mod_name}"
 
-    print("\n=== VALIDATING PYTEST NODE IDS ===")
-    cmd = [sys.executable, "-m", "pytest", "--collect-only", "-q"]
-    proc = subprocess.run(cmd, cwd=str(REPO_ROOT), capture_output=True, text=True, encoding="utf-8")
-    collected_text = proc.stdout
+    return "UNRESOLVED_SYMBOL", False, f"Could not resolve symbol {clean_ref}"
 
-    all_nodes_ok = True
-    for node in PYTEST_NODE_IDS:
-        func_name = node.split("::")[-1]
-        file_path = node.split("::")[0]
-        verified = (node in collected_text) or (func_name in collected_text and file_path in collected_text)
-        status = "COLLECTED" if verified else "NOT_FOUND"
-        if not verified:
-            all_nodes_ok = False
-        print(f"[{status}] {node}")
-        results["pytest_nodes"].append({
-            "node_id": node,
-            "status": status,
-            "verified": verified
-        })
 
-    output_dir = REPO_ROOT / "docs" / "development" / "evidence" / "reproduction_m29"
-    output_dir.mkdir(parents=True, exist_ok=True)
-    json_path = output_dir / "reference_validation.json"
+def run_negative_controls(collected_nodes: Set[str]) -> Dict[str, Any]:
+    """Execute negative controls to prove validator strictly rejects nonexistent or wrong nodes."""
+    controls_results = {}
+
+    # Negative Control 1: Wrong class name on existing test file and function
+    wrong_class_node = "tests/test_msm_engine.py::NonexistentWrongClass::test_msm_01_upward_standard"
+    stat1, val1 = validate_verification_reference(wrong_class_node, collected_nodes)
+    assert not val1, "Negative Control 1 failed: wrong-class node falsely accepted!"
+    controls_results["wrong_class_node_rejected"] = {
+        "reference": wrong_class_node,
+        "status": stat1,
+        "rejected": True,
+        "detail": "Confirmed that wrong-class qualified node is strictly rejected."
+    }
+
+    # Negative Control 2: Nonexistent test function on valid class
+    missing_func_node = "tests/test_msm_engine.py::TestMSMAcceptanceFixtures::test_fictitious_nonexistent_case"
+    stat2, val2 = validate_verification_reference(missing_func_node, collected_nodes)
+    assert not val2, "Negative Control 2 failed: missing-function node falsely accepted!"
+    controls_results["nonexistent_func_rejected"] = {
+        "reference": missing_func_node,
+        "status": stat2,
+        "rejected": True,
+        "detail": "Confirmed that fictitious test function is strictly rejected."
+    }
+
+    # Negative Control 3: Nonexistent browser runner verification function
+    missing_browser_fn = "tests/test_activation_browser_controlled.py::verify_completely_fictitious_helper"
+    stat3, val3 = validate_verification_reference(missing_browser_fn, collected_nodes)
+    assert not val3, "Negative Control 3 failed: fictitious browser helper accepted!"
+    controls_results["nonexistent_browser_helper_rejected"] = {
+        "reference": missing_browser_fn,
+        "status": stat3,
+        "rejected": True,
+        "detail": "Confirmed that fictitious browser helper is strictly rejected."
+    }
+
+    # Negative Control 4: Nonexistent module symbol
+    nonexistent_sym = "aladeen.strategy.engine.classify_levels"
+    stat4, is_val4, _ = validate_symbol(nonexistent_sym)
+    assert not is_val4, "Negative Control 4 failed: nonexistent symbol was accepted!"
+    controls_results["nonexistent_symbol_rejected"] = {
+        "symbol": nonexistent_sym,
+        "status": stat4,
+        "rejected": True,
+        "detail": "Confirmed that nonexistent strategy.engine.classify_levels is properly rejected."
+    }
+
+    # Negative Control 5: Collection error detection
+    bad_cmd = [sys.executable, "-m", "pytest", "--collect-only", "-q", "nonexistent_directory_for_test/"]
+    bad_rc, _, bad_err, _ = capture_command(bad_cmd, REPO_ROOT)
+    assert bad_rc != 0, "Negative Control 5 failed: pytest did not fail on nonexistent directory!"
+    controls_results["collection_error_detection"] = {
+        "exit_code": bad_rc,
+        "detected": True,
+        "detail": "Confirmed that nonzero collection exit code is detected."
+    }
+
+    return controls_results
+
+
+def validate_verification_reference(span: str, collected_nodes: Set[str]) -> Tuple[str, bool]:
+    """Validate a verification path reference against collected pytest nodes or browser runner functions.
+
+    Returns:
+        (status_string, is_valid)
+    """
+    clean_span = span.strip()
+
+    # 1. Exact match in pytest collected nodes
+    if clean_span in collected_nodes:
+        return "COLLECTED_EXACT_MATCH", True
+
+    # 2. Check if it's a test file reference
+    if clean_span.endswith(".py"):
+        file_path = REPO_ROOT / clean_span
+        if file_path.exists():
+            return "TEST_FILE_EXISTS", True
+        return "TEST_FILE_NOT_FOUND", False
+
+    # 3. Check if it's a browser runner verification function (file.py::func_name)
+    if "::" in clean_span and clean_span.startswith("tests/"):
+        parts = clean_span.split("::")
+        if len(parts) == 2:
+            file_part, fn_name = parts[0], parts[1]
+            mod_path = file_part.replace("/", ".").replace("\\", ".")
+            if mod_path.endswith(".py"):
+                mod_path = mod_path[:-3]
+            try:
+                mod = importlib.import_module(mod_path)
+                if hasattr(mod, fn_name):
+                    return "BROWSER_RUNNER_FUNCTION_FOUND", True
+                else:
+                    return "BROWSER_RUNNER_FUNCTION_NOT_FOUND", False
+            except Exception as e:
+                return f"IMPORT_ERROR: {e}", False
+
+    # 4. Fallback symbol check
+    stat, is_valid, _ = validate_symbol(clean_span)
+    if is_valid:
+        return stat, True
+
+    return "NODE_OR_FUNCTION_NOT_FOUND", False
+
+
+def main() -> None:
+    EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
+    collection_log_path = EVIDENCE_DIR / "pytest_collection.log"
+
+    print("=" * 80)
+    print("ALADEEN AUDIT MATRIX REFERENCE & PYTEST COLLECTION VALIDATOR")
+    print("=" * 80)
+
+    # 1. Environment Provenance
+    rc_rev, stdout_rev, _, _ = capture_command(["git", "rev-parse", "HEAD"], REPO_ROOT)
+    validation_checkout = stdout_rev.strip() if rc_rev == 0 else "UNKNOWN"
+    python_ver = f"{platform.python_implementation()} {platform.python_version()}"
+    os_info = f"{platform.system()} {platform.release()} {platform.machine()}"
+
+    print(f"Checkout Commit: {validation_checkout}")
+    print(f"Interpreter:     {sys.executable} ({python_ver})")
+    print(f"OS:              {os_info}")
+    print(f"Matrix Path:     {MATRIX_PATH}")
+
+    # 2. Pytest Collection
+    print("\n--- COLLECTING PYTEST NODES ---")
+    rc_coll, collected_nodes, stdout_coll, stderr_coll = run_pytest_collection(REPO_ROOT, collection_log_path)
+    print(f"Pytest Collection: SUCCESS (Collected {len(collected_nodes)} exact test nodes)")
+    print(f"Collection Log:    {collection_log_path.name}")
+
+    # 3. Negative Controls
+    print("\n--- RUNNING NEGATIVE CONTROLS ---")
+    negative_controls = run_negative_controls(collected_nodes)
+    for name, res in negative_controls.items():
+        print(f"   ✓ Negative Control [{name}]: PASS (Correctly Rejected)")
+
+    # 4. Extract Matrix Rows
+    print("\n--- EXTRACTING & VALIDATING MATRIX REFERENCES ---")
+    matrix_rows = parse_matrix_rows(MATRIX_PATH)
+    print(f"Extracted {len(matrix_rows)} requirement rows from audit matrix.")
+
+    validated_matrix_rows: List[Dict[str, Any]] = []
+    all_rows_valid = True
+
+    for row in matrix_rows:
+        req_id = row["requirement"]
+        row_symbols = []
+        row_pytest_nodes = []
+        row_unresolved_notes = []
+
+        # Parse implementation column spans
+        impl_spans = extract_code_spans(row["implementation_raw"])
+        for span in impl_spans:
+            # Handle special cases or multiple spans
+            stat, is_valid, desc = validate_symbol(span)
+            row_symbols.append({
+                "reference": span,
+                "column": "Implementation",
+                "status": stat,
+                "is_valid": is_valid,
+                "description": desc
+            })
+            if not is_valid:
+                # If row is explicitly Unresolved / Excluded, note that
+                if "Unresolved" in row["disposition"] or "Partial" in row["disposition"]:
+                    row_unresolved_notes.append(f"Expected unverified reference: {span} ({stat})")
+                else:
+                    all_rows_valid = False
+
+        # Parse verification column spans
+        verify_spans = extract_code_spans(row["verification_raw"])
+        for span in verify_spans:
+            # Check if this span is a pytest node or browser verification function
+            if ".py" in span or "::" in span:
+                node_stat, node_valid = validate_verification_reference(span, collected_nodes)
+                exact_match = (node_stat == "COLLECTED_EXACT_MATCH")
+                if not node_valid:
+                    if "Unresolved" in row["disposition"] or "Deferred" in row["disposition"]:
+                        row_unresolved_notes.append(f"Expected unverified reference: {span} ({node_stat})")
+                    else:
+                        all_rows_valid = False
+
+                row_pytest_nodes.append({
+                    "reference": span,
+                    "column": "Verification Path",
+                    "status": node_stat,
+                    "is_valid": node_valid,
+                    "exact_match": exact_match
+                })
+            else:
+                # Other symbol in verification (e.g. runner function or browser helper)
+                stat, is_valid, desc = validate_symbol(span)
+                row_symbols.append({
+                    "reference": span,
+                    "column": "Verification Path",
+                    "status": stat,
+                    "is_valid": is_valid,
+                    "description": desc
+                })
+                if not is_valid and "Unresolved" not in row["disposition"] and "Deferred" not in row["disposition"]:
+                    all_rows_valid = False
+
+        row_record = {
+            "section": row["section"],
+            "requirement": req_id,
+            "disposition": row["disposition"],
+            "construction": row["construction"],
+            "symbols": row_symbols,
+            "pytest_nodes": row_pytest_nodes,
+            "unresolved_notes": row_unresolved_notes,
+            "row_status": "VALIDATED" if not row_unresolved_notes and all(s["is_valid"] for s in row_symbols) and all(n["is_valid"] for n in row_pytest_nodes) else ("DOCUMENTED_GAP" if "Unresolved" in row["disposition"] or "Partial" in row["disposition"] else "INVALID")
+        }
+        validated_matrix_rows.append(row_record)
+
+        sym_summary = ", ".join(f"{s['reference']} ({s['status']})" for s in row_symbols)
+        node_summary = ", ".join(f"{n['reference']} ({n['status']})" for n in row_pytest_nodes)
+        print(f"[{row_record['row_status']:14}] {req_id:12} | Symbols: [{sym_summary or 'None'}] | Nodes: [{node_summary or 'None'}]")
+
+    # 5. Build Comprehensive Validation Report
+    report: Dict[str, Any] = {
+        "report_version": "2.0",
+        "milestone": "Milestone 29 — Read-Only Dashboard Release-Readiness Audit and Reproducible Offline Runbook",
+        "timestamp_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "validation_environment": {
+            "checkout_commit": validation_checkout,
+            "python_interpreter": sys.executable,
+            "python_version": python_ver,
+            "operating_system": os_info,
+            "matrix_source_file": str(MATRIX_PATH)
+        },
+        "pytest_collection_summary": {
+            "exit_code": rc_coll,
+            "total_nodes_collected": len(collected_nodes),
+            "collection_log": str(collection_log_path.name)
+        },
+        "negative_controls": negative_controls,
+        "matrix_rows_validated": validated_matrix_rows,
+        "aggregate_validation_verdict": "ALL_MATRIX_REFERENCES_VERIFIED_OR_DOCUMENTED_AS_GAPS" if all_rows_valid else "VALIDATION_FAILED"
+    }
+
+    # Write JSON report
+    json_path = EVIDENCE_DIR / "reference_validation.json"
     with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(results, f, indent=2)
+        json.dump(report, f, indent=2)
 
-    md_path = output_dir / "reference_validation.md"
+    # Write Markdown report
+    md_path = EVIDENCE_DIR / "reference_validation.md"
     with open(md_path, "w", encoding="utf-8") as f:
-        f.write("# Automated Reference Validation Artifact — Milestone 29\n\n")
-        f.write(f"Generated: 2026-11-06\nRepository Root: `{REPO_ROOT}`\n\n")
-        f.write(f"**Overall Symbol Validation**: {'ALL FOUND' if all_symbols_ok else 'DEFECTS DETECTED'}\n")
-        f.write(f"**Overall Pytest Node Validation**: {'ALL COLLECTED' if all_nodes_ok else 'DEFECTS DETECTED'}\n\n")
+        f.write("# Automated Matrix Reference & Pytest Collection Validation Report\n\n")
+        f.write(f"**Timestamp (UTC)**: `{report['timestamp_utc']}`  \n")
+        f.write(f"**Validation Checkout Commit**: `{validation_checkout}`  \n")
+        f.write(f"**Python Interpreter**: `{sys.executable}` (`{python_ver}`)  \n")
+        f.write(f"**Total Collected Test Nodes**: `{len(collected_nodes)}` (Exit Code: `{rc_coll}`)  \n")
+        f.write(f"**Aggregate Verdict**: **{report['aggregate_validation_verdict']}**  \n\n")
 
-        f.write("## 1. Verified Python Module Symbols\n\n")
-        f.write("| Module | Symbol | Description | Status |\n|---|---|---|---|\n")
-        for s in results["symbols"]:
-            f.write(f"| `{s['module']}` | `{s['symbol']}` | {s['description']} | **{s['status']}** |\n")
+        f.write("> [!IMPORTANT]\n")
+        f.write("> **Assertion-Level Review Distinction**:  \n")
+        f.write("> Existence checks establish that a referenced symbol or test node is real and present in the codebase. ")
+        f.write("They do **not** independently prove that the test's internal assertions satisfy the mapped strategy requirement. ")
+        f.write("Assertion validity is established by individual test inspection and recorded reproduction execution logs.\n\n")
 
-        f.write("\n## 2. Verified Pytest Node IDs\n\n")
-        f.write("| Pytest Node ID | Status |\n|---|---|\n")
-        for n in results["pytest_nodes"]:
-            f.write(f"| `{n['node_id']}` | **{n['status']}** |\n")
+        f.write("## 1. Negative Controls Summary\n\n")
+        f.write("| Control Name | Target Reference | Result | Details |\n")
+        f.write("|---|---|---|---|\n")
+        for k, v in negative_controls.items():
+            ref = v.get("node") or v.get("symbol") or f"Exit Code {v.get('exit_code')}"
+            f.write(f"| `{k}` | `{ref}` | **PASS (Correctly Rejected)** | {v.get('detail')} |\n")
+        f.write("\n")
 
-        f.write("\n## 3. Explicit Unresolved & Corrected References\n\n")
-        f.write("| Claimed Reference | Requirement | Recorded Status & Resolution |\n|---|---|---|\n")
-        for u in results["unresolved_gaps"]:
-            f.write(f"| `{u['claimed_reference']}` | {u['requirement']} | **{u['disposition']}**: {u['reason']} |\n")
+        f.write("## 2. Row-by-Row Matrix Reference Validation\n\n")
+        f.write("| Requirement | Section | Symbols Validated | Pytest Nodes Validated | Row Status |\n")
+        f.write("|---|---|---|---|---|\n")
+        for r in validated_matrix_rows:
+            syms_str = "<br>".join(f"`{s['reference']}`: **{s['status']}**" for s in r["symbols"]) or "—"
+            nodes_str = "<br>".join(f"`{n['reference']}`: **{n['status']}**" for n in r["pytest_nodes"]) or "—"
+            f.write(f"| **{r['requirement']}** | {r['section']} | {syms_str} | {nodes_str} | **{r['row_status']}** |\n")
 
-    print(f"\nGenerated reference validation artifacts:\n- {json_path}\n- {md_path}")
-    assert all_symbols_ok, "Some symbols were not found!"
-    assert all_nodes_ok, "Some pytest nodes were not collected!"
-    print("ALL SYMBOLS AND PYTEST NODES VERIFIED 100%!")
+        f.write("\n## 3. Explicit Documented Gaps & Unresolved Dispositions\n\n")
+        for r in validated_matrix_rows:
+            if r["row_status"] == "DOCUMENTED_GAP":
+                f.write(f"- **{r['requirement']}** ({r['disposition']}):\n")
+                for note in r["unresolved_notes"]:
+                    f.write(f"  * {note}\n")
+
+    print("\n" + "=" * 80)
+    print(f"REFERENCE VALIDATION COMPLETED: {report['aggregate_validation_verdict']}")
+    print(f"Artifacts written to:\n- {json_path}\n- {md_path}")
+    print("=" * 80)
+
 
 if __name__ == "__main__":
-    validate_all()
+    main()

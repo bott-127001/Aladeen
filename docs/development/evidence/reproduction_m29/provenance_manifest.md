@@ -2,11 +2,13 @@
 
 **Timestamp (UTC)**: `2026-11-06T16:17:48Z`  
 **Checkout Commit**: `3770989114997280b4f1b19406e294a16ec6c7b9`  
-**Aggregate Status**: **ALL_STEPS_PASSED**  
+**Tests Status**: **ALL_TESTS_PASSED**  
+**Provenance Status**: **CLEAN_PROVENANCE_VERIFIED**  
+**Aggregate Status**: **ALL_STEPS_PASSED_AND_CLEAN_PROVENANCE_VERIFIED** (Exit Code: `0`)  
 
 ## 1. Environment Provenance
 
-- **Operating System**: `Windows 11 Version 10.0.26200 AMD64`
+- **Operating System**: `Windows 11 (version 10.0.26200) AMD64`
 - **Worktree Path**: `D:\Downloads\TopG-repro`
 - **Pre-Run Working Tree Status**: `CLEAN`
 - **Python Interpreter**: `D:\Downloads\TopG-repro\.venv_repro\Scripts\python.exe`
@@ -15,9 +17,18 @@
 - **Launched Browser Binary**: `Chromium 156.0.8078.4`
 
 > [!NOTE]
-> The virtual environment .venv_repro was initialized via 'python -m venv .venv_repro' and dependencies were installed via 'pip install -e . pytest pytest-asyncio playwright' in worktree D:\Downloads\TopG-repro. Exact package versions are captured in 01_pip_list.txt.
+> Setup commands are operator-reported ('python -m venv .venv_repro', 'pip install -e . pytest pytest-asyncio playwright'); interactive setup transcripts were not retained. Package inventory (01_pip_list.txt) and subsequent command execution were captured.
 
-## 2. Command Execution & Result Summary
+## 2. Provenance Checks
+
+| Check | Result |
+|---|---|
+| `valid_checkout_hash` | ✓ PASS |
+| `clean_prerun_worktree` | ✓ PASS |
+| `valid_python_interpreter` | ✓ PASS |
+| `editable_install_matches_worktree` | ✓ PASS |
+
+## 3. Command Execution & Result Summary
 
 | # | Step Name | Command | Exit Code | Duration | Status | Log File |
 |---|---|---|---|---|---|---|

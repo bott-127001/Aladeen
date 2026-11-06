@@ -4,7 +4,7 @@
 Milestone 29: Read-Only Dashboard Release-Readiness Audit and Reproducible Offline Runbook.
 Executes focused unit tests, full offline suite, and controlled browser runner,
 binding all results to an exact checkout, python interpreter, and package inventory.
-Fails closed with a nonzero exit code if any required step fails.
+Fails closed with a nonzero exit code if any required step or provenance check fails.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import platform
 import subprocess
 import sys
 import time
@@ -77,16 +78,107 @@ def run_step(
     }
 
 
-def test_failure_propagation() -> bool:
-    """Unit test verifying that an injected failing subprocess properly trips the failure gate."""
-    print("\n--- INJECTED FAILURE PROPAGATION TEST ---")
-    mock_steps = [
+def evaluate_reproduction_results(
+    provenance_checks: Dict[str, bool],
+    steps_records: List[Dict[str, Any]]
+) -> Tuple[str, str, str, int]:
+    """Evaluates test results and provenance completeness separately.
+
+    Returns:
+        (overall_status, tests_status, provenance_status, exit_code)
+    """
+    required_failed = any(s["exit_code"] != 0 and s.get("required", True) for s in steps_records)
+    tests_status = "ALL_TESTS_PASSED" if not required_failed else "REQUIRED_TESTS_FAILED"
+
+    prov_failed = any(not passed for passed in provenance_checks.values())
+    provenance_status = "CLEAN_PROVENANCE_VERIFIED" if not prov_failed else "PROVENANCE_INCOMPLETE_OR_DIRTY"
+
+    if not required_failed and not prov_failed:
+        overall_status = "ALL_STEPS_PASSED_AND_CLEAN_PROVENANCE_VERIFIED"
+        exit_code = 0
+    elif required_failed:
+        overall_status = "REQUIRED_STEP_FAILED"
+        exit_code = 1
+    else:
+        overall_status = "TESTS_PASSED_BUT_PROVENANCE_INCOMPLETE_OR_DIRTY"
+        exit_code = 1
+
+    return overall_status, tests_status, provenance_status, exit_code
+
+
+def test_failure_propagation(output_dir: Path) -> bool:
+    """Comprehensive test verifying evaluator, provenance gating, and CLI failure propagation."""
+    print("\n--- RUNNING INJECTED FAILURE PROPAGATION & CLI SUITE ---")
+    results = {}
+
+    clean_prov = {
+        "valid_checkout_hash": True,
+        "clean_prerun_worktree": True,
+        "valid_python_interpreter": True,
+        "editable_install_matches_worktree": True,
+    }
+
+    # Case 1: Required step failure produces nonzero status
+    steps_c1 = [
         {"name": "mock_success", "exit_code": 0, "required": True},
         {"name": "mock_failure", "exit_code": 2, "required": True},
     ]
-    has_failure = any(s["exit_code"] != 0 and s["required"] for s in mock_steps)
-    assert has_failure is True, "Gate failed to detect nonzero required step!"
-    print("   ✓ Failure propagation gate successfully traps nonzero return codes.")
+    st1, ts1, ps1, rc1 = evaluate_reproduction_results(clean_prov, steps_c1)
+    assert rc1 != 0 and st1 == "REQUIRED_STEP_FAILED" and ts1 == "REQUIRED_TESTS_FAILED", "Case 1 failed!"
+    results["case_1_required_step_failure"] = {"status": st1, "exit_code": rc1, "passed": True}
+    print("   ✓ Case 1: Injected required-step failure successfully produces nonzero exit code.")
+
+    # Case 2: Optional step failure passes overall gate per policy
+    steps_c2 = [
+        {"name": "mock_success", "exit_code": 0, "required": True},
+        {"name": "mock_optional_fail", "exit_code": 1, "required": False},
+    ]
+    st2, ts2, ps2, rc2 = evaluate_reproduction_results(clean_prov, steps_c2)
+    assert rc2 == 0 and st2 == "ALL_STEPS_PASSED_AND_CLEAN_PROVENANCE_VERIFIED", "Case 2 failed!"
+    results["case_2_optional_step_failure"] = {"status": st2, "exit_code": rc2, "passed": True}
+    print("   ✓ Case 2: Injected optional-step failure follows documented policy (exit code 0).")
+
+    # Case 3: Provenance dirty worktree failure prevents reproduction success even with passing tests
+    dirty_prov = dict(clean_prov)
+    dirty_prov["clean_prerun_worktree"] = False
+    steps_c3 = [{"name": "mock_success", "exit_code": 0, "required": True}]
+    st3, ts3, ps3, rc3 = evaluate_reproduction_results(dirty_prov, steps_c3)
+    assert rc3 != 0 and st3 == "TESTS_PASSED_BUT_PROVENANCE_INCOMPLETE_OR_DIRTY", "Case 3 failed!"
+    results["case_3_dirty_worktree_provenance_failure"] = {"status": st3, "exit_code": rc3, "passed": True}
+    print("   ✓ Case 3: Injected dirty worktree fails reproduction completeness gate (exit code 1).")
+
+    # Case 4: Provenance wrong editable install location prevents reproduction success
+    wrong_editable_prov = dict(clean_prov)
+    wrong_editable_prov["editable_install_matches_worktree"] = False
+    st4, ts4, ps4, rc4 = evaluate_reproduction_results(wrong_editable_prov, steps_c3)
+    assert rc4 != 0 and st4 == "TESTS_PASSED_BUT_PROVENANCE_INCOMPLETE_OR_DIRTY", "Case 4 failed!"
+    results["case_4_wrong_editable_path_failure"] = {"status": st4, "exit_code": rc4, "passed": True}
+    print("   ✓ Case 4: Injected mismatched editable install fails provenance gate (exit code 1).")
+
+    # Case 5: Subprocess CLI failure test against invalid worktree
+    cli_cmd = [
+        sys.executable,
+        str(Path(__file__).resolve()),
+        "--worktree", str(Path("C:/nonexistent_worktree_for_test")),
+        "--output-dir", str(output_dir / "test_scratch"),
+        "--skip-self-test"
+    ]
+    cli_rc, cli_stdout, cli_stderr, _ = capture_command(cli_cmd, Path.cwd())
+    assert cli_rc != 0, f"Expected CLI to exit nonzero on invalid worktree, got {cli_rc}!"
+    results["case_5_cli_subprocess_invalid_worktree"] = {"exit_code": cli_rc, "passed": True}
+    print(f"   ✓ Case 5: Real CLI subprocess execution against nonexistent worktree properly exited with code {cli_rc}.")
+
+    scratch_dir = output_dir / "test_scratch"
+    if scratch_dir.exists():
+        import shutil
+        shutil.rmtree(scratch_dir, ignore_errors=True)
+
+    # Retain failure injection test manifest
+    manifest_path = output_dir / "failure_injection_test_results.json"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        json.dump(results, f, indent=2)
+    print(f"   ✓ Retained failure test manifest: {manifest_path.name}")
     return True
 
 
@@ -113,7 +205,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--test-failure-gate",
         action="store_true",
-        help="Run failure propagation test before executing test suite"
+        help="Run failure propagation test suite before exiting"
+    )
+    parser.add_argument(
+        "--skip-self-test",
+        action="store_true",
+        help="Skip failure propagation self-test (internal use during subprocess testing)"
     )
     return parser.parse_args()
 
@@ -144,13 +241,14 @@ def main() -> None:
     print(f"Python:     {python_exe}")
     print(f"Output Dir: {output_dir}")
 
-    # Verify failure propagation gate
-    test_failure_propagation()
-    if args.test_failure_gate:
-        print("Failure gate verified successfully. Exiting per --test-failure-gate.")
-        sys.exit(0)
+    # Verify failure propagation gate and retained failure artifacts
+    if not args.skip_self_test:
+        test_failure_propagation(output_dir)
+        if args.test_failure_gate:
+            print("Failure propagation suite verified successfully. Exiting per --test-failure-gate.")
+            sys.exit(0)
 
-    # 1. Pre-Run Provenance Capture
+    # 1. Pre-Run Provenance Capture & Validation
     print("\n--- CAPTURING CHECKOUT & ENVIRONMENT PROVENANCE ---")
     rc_rev, stdout_rev, _, _ = capture_command(["git", "rev-parse", "HEAD"], worktree)
     checkout_hash = stdout_rev.strip() if rc_rev == 0 else "UNKNOWN"
@@ -167,10 +265,34 @@ def main() -> None:
         if line.startswith("Editable project location:"):
             editable_location = line.split(":", 1)[1].strip()
 
-    print(f"Checkout Commit:      {checkout_hash}")
-    print(f"Pre-Run Clean Status: {'CLEAN' if not pre_status else 'DIRTY (' + pre_status + ')'}")
+    # Dynamic platform inspection
+    detected_os = f"{platform.system()} {platform.release()} (version {platform.version()}) {platform.machine()}"
+
+    # Evaluate explicit provenance requirements
+    is_valid_hash = (rc_rev == 0 and len(checkout_hash) == 40 and all(c in "0123456789abcdef" for c in checkout_hash.lower()))
+    is_clean_worktree = (rc_stat == 0 and pre_status == "")
+    is_valid_interpreter = (rc_ver == 0 and python_version != "UNKNOWN")
+    try:
+        is_editable_match = (
+            rc_show == 0 and
+            editable_location != "UNKNOWN" and
+            Path(editable_location).resolve() == worktree.resolve()
+        )
+    except Exception:
+        is_editable_match = False
+
+    provenance_checks = {
+        "valid_checkout_hash": is_valid_hash,
+        "clean_prerun_worktree": is_clean_worktree,
+        "valid_python_interpreter": is_valid_interpreter,
+        "editable_install_matches_worktree": is_editable_match,
+    }
+
+    print(f"Checkout Commit:      {checkout_hash} (Valid: {is_valid_hash})")
+    print(f"Pre-Run Clean Status: {'CLEAN' if is_clean_worktree else 'DIRTY (' + pre_status + ')'}")
     print(f"Python Version:       {python_version}")
-    print(f"Editable Location:    {editable_location}")
+    print(f"Editable Location:    {editable_location} (Matches Worktree: {is_editable_match})")
+    print(f"Operating System:     {detected_os}")
 
     # Execution steps
     steps_records: List[Dict[str, Any]] = []
@@ -237,8 +359,8 @@ def main() -> None:
         )
     )
 
-    # Extract browser version from browser runner log if available
-    browser_version = "Chromium 156.0.8078.4 (v1248)"
+    # Extract browser version dynamically without hardcoded tested-looking default
+    browser_version = "UNKNOWN / NOT_OBSERVED"
     log_04 = output_dir / "04_browser_runner.log"
     if log_04.exists():
         with open(log_04, "r", encoding="utf-8") as f:
@@ -246,32 +368,41 @@ def main() -> None:
                 if "Browser launched:" in line:
                     browser_version = line.split("Browser launched:", 1)[1].strip()
 
-    # Aggregate result evaluation
-    any_failures = any(s["exit_code"] != 0 and s["required"] for s in steps_records)
-    aggregate_status = "ALL_STEPS_PASSED" if not any_failures else "REQUIRED_STEP_FAILED"
+    # Aggregate result evaluation (separating tests from provenance)
+    overall_status, tests_status, prov_status, exit_code = evaluate_reproduction_results(
+        provenance_checks, steps_records
+    )
 
     # Build provenance manifest
     manifest: Dict[str, Any] = {
-        "manifest_version": "1.0",
+        "manifest_version": "1.1",
         "milestone": "Milestone 29 — Read-Only Dashboard Release-Readiness Audit and Reproducible Offline Runbook",
         "timestamp_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "tested_environment": {
-            "operating_system": "Windows 11 Version 10.0.26200 AMD64",
+            "operating_system": detected_os,
             "worktree_path": str(worktree),
             "checkout_commit": checkout_hash,
-            "pre_run_clean_status": "CLEAN" if not pre_status else pre_status,
+            "pre_run_clean_status": "CLEAN" if is_clean_worktree else pre_status,
             "python_executable": str(python_exe),
             "python_version": python_version,
             "editable_project_location": editable_location,
             "browser_binary_launched": browser_version,
             "setup_provenance_note": (
-                "The virtual environment .venv_repro was initialized via 'python -m venv .venv_repro' "
-                "and dependencies were installed via 'pip install -e . pytest pytest-asyncio playwright' "
-                "in worktree D:\\Downloads\\TopG-repro. Exact package versions are captured in 01_pip_list.txt."
+                "Setup commands are operator-reported ('python -m venv .venv_repro', "
+                "'pip install -e . pytest pytest-asyncio playwright'); interactive setup transcripts "
+                "were not retained. Package inventory (01_pip_list.txt) and subsequent command execution were captured."
             )
         },
-        "aggregate_result": aggregate_status,
-        "steps": steps_records
+        "provenance_validation": {
+            "checks": provenance_checks,
+            "status": prov_status
+        },
+        "tests_execution": {
+            "status": tests_status,
+            "steps": steps_records
+        },
+        "aggregate_result": overall_status,
+        "exit_code": exit_code
     }
 
     # Write manifest files
@@ -284,7 +415,9 @@ def main() -> None:
         f.write("# Durable Reproduction Provenance Manifest — Milestone 29\n\n")
         f.write(f"**Timestamp (UTC)**: `{manifest['timestamp_utc']}`  \n")
         f.write(f"**Checkout Commit**: `{manifest['tested_environment']['checkout_commit']}`  \n")
-        f.write(f"**Aggregate Status**: **{manifest['aggregate_result']}**  \n\n")
+        f.write(f"**Tests Status**: **{manifest['tests_execution']['status']}**  \n")
+        f.write(f"**Provenance Status**: **{manifest['provenance_validation']['status']}**  \n")
+        f.write(f"**Aggregate Status**: **{manifest['aggregate_result']}** (Exit Code: `{exit_code}`)  \n\n")
 
         f.write("## 1. Environment Provenance\n\n")
         f.write(f"- **Operating System**: `{manifest['tested_environment']['operating_system']}`\n")
@@ -296,26 +429,35 @@ def main() -> None:
         f.write(f"- **Launched Browser Binary**: `{manifest['tested_environment']['browser_binary_launched']}`\n\n")
         f.write(f"> [!NOTE]\n> {manifest['tested_environment']['setup_provenance_note']}\n\n")
 
-        f.write("## 2. Command Execution & Result Summary\n\n")
+        f.write("## 2. Provenance Checks\n\n")
+        f.write("| Check | Result |\n")
+        f.write("|---|---|\n")
+        for k, v in provenance_checks.items():
+            f.write(f"| `{k}` | {'✓ PASS' if v else '✗ FAIL'} |\n")
+        f.write("\n")
+
+        f.write("## 3. Command Execution & Result Summary\n\n")
         f.write("| # | Step Name | Command | Exit Code | Duration | Status | Log File |\n")
         f.write("|---|---|---|---|---|---|---|\n")
-        for i, s in enumerate(manifest["steps"], 1):
+        for i, s in enumerate(manifest["tests_execution"]["steps"], 1):
             cmd_str = " ".join(s["command"])
             if len(cmd_str) > 60:
                 cmd_str = cmd_str[:57] + "..."
             f.write(f"| {i} | {s['name']} | `{cmd_str}` | `{s['exit_code']}` | {s['duration_seconds']}s | **{s['status']}** | [`{s['log_file']}`]({s['log_file']}) |\n")
 
     print("\n" + "=" * 80)
-    print(f"REPRODUCTION COMPLETED: {aggregate_status}")
+    print(f"REPRODUCTION EVALUATION COMPLETED: {overall_status} (Exit Code: {exit_code})")
+    print(f"Tests:      {tests_status}")
+    print(f"Provenance: {prov_status}")
     print(f"Manifest written to:\n- {manifest_json_path}\n- {manifest_md_path}")
     print("=" * 80)
 
-    # Fail closed if any required step failed
-    if any_failures:
-        print("\n[ERROR] One or more required reproduction steps failed! Exiting with code 1.")
-        sys.exit(1)
+    # Fail closed if any required step or provenance check failed
+    if exit_code != 0:
+        print(f"\n[ERROR] Reproduction gate tripped! Overall status: {overall_status}. Exiting with code {exit_code}.")
+        sys.exit(exit_code)
 
-    print("\nAll required reproduction steps succeeded. Exiting with code 0.")
+    print("\nAll required reproduction steps and provenance checks succeeded. Exiting with code 0.")
     sys.exit(0)
 
 
