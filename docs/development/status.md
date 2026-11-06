@@ -2699,3 +2699,37 @@ Last Updated: 2026-11-06 (Milestone 29 Release-Readiness Audit & Offline Runbook
   - Zero order execution, zero MT5 trading, zero live account modification, zero arbitration, zero usage ledger writes, zero final signal publication.
   - Core strategy engines (`msm_engine.py`, `choch_detector.py`, `iss_engine.py`, `tjl_coordinator.py`, `activation_engine.py`, `activation_adapter.py`) remain 100% untouched (0 diff against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`).
   - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
+
+
+---
+
+## 45. Milestone 32 — Offline Source-to-Candidate Integration Requirements & Acceptance Contract (HANDOFF-099)
+- **Active Branch**: `feature/confirmation-monitor`
+- **Parent Commit**: `083d8df43c71ed0a56c6b020178dbdfdd3bf23d0` (HANDOFF-098 / Milestone 31 Accepted Baseline)
+- **Deliverables Completed**:
+  1. *Offline Source-to-Candidate Integration Specification*:
+     - Created `docs/requirements/offline-source-to-candidate-integration.md` defining the end-to-end integration contract connecting accepted source structural levels, activation records, continuous confirmation detection, authoritative stream envelopes, and offline candidate matching.
+  2. *Strict Authority Origins & Fail-Closed Boundaries*:
+     - Designated single source of truth for all authority domains: member resolution (`MatchingContext.source_resolution_status`, strict bools only), usage status (`SourceMemberReference.usage_evidence_status`), snapshot coverage (`CoverageStatus.COMPLETE`), touch observation (`first_touch_time`, `trigger_observation_id`), member eligibility causality (`first_touch_time >= eligibility_available_time`), candle-time authority (`confirming_candle.close_time == confirmation_time`), stream and sequence domain binding (`ValidatedCandleStreamEnvelope`), and evaluation time horizon (`evaluation_time`).
+  3. *Deterministic Lifecycle Rules*:
+     - Specified exact deterministic behavior across five operational scenarios: TJL level replacement, structural invalidation (main CHOCH), rearm lifecycle and generation tracking, repeated snapshots/idempotency, and unresolved multi-candle pullback ambiguity.
+  4. *Four Segregated Fixture Categories*:
+     - Category 1: Genuine candle-derived source and confirmation integration.
+     - Category 2: Exact-print-driven activation lifecycle.
+     - Category 3: Synthetic typed contract tests.
+     - Category 4: Unresolved or unsupported paths (fail-closed boundaries).
+  5. *Decisive Acceptance Assertions*:
+     - No candidate before member availability.
+     - No candidate before confirmation completion.
+     - No candidate reuse across invalidated generations.
+     - Deterministic repeated evaluation and permutation invariance.
+     - Zero mutation of accepted engine inputs.
+  6. *Explicit Upstream Boundaries & Non-Heuristics*:
+     - Explicitly cataloged upstream gaps without heuristics: automated cross-timeframe streaming coordination, arbitration across competing timeframes, automated multi-candle pullback structural resolution, and live MT5 broker communication.
+- **Verification Summary**:
+  - Full offline repository test suite: **643/643 passed in 8.22s**.
+- **Safety Boundary Maintained**:
+  - Specification and contract deliverables only. Zero runtime code altered.
+  - Zero order execution, zero MT5 trading, zero live account modification, zero arbitration, zero usage ledger writes, zero final signal publication.
+  - Core strategy engines (`msm_engine.py`, `choch_detector.py`, `iss_engine.py`, `tjl_coordinator.py`, `activation_engine.py`, `activation_adapter.py`) remain 100% untouched (0 diff against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`).
+  - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
