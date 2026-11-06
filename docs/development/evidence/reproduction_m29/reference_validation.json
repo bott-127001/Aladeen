@@ -1,0 +1,405 @@
+{
+  "symbols": [
+    {
+      "module": "aladeen.strategy.engine",
+      "symbol": "MSMEngine",
+      "description": "MSM strategy engine class",
+      "status": "FOUND",
+      "verified": true
+    },
+    {
+      "module": "aladeen.ui.chart",
+      "symbol": "create_candlestick_chart",
+      "description": "Plotly candlestick chart builder",
+      "status": "FOUND",
+      "verified": true
+    },
+    {
+      "module": "aladeen.ui.chart",
+      "symbol": "create_empty_chart",
+      "description": "Plotly empty chart fallback",
+      "status": "FOUND",
+      "verified": true
+    },
+    {
+      "module": "aladeen.data.fixtures",
+      "symbol": "load_fixture",
+      "description": "Offline demo candle data loader",
+      "status": "FOUND",
+      "verified": true
+    },
+    {
+      "module": "aladeen.data.mt5_adapter",
+      "symbol": "MT5Adapter",
+      "description": "MT5 adapter with demo fallback",
+      "status": "FOUND",
+      "verified": true
+    },
+    {
+      "module": "aladeen.strategy.choch_detector",
+      "symbol": "ChochDetector",
+      "description": "CHOCH detector class",
+      "status": "FOUND",
+      "verified": true
+    },
+    {
+      "module": "aladeen.strategy.coordinator",
+      "symbol": "MSMChochCoordinator",
+      "description": "MSM and CHOCH coordinator class",
+      "status": "FOUND",
+      "verified": true
+    },
+    {
+      "module": "aladeen.strategy.iss_engine",
+      "symbol": "ISSEngine",
+      "description": "ISS strategy engine class",
+      "status": "FOUND",
+      "verified": true
+    },
+    {
+      "module": "aladeen.ui.market_coordinator",
+      "symbol": "generate_chart_and_status_from_snapshot",
+      "description": "Market coordinator handling MSM/CHOCH/ISS modes",
+      "status": "FOUND",
+      "verified": true
+    },
+    {
+      "module": "aladeen.strategy.tjl_coordinator",
+      "symbol": "TJLCoordinator",
+      "description": "TJL coordinator class",
+      "status": "FOUND",
+      "verified": true
+    },
+    {
+      "module": "aladeen.ui.tjl_chart",
+      "symbol": "apply_tjl_overlays",
+      "description": "TJL chart overlay function",
+      "status": "FOUND",
+      "verified": true
+    },
+    {
+      "module": "aladeen.ui.tjl_chart",
+      "symbol": "resolve_authoritative_endpoint",
+      "description": "TJL endpoint resolution function",
+      "status": "FOUND",
+      "verified": true
+    },
+    {
+      "module": "aladeen.ui.tjl_inspection",
+      "symbol": "build_tjl_inspection_elements",
+      "description": "TJL inspection UI builder",
+      "status": "FOUND",
+      "verified": true
+    },
+    {
+      "module": "aladeen.ui.activation_inspection",
+      "symbol": "build_activation_inspection_elements",
+      "description": "Activation inspection UI builder",
+      "status": "FOUND",
+      "verified": true
+    },
+    {
+      "module": "aladeen.strategy.activation_engine",
+      "symbol": "ActivationEngine",
+      "description": "Activation engine class",
+      "status": "FOUND",
+      "verified": true
+    },
+    {
+      "module": "aladeen.strategy.service",
+      "symbol": "ActivationSessionRegistry",
+      "description": "Activation in-memory session registry",
+      "status": "FOUND",
+      "verified": true
+    },
+    {
+      "module": "aladeen.strategy.service",
+      "symbol": "ActivationSessionCoordinator",
+      "description": "Activation session coordinator",
+      "status": "FOUND",
+      "verified": true
+    },
+    {
+      "module": "aladeen.strategy.activation_types",
+      "symbol": "TIMEFRAME_CONFIRMATION_MAP",
+      "description": "Timeframe confirmation metadata map",
+      "status": "FOUND",
+      "verified": true
+    },
+    {
+      "module": "tests.activation_browser_runner",
+      "symbol": "run_activation_browser_validation",
+      "description": "Controlled browser runner entry point",
+      "status": "FOUND",
+      "verified": true
+    },
+    {
+      "module": "tests.test_activation_browser_controlled",
+      "symbol": "verify_section_a_mounting_and_viewport",
+      "description": "Browser Section A verification",
+      "status": "FOUND",
+      "verified": true
+    },
+    {
+      "module": "tests.test_activation_browser_controlled",
+      "symbol": "verify_section_b_session_isolation",
+      "description": "Browser Section B verification",
+      "status": "FOUND",
+      "verified": true
+    },
+    {
+      "module": "tests.test_activation_browser_controlled",
+      "symbol": "verify_section_c_lifecycle_scenarios",
+      "description": "Browser Section C verification",
+      "status": "FOUND",
+      "verified": true
+    },
+    {
+      "module": "tests.activation_browser_harness",
+      "symbol": "verify_isolation_guards_negative_controls",
+      "description": "Browser negative controls",
+      "status": "FOUND",
+      "verified": true
+    },
+    {
+      "module": "tests.activation_browser_harness",
+      "symbol": "verify_server_lifecycle_failure_injection",
+      "description": "Server lifecycle failure injection",
+      "status": "FOUND",
+      "verified": true
+    },
+    {
+      "module": "tests.activation_browser_harness",
+      "symbol": "ControlledServerHandle",
+      "description": "Controlled server lifecycle handle",
+      "status": "FOUND",
+      "verified": true
+    },
+    {
+      "module": "tests.activation_browser_harness",
+      "symbol": "ContextSecurityFirewall",
+      "description": "Playwright routed origin firewall",
+      "status": "FOUND",
+      "verified": true
+    },
+    {
+      "module": "tests.activation_browser_harness",
+      "symbol": "install_server_socket_guard",
+      "description": "Server socket monkeypatch guard",
+      "status": "FOUND",
+      "verified": true
+    },
+    {
+      "module": "tests.activation_browser_harness",
+      "symbol": "ControllableActivationMockAdapter",
+      "description": "Controllable mock adapter with spy",
+      "status": "FOUND",
+      "verified": true
+    },
+    {
+      "module": "tests.activation_browser_harness",
+      "symbol": "_create_fixture_harness_app",
+      "description": "Fixture harness app builder",
+      "status": "FOUND",
+      "verified": true
+    }
+  ],
+  "pytest_nodes": [
+    {
+      "node_id": "tests/test_msm_engine.py::TestMSMAcceptanceFixtures::test_msm_01_upward_standard",
+      "status": "COLLECTED",
+      "verified": true
+    },
+    {
+      "node_id": "tests/test_msm_engine.py::TestMSMAcceptanceFixtures::test_msm_02_downward_standard",
+      "status": "COLLECTED",
+      "verified": true
+    },
+    {
+      "node_id": "tests/test_msm_engine.py::TestMSMAcceptanceFixtures::test_msm_03_strict_equality_failures",
+      "status": "COLLECTED",
+      "verified": true
+    },
+    {
+      "node_id": "tests/test_msm_engine.py::TestMSMAcceptanceFixtures::test_msm_07_forming_bar_exclusion",
+      "status": "COLLECTED",
+      "verified": true
+    },
+    {
+      "node_id": "tests/test_msm_engine.py::TestMSMAcceptanceFixtures::test_msm_12_two_pairs_and_trend_status",
+      "status": "COLLECTED",
+      "verified": true
+    },
+    {
+      "node_id": "tests/test_msm_engine.py::TestMSMAcceptanceFixtures::test_msm_14_prefix_consistency_and_replay",
+      "status": "COLLECTED",
+      "verified": true
+    },
+    {
+      "node_id": "tests/test_chart.py::TestCandlestickChart::test_creates_figure_from_h4",
+      "status": "COLLECTED",
+      "verified": true
+    },
+    {
+      "node_id": "tests/test_app.py::TestAppConstruction::test_no_mt5_import_required",
+      "status": "COLLECTED",
+      "verified": true
+    },
+    {
+      "node_id": "tests/test_app.py::TestModeIsolationAndFallbackRejection::test_demo_mode_unaffected_by_mt5",
+      "status": "COLLECTED",
+      "verified": true
+    },
+    {
+      "node_id": "tests/test_choch_engine.py::TestCHOCHExecution::test_choch_bullish_basic_end_to_end_execution",
+      "status": "COLLECTED",
+      "verified": true
+    },
+    {
+      "node_id": "tests/test_choch_engine.py::TestCHOCHExecution::test_choch_bearish_basic_end_to_end_execution",
+      "status": "COLLECTED",
+      "verified": true
+    },
+    {
+      "node_id": "tests/test_choch_engine.py::TestCHOCHExecution::test_wick_crossing_only_rejected",
+      "status": "COLLECTED",
+      "verified": true
+    },
+    {
+      "node_id": "tests/test_choch_engine.py::TestCHOCHExecution::test_continuation_reset_clears_pending_choch",
+      "status": "COLLECTED",
+      "verified": true
+    },
+    {
+      "node_id": "tests/test_choch_engine.py::TestCHOCHExecution::test_unresolved_same_close_diagnostic_and_downstream_non_publication",
+      "status": "COLLECTED",
+      "verified": true
+    },
+    {
+      "node_id": "tests/test_choch_engine.py::TestCHOCHExecution::test_unresolved_containment_freezes_authoritative_state_across_later_candles",
+      "status": "COLLECTED",
+      "verified": true
+    },
+    {
+      "node_id": "tests/test_iss_engine.py::TestISSEngineLifecycleExecution::test_iss_01_bearish_basic_end_to_end_execution",
+      "status": "COLLECTED",
+      "verified": true
+    },
+    {
+      "node_id": "tests/test_iss_engine.py::TestISSEngineLifecycleExecution::test_iss_02_bullish_basic_end_to_end_execution",
+      "status": "COLLECTED",
+      "verified": true
+    },
+    {
+      "node_id": "tests/test_iss_engine.py::TestISSEngineAPIAndSafety::test_isolated_tracking_only_distinct_from_continuation_cancellation",
+      "status": "COLLECTED",
+      "verified": true
+    },
+    {
+      "node_id": "tests/test_iss_engine.py::TestISSEngineAPIAndSafety::test_synthetic_missing_evidence_isolated_tracking_progression_and_cancellation",
+      "status": "COLLECTED",
+      "verified": true
+    },
+    {
+      "node_id": "tests/test_iss_dashboard_integration.py::TestISSDashboardInspectionPanel::test_inspection_panel_renders_iss_tables",
+      "status": "COLLECTED",
+      "verified": true
+    },
+    {
+      "node_id": "tests/test_iss_dashboard_integration.py::TestISSDashboardChartRendering::test_chart_renders_iss_markers_and_zones",
+      "status": "COLLECTED",
+      "verified": true
+    },
+    {
+      "node_id": "tests/test_tjl_coordinator.py::TestTJLCoordinator::test_bullish_basic_end_to_end_replay",
+      "status": "COLLECTED",
+      "verified": true
+    },
+    {
+      "node_id": "tests/test_tjl_coordinator.py::TestTJLCoordinator::test_continuation_t1_retention_and_t2_pullback_replacement",
+      "status": "COLLECTED",
+      "verified": true
+    },
+    {
+      "node_id": "tests/test_tjl_coordinator.py::TestTJLCoordinator::test_source_choch_invalidation_and_post_choch_gap",
+      "status": "COLLECTED",
+      "verified": true
+    },
+    {
+      "node_id": "tests/test_tjl_dashboard_integration.py::TestTJLCandlestickChartOverlays::test_display_toggles_suppress_shapes_without_changing_calculation",
+      "status": "COLLECTED",
+      "verified": true
+    },
+    {
+      "node_id": "tests/test_tjl_dashboard_integration.py::TestTJLProductionServiceLifecycleAndPresentation::test_chart_window_excluding_authoritative_source_candle",
+      "status": "COLLECTED",
+      "verified": true
+    },
+    {
+      "node_id": "tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_all_16_scenarios_execute_through_presentation_builder_with_explicit_assertions",
+      "status": "COLLECTED",
+      "verified": true
+    },
+    {
+      "node_id": "tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_bounded_history_display_and_total_count",
+      "status": "COLLECTED",
+      "verified": true
+    },
+    {
+      "node_id": "tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_real_engine_lifecycle_reactivation_presentation",
+      "status": "COLLECTED",
+      "verified": true
+    },
+    {
+      "node_id": "tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_same_run_successive_cancellation_sync_with_monotonic_sequences_and_error_preservation",
+      "status": "COLLECTED",
+      "verified": true
+    },
+    {
+      "node_id": "tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_service_pipeline_execution_and_context_reset",
+      "status": "COLLECTED",
+      "verified": true
+    },
+    {
+      "node_id": "tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_recalculation_in_session_a_cannot_reset_session_b",
+      "status": "COLLECTED",
+      "verified": true
+    },
+    {
+      "node_id": "tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_application_boundary_session_initialization_and_refresh_retention",
+      "status": "COLLECTED",
+      "verified": true
+    },
+    {
+      "node_id": "tests/test_activation_dashboard_fixture_integrity.py::TestActivationDashboardFixtureIntegrity::test_scenario_specific_assertion_contracts",
+      "status": "COLLECTED",
+      "verified": true
+    }
+  ],
+  "unresolved_gaps": [
+    {
+      "claimed_reference": "aladeen.strategy.engine.classify_levels",
+      "requirement": "MSM-02 Strong/Weak Level Classification",
+      "reason": "Function does not exist in codebase; strong/weak level classification is not defined in authoritative strategy acceptance contract (docs/requirements/msm-acceptance.md).",
+      "disposition": "UNRESOLVED / EXCLUDED FROM SCOPE"
+    },
+    {
+      "claimed_reference": "aladeen.data.mock_adapter.MockMT5Adapter",
+      "requirement": "MSM-04 Demo Data Mode",
+      "reason": "Module aladeen.data.mock_adapter does not exist; production demo mode uses aladeen.data.fixtures.load_fixture and MT5Adapter fallback; tests use tests.activation_browser_harness.ControllableActivationMockAdapter.",
+      "disposition": "RESOLVED TO ACTUAL CODEBASE ADAPTERS"
+    },
+    {
+      "claimed_reference": "aladeen.ui.iss_inspection",
+      "requirement": "ISS-04 Browser Inspection Component",
+      "reason": "Dedicated module aladeen.ui.iss_inspection does not exist; ISS inspection elements are constructed within aladeen.ui.market_coordinator and tested in tests/test_iss_dashboard_integration.py.",
+      "disposition": "RESOLVED TO MARKET_COORDINATOR"
+    },
+    {
+      "claimed_reference": "tests/test_activation_dashboard_fixture_integrity.py::test_fixture_13_unresolved_source_snapshot_matches_requirements",
+      "requirement": "ACT-SC13 Fixture Integrity Contract",
+      "reason": "Dedicated function does not exist; Scenario 13 fixture integrity is validated within the combined test_scenario_specific_assertion_contracts.",
+      "disposition": "RESOLVED TO COMBINED FIXTURE CONTRACT TEST"
+    }
+  ]
+}

@@ -1,7 +1,9 @@
+# Step: Focused Activation & App Tests
 # Command: D:\Downloads\TopG-repro\.venv_repro\Scripts\python.exe -m pytest tests/test_activation_dashboard_integration.py tests/test_app.py -v
 # Working Directory: D:\Downloads\TopG-repro
 # Exit Code: 0
-# Duration: 2.96s
+# Duration: 12.45s
+# Required Step: True
 
 === STDOUT ===
 ============================= test session starts =============================
@@ -61,7 +63,7 @@ tests/test_app.py::TestUIConsistencyAndStateSynchronization::test_steady_state_r
     @pytest.mark.tryfirst
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-======================== 38 passed, 1 warning in 1.61s ========================
+======================== 38 passed, 1 warning in 6.26s ========================
 
 === STDERR ===
 D:\Downloads\TopG-repro\.venv_repro\Lib\site-packages\pytest_asyncio\plugin.py:300: PytestDeprecationWarning: The configuration option "asyncio_default_fixture_loop_scope" is unset.

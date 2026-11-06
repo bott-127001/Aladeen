@@ -1,0 +1,99 @@
+{
+  "manifest_version": "1.0",
+  "milestone": "Milestone 29 \u2014 Read-Only Dashboard Release-Readiness Audit and Reproducible Offline Runbook",
+  "timestamp_utc": "2026-11-06T16:17:48Z",
+  "tested_environment": {
+    "operating_system": "Windows 11 Version 10.0.26200 AMD64",
+    "worktree_path": "D:\\Downloads\\TopG-repro",
+    "checkout_commit": "3770989114997280b4f1b19406e294a16ec6c7b9",
+    "pre_run_clean_status": "CLEAN",
+    "python_executable": "D:\\Downloads\\TopG-repro\\.venv_repro\\Scripts\\python.exe",
+    "python_version": "Python 3.13.12",
+    "editable_project_location": "D:\\Downloads\\TopG-repro",
+    "browser_binary_launched": "Chromium 156.0.8078.4",
+    "setup_provenance_note": "The virtual environment .venv_repro was initialized via 'python -m venv .venv_repro' and dependencies were installed via 'pip install -e . pytest pytest-asyncio playwright' in worktree D:\\Downloads\\TopG-repro. Exact package versions are captured in 01_pip_list.txt."
+  },
+  "aggregate_result": "ALL_STEPS_PASSED",
+  "steps": [
+    {
+      "name": "Package Inventory (pip list)",
+      "command": [
+        "D:\\Downloads\\TopG-repro\\.venv_repro\\Scripts\\python.exe",
+        "-m",
+        "pip",
+        "list"
+      ],
+      "working_directory": "D:\\Downloads\\TopG-repro",
+      "exit_code": 0,
+      "duration_seconds": 0.37,
+      "status": "PASSED",
+      "required": true,
+      "log_file": "01_pip_list.txt"
+    },
+    {
+      "name": "Focused Activation & App Tests",
+      "command": [
+        "D:\\Downloads\\TopG-repro\\.venv_repro\\Scripts\\python.exe",
+        "-m",
+        "pytest",
+        "tests/test_activation_dashboard_integration.py",
+        "tests/test_app.py",
+        "-v"
+      ],
+      "working_directory": "D:\\Downloads\\TopG-repro",
+      "exit_code": 0,
+      "duration_seconds": 12.45,
+      "status": "PASSED",
+      "required": true,
+      "log_file": "02_focused_tests.log"
+    },
+    {
+      "name": "Full Offline Repository Suite",
+      "command": [
+        "D:\\Downloads\\TopG-repro\\.venv_repro\\Scripts\\python.exe",
+        "-m",
+        "pytest",
+        "-q",
+        "tests/",
+        "--ignore=tests/test_tjl_browser_controlled.py",
+        "--ignore=tests/test_iss_browser_controlled.py",
+        "--ignore=tests/test_activation_browser_controlled.py",
+        "--ignore=tests/activation_browser_runner.py",
+        "--ignore=tests/activation_browser_harness.py"
+      ],
+      "working_directory": "D:\\Downloads\\TopG-repro",
+      "exit_code": 0,
+      "duration_seconds": 7.95,
+      "status": "PASSED",
+      "required": true,
+      "log_file": "03_full_offline_suite.log"
+    },
+    {
+      "name": "Controlled Activation Browser Runner",
+      "command": [
+        "D:\\Downloads\\TopG-repro\\.venv_repro\\Scripts\\python.exe",
+        "-u",
+        "tests/activation_browser_runner.py"
+      ],
+      "working_directory": "D:\\Downloads\\TopG-repro",
+      "exit_code": 0,
+      "duration_seconds": 35.73,
+      "status": "PASSED",
+      "required": true,
+      "log_file": "04_browser_runner.log"
+    },
+    {
+      "name": "Post-Run Git Status",
+      "command": [
+        "git",
+        "status"
+      ],
+      "working_directory": "D:\\Downloads\\TopG-repro",
+      "exit_code": 0,
+      "duration_seconds": 0.07,
+      "status": "PASSED",
+      "required": true,
+      "log_file": "05_git_status_post_browser_run.txt"
+    }
+  ]
+}

@@ -1,7 +1,9 @@
+# Step: Package Inventory (pip list)
 # Command: D:\Downloads\TopG-repro\.venv_repro\Scripts\python.exe -m pip list
 # Working Directory: D:\Downloads\TopG-repro
 # Exit Code: 0
-# Duration: 0.41s
+# Duration: 0.37s
+# Required Step: True
 
 === STDOUT ===
 Package            Version     Editable project location

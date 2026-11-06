@@ -1,7 +1,9 @@
+# Step: Post-Run Git Status
 # Command: git status
 # Working Directory: D:\Downloads\TopG-repro
 # Exit Code: 0
-# Duration: 0.12s
+# Duration: 0.07s
+# Required Step: True
 
 === STDOUT ===
 On branch repro-run

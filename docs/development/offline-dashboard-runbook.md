@@ -15,7 +15,7 @@ This runbook provides complete, executable, step-by-step instructions for any de
 ### 1.2 Non-Broker Safety Warning
 > [!IMPORTANT]
 > **SIMULATED / MOCK ENVIRONMENT ONLY**:  
-> In offline demo mode, the dashboard connects to `MockMT5Adapter` or `ControllableActivationMockAdapter`. Status badges displaying `CONNECTED_TO_BROKER` or symbols such as `DEMO_XAUUSD` indicate internal mock data streams. **They do not establish a connection to a real broker, terminal, or account.** Strictly zero order execution, trade placement, or balance modifications can occur.
+> In offline demo mode, the dashboard connects to synthetic fixture loaders (`aladeen.data.fixtures.load_fixture`) or `ControllableActivationMockAdapter`. Status badges displaying `CONNECTED_TO_BROKER` or symbols such as `DEMO_XAUUSD` indicate internal mock data streams. **They do not establish a connection to a real broker, terminal, or account.** Strictly zero order execution, trade placement, or balance modifications can occur.
 
 ---
 
@@ -27,7 +27,7 @@ This runbook provides complete, executable, step-by-step instructions for any de
 - **Operating System**: Windows 11 64-bit AMD64 (Native MT5 library requirement for live data mode; all offline demo, unit, integration, and browser validation suites are executed under Windows 11. Linux / macOS environments remain untested).
 - **Browser Automation Drivers & Binaries**:
   * Historical Accepted Baseline (Milestone 28): Python package `playwright==1.57.0` driving `Chromium 153.0.8010.12`.
-  * Clean Worktree Reproduction (Milestone 29): Python package `playwright==1.64.1` driving `Chrome for Testing 156.0.8078.4 (v1248)`.
+  * Clean Worktree Reproduction (Milestone 29): Python package `playwright==1.64.1` driving `Chromium 156.0.8078.4`.
 
 ### 2.2 Core Declared Dependencies (`pyproject.toml`)
 - `dash >= 2.14` (Verified: `4.5.0`)
@@ -85,7 +85,7 @@ python -c "from aladeen.app import create_app; app = create_app(); app.run(host=
 #### Actual Default Source-Selection Path:
 When `create_app()` is invoked without explicit adapter arguments, it queries MetaTrader 5 terminal connectivity:
 - If MT5 is installed, running, and successfully initialized, `MT5Adapter` is instantiated.
-- If MT5 is unavailable, fails connection, or the terminal is not running, `create_app()` safely falls back to `MockMT5Adapter` in demo mode, displaying `CONNECTED_TO_BROKER (DEMO)`.
+- If MT5 is unavailable, fails connection, or the terminal is not running, `create_app()` safely falls back to offline demo data mode using fixture data (`load_fixture`), displaying `CONNECTED_TO_BROKER (DEMO)`.
 
 ### 4.2 Launching with Controllable Mock Adapter
 To explicitly launch with the controllable test mock adapter (`ControllableActivationMockAdapter`), which generates synthetic offline data and spies on live broker invocations:
@@ -129,46 +129,106 @@ When accessing the running dashboard at `http://127.0.0.1:8068/`:
 
 ## 5. Executing the Test Suites & Clean Reproduction Records
 
-### 5.1 Durable Clean-Reproduction Record (Milestone 29)
-The following execution was performed and recorded in a clean worktree from checkout commit `3770989114997280b4f1b19406e294a16ec6c7b9`:
+### 5.1 Hardened Reproduction Runner Script (`scripts/run_reproduction_m29.py`)
+To ensure fully reproducible and verifiable execution, the reproduction suite is encapsulated in a fail-closed, parameterized CLI runner:
+
+```powershell
+# Default execution against retained reproduction worktree
+python scripts/run_reproduction_m29.py
+
+# Injected failure propagation gate verification
+python scripts/run_reproduction_m29.py --test-failure-gate
+
+# Parameterized paths for alternative environments
+python scripts/run_reproduction_m29.py --worktree <path_to_worktree> --python-exe <path_to_python> --output-dir <path_to_evidence>
+```
+
+#### Fail-Closed Architecture & Provenance Manifest:
+1. **Failure Propagation**: The runner monitors all step return codes and exits immediately with nonzero status (`sys.exit(1)`) if any required test or validation step fails. This is verified by an automated unit test `--test-failure-gate`.
+2. **Interpreter Pinning**: The selected reproduction virtual environment Python executable is strictly utilized for every command invocation.
+3. **Durable Provenance Manifest**: Before execution begins, the runner records:
+   - Git checkout commit (`git rev-parse HEAD`).
+   - Pre-run worktree cleanliness status (`git status --porcelain`).
+   - Exact Python interpreter path and version (`python --version`).
+   - Editable project install location (`pip show aladeen`).
+   - Launched browser binary identification (`Chromium 156.0.8078.4`).
+   - Exact commands, return codes, and elapsed durations for each step.
+   The resulting provenance record is emitted in both JSON ([`docs/development/evidence/reproduction_m29/provenance_manifest.json`](evidence/reproduction_m29/provenance_manifest.json)) and Markdown ([`docs/development/evidence/reproduction_m29/provenance_manifest.md`](evidence/reproduction_m29/provenance_manifest.md)).
+
+### 5.2 Durable Clean-Reproduction Record (Milestone 29)
+The replacement reproduction was executed from clean worktree checkout commit `3770989114997280b4f1b19406e294a16ec6c7b9`:
 - **Worktree Location**: `D:\Downloads\TopG-repro` (retained, branch `repro-run`)
+- **Pre-Run Working Tree Status**: `CLEAN`
 - **Virtual Environment**: `D:\Downloads\TopG-repro\.venv_repro`
 - **Operating System**: Windows 11 Version 10.0.26200 AMD64
-- **Python**: `3.13.12`
+- **Python**: `Python 3.13.12` (Editable location: `D:\Downloads\TopG-repro`)
 - **Installed Packages**: Captured in `docs/development/evidence/reproduction_m29/01_pip_list.txt`
-- **Browser Binary**: `Chromium 156.0.8078.4 (v1248)` via `playwright==1.64.1`
+- **Browser Binary**: `Chromium 156.0.8078.4` via `playwright==1.64.1`
+- **Setup Provenance Note**: The virtual environment `.venv_repro` was initialized via `python -m venv .venv_repro` and dependencies were installed via `pip install -e . pytest pytest-asyncio playwright` in worktree `D:\Downloads\TopG-repro`. Exact package versions are captured in `01_pip_list.txt`. Unrecorded interactive setup transcripts are not reconstructed or claimed.
 
-#### Commands & Results:
-1. **Focused Activation & App Tests**:
+#### Step Execution & Timing Summary:
+1. **Package Inventory (`pip list`)**:
    ```powershell
-   pytest tests/test_activation_dashboard_integration.py tests/test_app.py -v
+   D:\Downloads\TopG-repro\.venv_repro\Scripts\python.exe -m pip list
    ```
    * Exit Code: `0`
-   * Duration: `2.96s`
-   * Result: `38 passed, 1 warning in 2.96s`
-   * Durable Log: `docs/development/evidence/reproduction_m29/02_focused_tests.log`
+   * Wrapper Duration: `0.37s`
+   * Status: `PASSED`
+   * Durable Log: [`docs/development/evidence/reproduction_m29/01_pip_list.txt`](evidence/reproduction_m29/01_pip_list.txt)
 
-2. **Full Offline Repository Test Suite**:
+2. **Focused Activation & App Tests**:
    ```powershell
-   pytest -q tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py --ignore=tests/test_activation_browser_controlled.py --ignore=tests/activation_browser_runner.py --ignore=tests/activation_browser_harness.py
+   D:\Downloads\TopG-repro\.venv_repro\Scripts\python.exe -m pytest tests/test_activation_dashboard_integration.py tests/test_app.py -v
    ```
    * Exit Code: `0`
-   * Duration: `9.58s`
-   * Result: `542 passed, 1 warning in 9.58s`
-   * Durable Log: `docs/development/evidence/reproduction_m29/03_full_offline_suite.log`
+   * Wrapper Elapsed Duration: `12.45s`
+   * Pytest Summary Duration: `6.26s`
+   * Result: `38 passed, 1 warning in 6.26s`
+   * Status: `PASSED`
+   * Preserved Tooling Warnings:
+     - `PytestRemovedIn10Warning`: hookimpl `pytest_addhooks` in `dash\testing\plugin.py:104` uses old-style configuration options.
+     - `PytestDeprecationWarning` in stderr: `asyncio_default_fixture_loop_scope` is unset in `pytest_asyncio\plugin.py:300`.
+   * Durable Log: [`docs/development/evidence/reproduction_m29/02_focused_tests.log`](evidence/reproduction_m29/02_focused_tests.log)
 
-3. **Controlled Activation Browser Validation Suite**:
+3. **Full Offline Repository Test Suite**:
    ```powershell
-   python -u tests/activation_browser_runner.py
+   D:\Downloads\TopG-repro\.venv_repro\Scripts\python.exe -m pytest -q tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py --ignore=tests/test_activation_browser_controlled.py --ignore=tests/activation_browser_runner.py --ignore=tests/activation_browser_harness.py
    ```
    * Exit Code: `0`
-   * Duration: `35.88s`
+   * Wrapper Elapsed Duration: `7.95s`
+   * Pytest Summary Duration: `6.82s`
+   * Result: `542 passed, 1 warning in 6.82s`
+   * Status: `PASSED`
+   * Durable Log: [`docs/development/evidence/reproduction_m29/03_full_offline_suite.log`](evidence/reproduction_m29/03_full_offline_suite.log)
+
+4. **Controlled Activation Browser Validation Suite**:
+   ```powershell
+   D:\Downloads\TopG-repro\.venv_repro\Scripts\python.exe -u tests/activation_browser_runner.py
+   ```
+   * Exit Code: `0`
+   * Wrapper Elapsed Duration: `35.73s`
    * Result: `ALL ASSERTIONS PASSED`
-   * Durable Log: `docs/development/evidence/reproduction_m29/04_browser_runner.log`
+   * Status: `PASSED`
+   * Durable Log: [`docs/development/evidence/reproduction_m29/04_browser_runner.log`](evidence/reproduction_m29/04_browser_runner.log)
 
-4. **Post-Run Working Tree Status**:
+5. **Post-Run Working Tree Status**:
+   ```powershell
+   git status
+   ```
    * Exit Code: `0`
-   * Changes: Binary screenshot file updates on disk recorded in `docs/development/evidence/reproduction_m29/05_git_status_post_browser_run.txt`.
+   * Wrapper Duration: `0.07s`
+   * Status: `PASSED`
+   * Durable Log: [`docs/development/evidence/reproduction_m29/05_git_status_post_browser_run.txt`](evidence/reproduction_m29/05_git_status_post_browser_run.txt)
+
+6. **Aggregate Result**:
+   * Total Wrapper Duration: `56.57s`
+   * Aggregate Status: **`ALL_STEPS_PASSED`** (Fail-closed exit code `0`)
+   * Durable Manifests: [`provenance_manifest.json`](evidence/reproduction_m29/provenance_manifest.json) & [`provenance_manifest.md`](evidence/reproduction_m29/provenance_manifest.md)
+   * Automated Reference Validation: [`reference_validation.json`](evidence/reproduction_m29/reference_validation.json) & [`reference_validation.md`](evidence/reproduction_m29/reference_validation.md)
+
+> [!NOTE]
+> **Why Browser Tests Are Excluded From the Default Suite**:  
+> Controlled browser validation tests require spawning local Werkzeug server processes on ports 8068/8069 and launching headless Chromium instances. To avoid port binding contention during rapid CI or local test loops, browser suites are orchestrated through dedicated runner scripts.
 
 > [!NOTE]
 > **Why Browser Tests Are Excluded From the Default Suite**:  

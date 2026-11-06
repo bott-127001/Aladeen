@@ -1914,3 +1914,63 @@ Last Updated: 2026-11-06 (Milestone 29 Release-Readiness Audit & Offline Runbook
   - Zero confirmation arbitration/selection, zero usage ledger writes, zero trade entry signals.
   - Strategy engines 100% untouched (0 diff against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`).
   - Committed and pushed on `requirements/dashboard-release-readiness`. Never merge into `main`.
+
+---
+
+## Milestone 29 — Read-Only Dashboard Release-Readiness Audit and Reproducible Offline Runbook (HANDOFF-081)
+
+- **Active Branch**: `requirements/dashboard-release-readiness`
+- **Immediate Parent Commit**: `432ffc9c1c536e69f083f74665bbc2705c72ea3c` (HANDOFF-080)
+- **Accepted Controlled Browser Baseline Commit**: `bf737ea41e8bfd554b9386a6e9be86f700824fb3` (Milestone 28 accepted)
+- **Accepted Offline Dashboard Implementation Commit**: `d6587a1200735fe6453ff24f043931699f21f407` (Milestone 27 accepted)
+- **Requirements Baseline Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d` (Milestone 26 / HANDOFF-066 accepted)
+- **Root Baseline Engine Commit**: `0867c740352297fb43e781fb654706218771d533` (Milestone 25 / HANDOFF-061)
+- **Reviewer Feedback Addressed (HANDOFF-080 Review Directives 1–6)**:
+  1. *Fail-Closed Reproduction Wrapper & Path Parameterization*:
+     - Rewrote `scripts/run_reproduction_m29.py` with CLI arguments (`--worktree`, `--python-exe`, `--output-dir`, `--test-failure-gate`).
+     - Added aggregate failure detection: exits immediately with nonzero code (`sys.exit(1)`) if any required step fails.
+     - Added unit test `test_failure_propagation()` verifying failure trapping, executable standalone via `--test-failure-gate`.
+     - Pinned the selected virtual environment interpreter (`python_exe`) across every python command invocation.
+  2. *Durable Reproduction Provenance Manifest*:
+     - Captured pre-run checkout commit (`git rev-parse HEAD`: `3770989114997280b4f1b19406e294a16ec6c7b9`).
+     - Captured pre-run working tree status (`git status --porcelain`: `CLEAN`).
+     - Captured exact Python version (`Python 3.13.12`), editable package location (`D:\Downloads\TopG-repro`), and browser version (`Chromium 156.0.8078.4`).
+     - Stored machine-readable JSON [`docs/development/evidence/reproduction_m29/provenance_manifest.json`](file:///docs/development/evidence/reproduction_m29/provenance_manifest.json) and markdown [`provenance_manifest.md`](file:///docs/development/evidence/reproduction_m29/provenance_manifest.md).
+     - Explicitly distinguished retained setup evidence (`pip list` inventory) from unrecorded setup claims.
+  3. *Automated Reference Validation Artifact*:
+     - Created `scripts/validate_matrix_references.py` inspecting codebase symbols and collecting pytest node IDs.
+     - 29 Python module symbols verified (`ALL FOUND`) and 34 collected pytest nodes verified (`ALL COLLECTED`).
+     - Emitted [`docs/development/evidence/reproduction_m29/reference_validation.md`](file:///docs/development/evidence/reproduction_m29/reference_validation.md) and [`reference_validation.json`](file:///docs/development/evidence/reproduction_m29/reference_validation.json).
+     - Explicitly recorded negative validation findings & unverified gaps:
+       * Strong/Weak level classification does NOT exist in strategy requirements or engine code; marked as `UNRESOLVED / EXCLUDED FROM SCOPE`.
+       * `MockMT5Adapter` does not exist; production demo mode uses `aladeen.data.fixtures.load_fixture` / `MT5Adapter` fallback, test mock is `ControllableActivationMockAdapter`.
+       * Standalone `aladeen.ui.iss_inspection` does not exist; constructed via `aladeen.ui.market_coordinator.generate_chart_and_status_from_snapshot`.
+       * Dedicated `test_fixture_13...` does not exist; Scenario 13 fixture integrity is validated within the combined `test_scenario_specific_assertion_contracts`.
+  4. *Evidence Categories, Historical Attributions, Timing & Exact Contracts*:
+     - Categorized Security infrastructure tests (`SEC-01`, `SEC-02`, `SEC-03`) as `Harness / Guard` construction.
+     - Separated wrapper elapsed durations vs pytest summary durations:
+       * Focused tests: wrapper `12.45s`, pytest summary `6.26s` (38 passed, 1 warning).
+       * Full offline suite: wrapper `7.95s`, pytest summary `6.82s` (542 passed, 1 warning).
+       * Controlled browser runner: wrapper `35.73s` (`ALL ASSERTIONS PASSED`).
+       * Total wrapper runtime: `56.57s`.
+     - Preserved and documented environment/tooling warnings (`PytestRemovedIn10Warning` and `PytestDeprecationWarning`).
+     - Quoted accepted CHOCH contract: requires two consecutive completed closes strictly beyond confirmed level (`close < last_support` for Bearish, `close > last_resistance` for Bullish); exact touch fails closed; wick pierces without closing break fail closed.
+     - Quoted accepted TJL contract: at continuation t1, new labels do not replace current eligible set; at t2, the next qualifying active P3 establishes the successor eligible set; replacement cancels outgoing activation membership even where a physical level persists.
+     - Attributed historical milestone records for MSM (M2/M3), CHOCH (M6/M7), ISS (M10/M11), and TJL (M13/M15) as historical acceptance records not independently reinspected in M29.
+  5. *One Replacement Clean Reproduction*:
+     - Retained `D:\Downloads\TopG-repro` worktree and `.venv_repro` environment.
+     - Generated and committed replacement logs: `01_pip_list.txt`, `02_focused_tests.log`, `03_full_offline_suite.log`, `04_browser_runner.log`, `05_git_status_post_browser_run.txt`.
+- **Completed Deliverables**:
+  1. [`scripts/run_reproduction_m29.py`](file:///scripts/run_reproduction_m29.py): Hardened, fail-closed, parameterized reproduction runner with `--test-failure-gate`.
+  2. [`scripts/validate_matrix_references.py`](file:///scripts/validate_matrix_references.py): Automated reference validation tool.
+  3. [`docs/development/evidence/reproduction_m29/provenance_manifest.md`](file:///docs/development/evidence/reproduction_m29/provenance_manifest.md) & [`provenance_manifest.json`](file:///docs/development/evidence/reproduction_m29/provenance_manifest.json): Durable reproduction provenance manifest.
+  4. [`docs/development/evidence/reproduction_m29/reference_validation.md`](file:///docs/development/evidence/reproduction_m29/reference_validation.md) & [`reference_validation.json`](file:///docs/development/evidence/reproduction_m29/reference_validation.json): Automated symbol and pytest collection validation report.
+  5. [`docs/requirements/dashboard-release-readiness.md`](file:///docs/requirements/dashboard-release-readiness.md): Matrix updated with verified symbols, honest gaps, separate timing durations, and quoted strategy contracts.
+  6. [`docs/development/offline-dashboard-runbook.md`](file:///docs/development/offline-dashboard-runbook.md): Runbook updated with runner usage, provenance references, and replacement reproduction metrics.
+  7. [`docs/development/status.md`](file:///docs/development/status.md): Appended HANDOFF-081 record.
+- **Standing Invariants Maintained**:
+  - Pure read-only dashboard presentation.
+  - Zero UI order execution, zero MT5 trading calls, zero live account modification.
+  - Zero confirmation arbitration/selection, zero usage ledger writes, zero trade entry signals.
+  - Strategy engines 100% untouched (0 diff against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`).
+  - Committed and pushed on `requirements/dashboard-release-readiness`. Never merge into `main`.
