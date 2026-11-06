@@ -3061,13 +3061,53 @@ Last Updated: 2026-11-07 (Milestone 33 Interleaved Chronological Schedules & Spl
        * `test_repeated_evaluation_and_input_immutability` in `tests/test_source_candidate_ordering.py` (dataclass equality `assert res1 == res2 == res3` and frozen context immutability)
   5. *Case Inventory & Verification Categorization*:
      - **Source-Reviewed**: CHOCH and ISS interleaved chronological schedules at `b05a391554c73f80652d4dada5310510ba20fbf5`.
-     - **Author-Executed (Fresh Execution)**:
-       * 9 / 9 focused integration tests in 0.68s across all 6 modules.
-       * 652 / 652 offline repository tests in 8.55s.
+     - **Author-Executed Verification Records**:
+       * Fresh execution on commit `b188101`: 9 / 9 focused integration tests in 0.67s across all 6 modules; 652 / 652 offline repository tests in 8.40s.
+       * Baseline execution on accepted commit `b05a391`: 9 / 9 focused integration tests in 0.68s; 652 / 652 offline repository tests in 8.55s.
        * Core strategy engine purity: author-executed `git diff 3f6689c194c95ca3761833f8831bb8a3f5b4740d -- src/aladeen/strategy/engine.py src/aladeen/strategy/choch_detector.py src/aladeen/strategy/iss_engine.py src/aladeen/strategy/tjl_coordinator.py src/aladeen/strategy/activation_engine.py src/aladeen/strategy/activation_adapter.py src/aladeen/strategy/types.py src/aladeen/strategy/validator.py` (0 diff).
      - **Synthetic-Authority Contracts**: Supplied usage evidence (`UsageEvidenceStatus.UNUSED`), supplied source resolution (`source_resolution_status={...: True}`), supplied coverage (`CoverageStatus.COMPLETE`), supplied sequence domains.
      - **Still-Unproven Properties**: Live MT5 market-data ingestion, broker-calendar session/holiday boundaries, production live-feed authority, candidate arbitration/ranking, trade order execution.
 - **Safety Boundary Maintained**:
   - Pure offline read-only closeout. Zero MT5 live trading calls, zero order execution, zero account modification.
+  - Zero candidate arbitration, zero usage ledger writes, zero final signal publication, zero automated trading.
+  - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
+
+---
+
+## 54. Milestone 34 — Offline Authority-Propagation Requirements & Acceptance Specification (HANDOFF-109)
+- **Active Branch**: `feature/confirmation-monitor`
+- **Parent Commit**: `b18810127f830eff7807e86e0786e881e68a90e9` (HANDOFF-108)
+- **Accepted Milestone 33 Baseline Commit**: `b05a391554c73f80652d4dada5310510ba20fbf5` (HANDOFF-106)
+- **Documentation Closeout Commit**: `b18810127f830eff7807e86e0786e881e68a90e9` (HANDOFF-108)
+- **Accepted Milestone 32 Baseline Commit**: `3f7de9d7da935b3e05fcc4233a28555796486fb3`
+- **Requirements Baseline Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d`
+- **Scope**: Documentation, contract schemas expressed in documentation/types, and acceptance-fixture planning only. Zero runtime layer additions, zero candidate arbitration/ranking, zero usage writes, zero final signal publication, zero network ingestion, zero broker activity.
+- **Key Deliverables in HANDOFF-109**:
+  1. *Comprehensive Offline Authority Specification (`docs/requirements/offline-authority-propagation.md`)*:
+     - Formally defined 6 authority domains with evidence origin, identity, scope, availability time, validation rules, frozen/unresolved representations, and fail-closed behaviors:
+       * **Source Resolution**: Backed by `TJLCoordinator` snapshot / synchronizer; identified by `SourceMemberKey` / `StableLevelId`; availability at `eligibility_available_time`; unproven/frozen status represented via `source_resolution_status == False` or `UnresolvedSourceNotice`; fail-closed rejection as `BLOCKED_UNRESOLVED_SOURCE_DEPENDENCY`.
+       * **Usage Authority**: Backed by explicit ledger `UsageEvidenceRecord`; identified by physical level `StableLevelId` (persisting across set replacement and role relabeling); explicit statuses (`UNUSED`, `USED`, `UNKNOWN`); strictly no negative proof (absence of record defaults to `UNKNOWN`); fail-closed rejection as `USAGE_UNCERTAIN`.
+       * **Coverage Authority**: Backed by `FeedCoverageRecord` audit certificate; bound to exact feed, timeframe, config, and interval; availability certified until $T_{	ext{cert}} \ge T_{	ext{eval}}$; absence of detected gap does not prove completeness; fail-closed rejection as `INCOMPLETE_COVERAGE`.
+       * **Touch Ordering Authority**: Backed by `ExactPricePrint` stream with integer `sequence_ref` within single `SequenceDomain`; timestamp ties disambiguated strictly by sequence references; missing sequence rejects as `UNKNOWN_ORDER`; cross-domain rejects as `CROSS_DOMAIN_ORDERING_REJECTED`; earlier/equal sequence rejects as `PRE_ACTIVATION_CONFIRMATION`.
+       * **Confirmation Stream Authority**: Backed by confirmation detector closed candle bound in `ValidatedCandleStreamEnvelope`; availability strictly at `close_timestamp`; pre-close evaluation fails closed with `EVIDENCE_NOT_YET_AVAILABLE`.
+       * **Evaluation Boundary Authority**: Backed by caller point-in-time request $T_{	ext{eval}}$ in `MatchingContext`; strict visibility gating (`availability_time <= T_eval`); full result dataclass equality and context immutability.
+  2. *Decisive Unknowns & Temporal Validity Rules*:
+     - Specified explicit fail-closed behaviors for missing evidence, stale evidence, contradictory authority (`CONTRADICTORY_AUTHORITY`), duplicate identities with conflicting payloads (`CONFLICTING_RECORD_PAYLOAD`), equal unsequenced timestamps, and physical level usage surviving set replacements.
+  3. *Comprehensive Acceptance Inventory*:
+     - Structured 30 test cases across 4 categories:
+       * **Existing Executable Evidence**: INT-01..04, ACT-01..04, ORD-01..04, BND-A..D (all 16 verified executable in test suite).
+       * **Proposed Synthetic Authority Contracts**: AUT-SYN-01..08 (contradictory usage, expired coverage, config mismatch, conflicting payloads, persistent usage across replacement, premature evaluation, unresolved source notice).
+       * **Proposed Traceable Offline Integration Cases**: AUT-INT-01..06 (traceable usage ledger audit, feed coverage audit, end-to-end multi-candle replay, multi-level concurrent activation, lingering usage invalidation, rearm cycle audit).
+       * **Blocked Cases**: AUT-BLK-01..04 (multi-broker cross-feed tick authority, broker calendar holidays/weekends, automated usage ledger writes, live event-bus propagation).
+  4. *Authority-to-Origin Mapping*:
+     - Mapped each domain to originating layer, canonical schema, and runtime representation.
+  5. *Unresolved Decisions & Open Questions*:
+     - Formally recorded broker calendar session reconciliation, persistent usage storage contract, and multi-feed disambiguation authority as pending reconciliation per `AGENTS.md`.
+- **Verification Summary**:
+  - Modular integration proof suites: **9 / 9 passed** in 0.67s across all 6 modules on commit `b188101`.
+  - Full offline repository test suite: **652 / 652 passed** in 8.40s on commit `b188101`.
+  - Core strategy engine purity: **0 diff** against `3f6689c194c95ca3761833f8831bb8a3f5b4740d` across tracked repository paths (`src/aladeen/strategy/engine.py`, `choch_detector.py`, `iss_engine.py`, `tjl_coordinator.py`, `activation_engine.py`, `activation_adapter.py`, `types.py`, `validator.py`).
+- **Safety Boundary Maintained**:
+  - Pure offline read-only requirements specification. Zero MT5 live trading calls, zero order execution, zero account modification.
   - Zero candidate arbitration, zero usage ledger writes, zero final signal publication, zero automated trading.
   - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
