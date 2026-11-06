@@ -1275,3 +1275,51 @@ Last Updated: 2026-11-06 (Activation Engine Pure Offline Milestone Accepted — 
   3. *Engine Integrity*: Strictly zero modification to accepted strategy engines (`msm_engine`, `choch_engine`, `iss_engine`, `tjl_coordinator`, `activation_engine`, `activation_adapter`).
   4. *Core Ambiguities Preserved*: Upstream $c_1 == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
   5. *Branch Boundary*: Committed and pushed strictly on `feature/activation-dashboard`. No merging into `main`.
+
+
+### HANDOFF-070: Session-Isolated Registry, Recalculation Run Domain Advancement, Sequence High-Water Mark Reconciliation, and Scientific Notation Preservation
+- **Active Branch**: `feature/activation-dashboard`
+- **Immediate Parent Commit**: `71b5cede3e909b34a0fe62ce2cddf14ac8122db5` (HANDOFF-069)
+- **Requirements Baseline Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d` (Milestone 26 / HANDOFF-066 accepted)
+- **Root Baseline Engine Commit**: `0867c740352297fb43e781fb654706218771d533` (Milestone 25 / HANDOFF-061)
+- **Objective**: Deliver complete closure of all items from Perplexity's review of HANDOFF-069:
+  1. *Session-Isolated Registry & Explicit Session Ownership*:
+     - Implemented `ActivationSessionRegistry` in `src/aladeen/strategy/service.py`: thread-safe, bounded session registry with LRU eviction (configurable `max_sessions=100`) providing isolated `ActivationSessionCoordinator` instances per session ID.
+     - Removed shared module-global coordinator from `src/aladeen/ui/msm_callbacks.py`. Callback endpoints resolve isolated session coordinators via `get_activation_session_registry().get_or_create(session_id)`.
+     - `calculate_msm()` supports `session_id` routing directly to the registry while preserving explicit `activation_coordinator` override for testing.
+     - Added `test_interleaved_sessions_and_bounded_cleanup` asserting that interleaved calculations across sessions A and B (EURUSD vs GBPUSD) maintain strict isolation without cross-session engine, cursor, cache, history, or run identity contamination, and verifying bounded LRU eviction.
+  2. *Explicit Recalculation Run Domain Advancement*:
+     - When `force_recalculation=True` is provided to `sync_tjl_snapshot()`, the coordinator explicitly calls `self.start_new_run()`, advancing the run counter to obtain a fresh causal domain (`RUN_X_2`, `RUN_X_3`) with sequence allocation restarting at zero under a distinct run identity.
+     - On subsequent steady refreshes (`force_recalculation=False`), the coordinator retains that newly advanced run identity without repeatedly resetting it.
+     - Added `test_explicit_recalculation_advances_run_and_steady_refresh_retains` verifying run advancement on recalculation and run retention across steady refreshes.
+  3. *Sequence High-Water Mark Reconciliation & Mixed-Event Support*:
+     - Reconciled sequence high-water marks BEFORE synchronization: `self._next_sequence_ref = max(self._next_sequence_ref, self._engine._last_processed_sequence + 1)` is evaluated before calling `synchronizer.sync()`, preventing sequence collisions when intermediate observations have advanced the engine.
+     - Added `ActivationSessionCoordinator.process_exact_price_print()` boundary method managing sequence allocation and high-water mark advancement transactionally for exact observations.
+     - Added `test_mixed_events_observations_and_transitions_ordering` verifying interleaved events: `source registration -> accepted observation (seq 0) -> source cancellation (seq 1) -> accepted observation (seq 2) -> source transition (seq 3)`, asserting strictly increasing sequences (0, 1, 2, 3) and failure atomicity without event consumption.
+  4. *Truly Value-Preserving Scientific Notation Formatting*:
+     - Removed fixed-precision expansion `f"{price:.12f}"` from `_format_price()` in `src/aladeen/ui/activation_inspection.py`.
+     - Floats with `e`/`E` in `str(price)` are preserved exactly without fixed-decimal truncation or rounding.
+     - Added round-trip assertions `float(_format_price(val)) == val` across ordinary (`1.135`, `1.135000001`), extreme small (`1e-13`, `2e-13`, `1e-18`), and large finite numbers (`1e10`, `123456789.123456`).
+  5. *Complete Coordinator State Comparison on Synchronization Failure*:
+     - Strengthened failure assertion in `test_same_run_successive_cancellation_sync_with_monotonic_sequences_and_error_preservation` to capture and compare complete coordinator state: `engine checkpoint`, `synchronizer cursor`, `usage cache`, `consumed transitions`, `next sequence ref`, `current run ID`, and `bound context key`.
+- **Completed Deliverables**:
+  1. [`src/aladeen/strategy/service.py`](file:///src/aladeen/strategy/service.py): `ActivationSessionRegistry` class, LRU eviction, `process_exact_price_print()` method, pre-sync sequence high-water mark reconciliation, run domain advancement on recalculation, and `session_id` routing in `calculate_msm()`.
+  2. [`src/aladeen/strategy/__init__.py`](file:///src/aladeen/strategy/__init__.py): Exported `ActivationSessionRegistry`, `get_activation_session_registry`, `reset_activation_session_registry`.
+  3. [`src/aladeen/ui/msm_callbacks.py`](file:///src/aladeen/ui/msm_callbacks.py): Replaced module-global coordinator with session-keyed registry lookups.
+  4. [`src/aladeen/ui/activation_inspection.py`](file:///src/aladeen/ui/activation_inspection.py): Removed scientific-notation rounding in `_format_price()`, guaranteeing exact round-trip preservation.
+  5. [`tests/test_activation_dashboard_integration.py`](file:///tests/test_activation_dashboard_integration.py): 12 comprehensive integration tests including interleaved sessions, bounded LRU cleanup, recalculation run advancement, mixed event ordering, scientific notation round-trip, and complete state comparison on failure.
+  6. [`docs/development/status.md`](file:///docs/development/status.md): HANDOFF-070 documentation.
+- **Verification Summary**:
+  - Activation dashboard integration suite: **12 / 12 passed** in 0.68s (`pytest tests/test_activation_dashboard_integration.py -q`).
+  - Activation dashboard fixture integrity suite: **11 / 11 passed** in 0.47s (`pytest tests/test_activation_dashboard_fixture_integrity.py -q`).
+  - TJL dashboard integration suite: **32 / 32 passed** in 1.53s (`pytest tests/test_tjl_dashboard_integration.py -q`).
+  - Full offline repository test suite: **532 / 532 passed** in 11.06s (`pytest -q tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py`).
+  - Reconciled Test Inventory: 520 baseline tests + 12 integration tests = 532 passing offline tests.
+  - Runtime Engine Modification Audit: Exactly zero modifications to strategy engines (`msm_engine`, `choch_engine`, `iss_engine`, `tjl_coordinator`, `activation_engine`, `activation_adapter`).
+  - Visual Limitation: Offline test suite verifies HTML DOM tree structure and Dash component properties; visual browser acceptance remains unverified until live browser testing.
+- **Scope Compliance & Standing Invariants**:
+  1. *Pure Read-Only Presentation*: Strictly zero UI order execution, zero MT5 trading calls, zero live account modification.
+  2. *Downstream Invariant*: Strictly zero confirmation arbitration/selection, zero usage ledger writes, zero trade entry signals.
+  3. *Engine Integrity*: Strictly zero modification to accepted strategy engines (`msm_engine`, `choch_engine`, `iss_engine`, `tjl_coordinator`, `activation_engine`, `activation_adapter`).
+  4. *Core Ambiguities Preserved*: Upstream $c_1 == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
+  5. *Branch Boundary*: Committed and pushed strictly on `feature/activation-dashboard`. No merging into `main`.

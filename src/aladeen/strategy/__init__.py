@@ -194,6 +194,9 @@ __all__ = [
     "adapt_tjl_current_set",
     "sync_tjl_snapshot_to_activation_engine",
     "ActivationSessionCoordinator",
+    "ActivationSessionRegistry",
+    "get_activation_session_registry",
+    "reset_activation_session_registry",
     "get_default_activation_coordinator",
     "reset_activation_coordinator",
 ]

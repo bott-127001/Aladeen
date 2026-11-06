@@ -653,6 +653,12 @@ class TestActivationDashboardIntegration:
         assert _format_price(1.135000001) != _format_price(1.135000002)  # 9th-decimal distinction preserved!
         assert _format_price(1.12345678901234) == "1.12345678901234"
 
+        # Scientific notation & extreme precision round-trip preservation
+        for val in [1.135, 1.135000001, 1e-13, 2e-13, 1e-18, 1e10, 123456789.123456]:
+            formatted = _format_price(val)
+            assert float(formatted) == val, f"Round-trip failed for {val}: got {formatted}"
+        assert _format_price(1e-13) != _format_price(2e-13)  # Distinct small values preserved!
+
         # Datetime formatting
         assert _format_datetime(None) == "Unknown"
         assert _format_datetime("not-a-dt") == "[INVALID_TIMESTAMP:'not-a-dt']"
@@ -996,15 +1002,28 @@ class TestActivationDashboardIntegration:
             last_received_index=16,
         )
 
+        # Capture complete authoritative coordinator state before failure
+        cp_before = coord.engine.create_checkpoint()
+        cursor_before = coord.last_synced_transition_index
+        cache_before = copy.deepcopy(coord.synchronizer._usage_cache)
+        trans_before = copy.deepcopy(coord.synchronizer._consumed_transitions)
+        next_seq_before = coord.next_sequence_ref
+        run_id_before = coord.current_run_id
+        bound_ctx_before = coord._bound_context_key
+
         with pytest.raises(Exception) as exc_info:
             coord.sync_tjl_snapshot(snap_corrupt, ctx)
 
         assert "Transition history truncated" in str(exc_info.value)
-        # Prior valid coordinator state preserved!
-        assert coord.last_synced_transition_index == 1
+        # Authoritative state complete preservation check across all components
+        assert coord.engine.create_checkpoint() == cp_before
+        assert coord.last_synced_transition_index == cursor_before
+        assert coord.synchronizer._usage_cache == cache_before
+        assert coord.synchronizer._consumed_transitions == trans_before
+        assert coord.next_sequence_ref == next_seq_before
+        assert coord.current_run_id == run_id_before
+        assert coord._bound_context_key == bound_ctx_before
         assert coord.last_sync_error is not None
-        assert coord.engine is not None
-        assert len(coord.engine._processed_events) >= 2
 
         # Verify UI rendering presents the diagnostic banner without wiping state
         panel = build_activation_inspection_elements(
@@ -1015,3 +1034,316 @@ class TestActivationDashboardIntegration:
         assert find_component(tree, "activation-sync-error-banner") is not None
         all_text = extract_all_text(tree)
         assert "Transition history truncated" in all_text
+
+    def test_interleaved_sessions_and_bounded_cleanup(self) -> None:
+        """Directive HANDOFF-070: Interleaved sessions A/B maintain strict isolation and bounded LRU eviction."""
+        from aladeen.strategy.service import ActivationSessionRegistry
+
+        registry = ActivationSessionRegistry(max_sessions=3)
+
+        # 1. Session A calculates on EURUSD
+        coord_a = registry.get_or_create("session_A", run_id_prefix="RUN_A")
+        ctx_a = MSMContext(
+            data_source="OFFLINE_TEST",
+            symbol="EURUSD",
+            timeframe="H1",
+            start_candle_time=datetime(2026, 10, 1, 0, 0, tzinfo=timezone.utc),
+            direction=Direction.UPWARD,
+            calculation_mode=CalculationMode.INTEGRATED_MSM_CHOCH_TJL.value,
+        )
+        lid_a1 = StableLevelId("EURUSD", "H1", datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc), TJLSide.HIGH)
+        zone_a1 = TJLZone(lid_a1, TJLLabel.TJL1, 1.135, 1.140, False, 5, datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc), 10)
+        lid_a2 = StableLevelId("EURUSD", "H1", datetime(2026, 10, 1, 6, 0, tzinfo=timezone.utc), TJLSide.LOW)
+        zone_a2 = TJLZone(lid_a2, TJLLabel.TJL2_A_PLUS, 1.120, 1.125, False, 7, datetime(2026, 10, 1, 6, 0, tzinfo=timezone.utc), 10)
+        fp_a = TJLFingerprint("ENGINE_EURUSD_H1", Direction.UPWARD, 5, 7, 5)
+        set_a = CurrentEligibleSet("SET_A", fp_a, Direction.UPWARD, "ENGINE_EURUSD_H1", "EURUSD", "H1", zone_a1, zone_a2, 5, datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc), 1.140, datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc), 10)
+        snap_a = TJLSnapshot(
+            source_engine_id="ENGINE_EURUSD_H1",
+            symbol_feed_id="EURUSD",
+            source_timeframe="H1",
+            direction=Direction.UPWARD,
+            structural_epoch=1,
+            current_eligible_set=set_a,
+            all_labeled_zones=(zone_a1, zone_a2),
+            historical_sets=(),
+            outgoing_cancellation_intent=False,
+            last_transition=None,
+            transition_history=(),
+            is_unresolved=False,
+            unresolved_diagnostic=None,
+            last_processed_index=10,
+            last_received_index=10,
+        )
+        act_snap_a1 = coord_a.sync_tjl_snapshot(snap_a, ctx_a)
+        assert act_snap_a1 is not None
+        cp_a_before = coord_a.engine.create_checkpoint()
+        run_a_before = coord_a.current_run_id
+
+        # 2. Session B calculates on GBPUSD
+        coord_b = registry.get_or_create("session_B", run_id_prefix="RUN_B")
+        ctx_b = MSMContext(
+            data_source="OFFLINE_TEST",
+            symbol="GBPUSD",
+            timeframe="H1",
+            start_candle_time=datetime(2026, 10, 1, 0, 0, tzinfo=timezone.utc),
+            direction=Direction.UPWARD,
+            calculation_mode=CalculationMode.INTEGRATED_MSM_CHOCH_TJL.value,
+        )
+        lid_b1 = StableLevelId("GBPUSD", "H1", datetime(2026, 10, 1, 5, 0, tzinfo=timezone.utc), TJLSide.HIGH)
+        zone_b1 = TJLZone(lid_b1, TJLLabel.TJL1, 1.250, 1.255, False, 6, datetime(2026, 10, 1, 5, 0, tzinfo=timezone.utc), 10)
+        lid_b2 = StableLevelId("GBPUSD", "H1", datetime(2026, 10, 1, 7, 0, tzinfo=timezone.utc), TJLSide.LOW)
+        zone_b2 = TJLZone(lid_b2, TJLLabel.TJL2_A_PLUS, 1.230, 1.235, False, 8, datetime(2026, 10, 1, 7, 0, tzinfo=timezone.utc), 10)
+        fp_b = TJLFingerprint("ENGINE_GBPUSD_H1", Direction.UPWARD, 6, 8, 6)
+        set_b = CurrentEligibleSet("SET_B", fp_b, Direction.UPWARD, "ENGINE_GBPUSD_H1", "GBPUSD", "H1", zone_b1, zone_b2, 6, datetime(2026, 10, 1, 5, 0, tzinfo=timezone.utc), 1.255, datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc), 10)
+        snap_b = TJLSnapshot(
+            source_engine_id="ENGINE_GBPUSD_H1",
+            symbol_feed_id="GBPUSD",
+            source_timeframe="H1",
+            direction=Direction.UPWARD,
+            structural_epoch=1,
+            current_eligible_set=set_b,
+            all_labeled_zones=(zone_b1, zone_b2),
+            historical_sets=(),
+            outgoing_cancellation_intent=False,
+            last_transition=None,
+            transition_history=(),
+            is_unresolved=False,
+            unresolved_diagnostic=None,
+            last_processed_index=10,
+            last_received_index=10,
+        )
+        act_snap_b = coord_b.sync_tjl_snapshot(snap_b, ctx_b)
+        assert act_snap_b is not None
+        cp_b_before = coord_b.engine.create_checkpoint()
+
+        # 3. Session A steady refresh
+        act_snap_a2 = coord_a.sync_tjl_snapshot(snap_a, ctx_a)
+        assert act_snap_a2 is not None
+
+        # Assert strict cross-session isolation:
+        assert coord_a.engine.create_checkpoint() == cp_a_before
+        assert coord_a.current_run_id == run_a_before
+        assert coord_a.engine.symbol == "EURUSD"
+        assert coord_b.engine.create_checkpoint() == cp_b_before
+        assert coord_b.engine.symbol == "GBPUSD"
+        assert coord_b.current_run_id != coord_a.current_run_id
+
+        # 4. Bounded LRU eviction test (max_sessions=3)
+        assert registry.active_session_count == 2
+        coord_c = registry.get_or_create("session_C")
+        assert registry.active_session_count == 3
+
+        # Access session_A so access order is [B, C, A]
+        registry.get_or_create("session_A")
+
+        # Adding session_D should evict session_B
+        coord_d = registry.get_or_create("session_D")
+        assert registry.active_session_count == 3
+        assert "session_B" not in registry._sessions
+        assert "session_A" in registry._sessions
+        assert "session_C" in registry._sessions
+        assert "session_D" in registry._sessions
+
+    def test_explicit_recalculation_advances_run_and_steady_refresh_retains(self) -> None:
+        """Directive HANDOFF-070: Explicit recalculation obtains a fresh run identity; steady refresh retains it."""
+        coord = ActivationSessionCoordinator("RUN_LIFECYCLE")
+        ctx = MSMContext(
+            data_source="OFFLINE_TEST",
+            symbol="EURUSD",
+            timeframe="H1",
+            start_candle_time=datetime(2026, 10, 1, 0, 0, tzinfo=timezone.utc),
+            direction=Direction.UPWARD,
+            calculation_mode=CalculationMode.INTEGRATED_MSM_CHOCH_TJL.value,
+        )
+
+        lid1 = StableLevelId("EURUSD", "H1", datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc), TJLSide.HIGH)
+        zone1 = TJLZone(lid1, TJLLabel.TJL1, 1.135, 1.140, False, 5, datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc), 10)
+        lid2 = StableLevelId("EURUSD", "H1", datetime(2026, 10, 1, 6, 0, tzinfo=timezone.utc), TJLSide.LOW)
+        zone2 = TJLZone(lid2, TJLLabel.TJL2_A_PLUS, 1.120, 1.125, False, 7, datetime(2026, 10, 1, 6, 0, tzinfo=timezone.utc), 10)
+        fp = TJLFingerprint("ENGINE_EURUSD_H1", Direction.UPWARD, 5, 7, 5)
+        curr_set = CurrentEligibleSet("SET_1", fp, Direction.UPWARD, "ENGINE_EURUSD_H1", "EURUSD", "H1", zone1, zone2, 5, datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc), 1.140, datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc), 10)
+        snap = TJLSnapshot(
+            source_engine_id="ENGINE_EURUSD_H1",
+            symbol_feed_id="EURUSD",
+            source_timeframe="H1",
+            direction=Direction.UPWARD,
+            structural_epoch=1,
+            current_eligible_set=curr_set,
+            all_labeled_zones=(zone1, zone2),
+            historical_sets=(),
+            outgoing_cancellation_intent=False,
+            last_transition=None,
+            transition_history=(),
+            is_unresolved=False,
+            unresolved_diagnostic=None,
+            last_processed_index=10,
+            last_received_index=10,
+        )
+
+        # 1. Initial calculation (Run 1)
+        res1 = coord.sync_tjl_snapshot(snap, ctx)
+        assert res1 is not None
+        run_1 = coord.current_run_id
+
+        # 2. Steady refresh (force_recalculation=False) -> MUST retain Run 1
+        res_refresh = coord.sync_tjl_snapshot(snap, ctx, force_recalculation=False)
+        assert res_refresh is not None
+        assert coord.current_run_id == run_1
+
+        # 3. Explicit recalculation (force_recalculation=True) -> MUST obtain fresh Run 2
+        res2 = coord.sync_tjl_snapshot(snap, ctx, force_recalculation=True)
+        assert res2 is not None
+        run_2 = coord.current_run_id
+        assert run_2 != run_1
+        assert "RUN_LIFECYCLE_2" in run_2
+
+        # 4. Subsequent steady refresh -> MUST retain Run 2
+        res2_refresh = coord.sync_tjl_snapshot(snap, ctx, force_recalculation=False)
+        assert res2_refresh is not None
+        assert coord.current_run_id == run_2
+
+    def test_mixed_events_observations_and_transitions_ordering(self) -> None:
+        """Directive HANDOFF-070: Mixed exact observations and source cancellations maintain strict sequence monotonicity."""
+        coord = ActivationSessionCoordinator("RUN_MIXED_EVENTS")
+        ctx = MSMContext(
+            data_source="OFFLINE_TEST",
+            symbol="EURUSD",
+            timeframe="H1",
+            start_candle_time=datetime(2026, 10, 1, 0, 0, tzinfo=timezone.utc),
+            direction=Direction.UPWARD,
+            calculation_mode=CalculationMode.INTEGRATED_MSM_CHOCH_TJL.value,
+        )
+
+        lid1 = StableLevelId("EURUSD", "H1", datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc), TJLSide.HIGH)
+        zone1 = TJLZone(lid1, TJLLabel.TJL1, 1.135, 1.140, False, 5, datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc), 10)
+        lid2 = StableLevelId("EURUSD", "H1", datetime(2026, 10, 1, 6, 0, tzinfo=timezone.utc), TJLSide.LOW)
+        zone2 = TJLZone(lid2, TJLLabel.TJL2_A_PLUS, 1.120, 1.125, False, 7, datetime(2026, 10, 1, 6, 0, tzinfo=timezone.utc), 10)
+        fp = TJLFingerprint("ENGINE_EURUSD_H1", Direction.UPWARD, 5, 7, 5)
+        set1 = CurrentEligibleSet("SET_1", fp, Direction.UPWARD, "ENGINE_EURUSD_H1", "EURUSD", "H1", zone1, zone2, 5, datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc), 1.140, datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc), 10)
+
+        # 1. Source registration
+        snap0 = TJLSnapshot(
+            source_engine_id="ENGINE_EURUSD_H1",
+            symbol_feed_id="EURUSD",
+            source_timeframe="H1",
+            direction=Direction.UPWARD,
+            structural_epoch=1,
+            current_eligible_set=set1,
+            all_labeled_zones=(zone1, zone2),
+            historical_sets=(),
+            outgoing_cancellation_intent=False,
+            last_transition=None,
+            transition_history=(),
+            is_unresolved=False,
+            unresolved_diagnostic=None,
+            last_processed_index=10,
+            last_received_index=10,
+        )
+        coord.sync_tjl_snapshot(snap0, ctx)
+        assert coord.next_sequence_ref == 0
+
+        # 2. Accepted exact observation (seq=0)
+        domain = coord.engine.sequence_domain
+        obs1 = ExactPricePrint(
+            observation_id="OBS_01",
+            price=1.1370,
+            price_basis=PriceBasis.BID,
+            timestamp=datetime(2026, 10, 2, 8, 15, tzinfo=timezone.utc),
+            sequence_domain=domain,
+            sequence_ref=0,
+        )
+        snap_obs1 = coord.process_exact_price_print(obs1)
+        assert snap_obs1 is not None
+        assert coord.exact_observation_count == 1
+        assert coord.next_sequence_ref == 1
+
+        # 3. Finalized source cancellation (transition 1) -> must allocate seq=1
+        trans1 = TJLTransitionRecord(
+            transition_type=TJLTransitionType.CHOCH_INVALIDATION,
+            outgoing_cancellation_intent=True,
+            current_set=None,
+            newly_labeled_zones=(),
+            transition_candle_index=12,
+            transition_time=datetime(2026, 10, 2, 9, 0, tzinfo=timezone.utc),
+            outgoing_cancelled_set_id="SET_1",
+            outgoing_cancelled_fingerprint=fp,
+        )
+        snap1 = TJLSnapshot(
+            source_engine_id="ENGINE_EURUSD_H1",
+            symbol_feed_id="EURUSD",
+            source_timeframe="H1",
+            direction=Direction.UPWARD,
+            structural_epoch=1,
+            current_eligible_set=None,
+            all_labeled_zones=(zone1, zone2),
+            historical_sets=(set1,),
+            outgoing_cancellation_intent=True,
+            last_transition=trans1,
+            transition_history=(trans1,),
+            is_unresolved=False,
+            unresolved_diagnostic=None,
+            last_processed_index=12,
+            last_received_index=12,
+        )
+        coord.sync_tjl_snapshot(snap1, ctx)
+        assert coord.next_sequence_ref == 2
+
+        # 4. Next accepted exact observation (seq=2)
+        obs2 = ExactPricePrint(
+            observation_id="OBS_02",
+            price=1.1380,
+            price_basis=PriceBasis.BID,
+            timestamp=datetime(2026, 10, 2, 9, 15, tzinfo=timezone.utc),
+            sequence_domain=domain,
+            sequence_ref=2,
+        )
+        snap_obs2 = coord.process_exact_price_print(obs2)
+        assert snap_obs2 is not None
+        assert coord.exact_observation_count == 2
+        assert coord.next_sequence_ref == 3
+
+        # 5. Next source transition -> must allocate seq=3
+        trans2 = TJLTransitionRecord(
+            transition_type=TJLTransitionType.SET_REPLACEMENT,
+            outgoing_cancellation_intent=True,
+            current_set=None,
+            newly_labeled_zones=(),
+            transition_candle_index=15,
+            transition_time=datetime(2026, 10, 2, 10, 0, tzinfo=timezone.utc),
+            outgoing_cancelled_set_id="SET_2",
+            outgoing_cancelled_fingerprint=fp,
+        )
+        snap2 = TJLSnapshot(
+            source_engine_id="ENGINE_EURUSD_H1",
+            symbol_feed_id="EURUSD",
+            source_timeframe="H1",
+            direction=Direction.UPWARD,
+            structural_epoch=1,
+            current_eligible_set=None,
+            all_labeled_zones=(zone1, zone2),
+            historical_sets=(set1,),
+            outgoing_cancellation_intent=True,
+            last_transition=trans2,
+            transition_history=(trans1, trans2),
+            is_unresolved=False,
+            unresolved_diagnostic=None,
+            last_processed_index=15,
+            last_received_index=15,
+        )
+        coord.sync_tjl_snapshot(snap2, ctx)
+        assert coord.next_sequence_ref == 4
+
+        # Verify all events have strictly monotonically increasing sequences: 0, 1, 2, 3
+        events = list(coord.engine._processed_events.values())
+        seqs = [e.sequence_ref for e in events if hasattr(e, "sequence_ref")]
+        assert seqs == [0, 1, 2, 3]
+
+        # 6. Failure atomicity: corrupted event does not consume sequence or mutate state
+        cp_before = coord.engine.create_checkpoint()
+        next_seq_before = coord.next_sequence_ref
+
+        with pytest.raises(Exception):
+            coord.process_exact_price_print("NOT_AN_EVENT")  # type: ignore
+
+        assert coord.engine.create_checkpoint() == cp_before
+        assert coord.next_sequence_ref == next_seq_before

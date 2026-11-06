@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 import math
 from enum import Enum
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
+import threading
 import numpy as np
 import pandas as pd
 
@@ -404,6 +405,28 @@ class ActivationSessionCoordinator:
         self.reset(self._current_run_id)
         return self._current_run_id
 
+    def process_exact_price_print(self, print_event: ExactPricePrint) -> ActivationSnapshot:
+        """Dispatches an authoritative ExactPricePrint through the coordinator boundary.
+
+        Reconciles sequence high-water marks before and after event processing.
+        """
+        if self._engine is None:
+            raise RuntimeError("Cannot process price print: activation engine not initialized.")
+        if not isinstance(print_event, ExactPricePrint):
+            raise TypeError(f"Expected ExactPricePrint, got {type(print_event).__name__}")
+
+        # High-water mark check before event processing
+        if self._engine._last_processed_sequence is not None:
+            self._next_sequence_ref = max(self._next_sequence_ref, self._engine._last_processed_sequence + 1)
+
+        snap = self._engine.process_event(print_event)
+
+        # Update high-water mark after event processing
+        if self._engine._last_processed_sequence is not None:
+            self._next_sequence_ref = max(self._next_sequence_ref, self._engine._last_processed_sequence + 1)
+
+        return snap
+
     def sync_tjl_snapshot(
         self,
         tjl_snapshot: TJLSnapshot,
@@ -421,7 +444,9 @@ class ActivationSessionCoordinator:
         if not isinstance(tjl_snapshot, TJLSnapshot):
             raise TypeError(f"Expected TJLSnapshot, got {type(tjl_snapshot).__name__}")
 
-        if run_id is not None:
+        if force_recalculation:
+            active_run_id = self.start_new_run()
+        elif run_id is not None:
             active_run_id = run_id
             self._current_run_id = run_id
         else:
@@ -435,7 +460,7 @@ class ActivationSessionCoordinator:
 
         context_key = (data_source, engine_id, symbol, tf, start_time, active_run_id)
 
-        # Detect context switch or explicit recalculation
+        # Detect context switch or recalculation
         if force_recalculation or self._bound_context_key != context_key:
             self.reset(active_run_id)
             self._bound_context_key = context_key
@@ -461,6 +486,10 @@ class ActivationSessionCoordinator:
         if self._synchronizer is None or self._engine is None:
             return None
 
+        # Reconcile sequence high-water mark before synchronization
+        if self._engine._last_processed_sequence is not None:
+            self._next_sequence_ref = max(self._next_sequence_ref, self._engine._last_processed_sequence + 1)
+
         # Synchronize using strictly monotonic sequence counter
         try:
             act_snap = self._synchronizer.sync(
@@ -481,6 +510,94 @@ class ActivationSessionCoordinator:
             self._last_sync_error = str(e)
             raise
 
+
+
+class ActivationSessionRegistry:
+    """Thread-safe, bounded session registry managing ActivationSessionCoordinator instances.
+
+    Responsibilities:
+    -----------------
+    - Provides isolated ActivationSessionCoordinator instances per session_id.
+    - Prevents cross-session interference (two sessions with same or different contexts never share state).
+    - Enforces bounded capacity with LRU eviction to prevent unbounded memory growth in long-running processes.
+    - Supports explicit eviction, inspection, and clearing.
+    """
+
+    def __init__(self, max_sessions: int = 100) -> None:
+        self._max_sessions = max_sessions
+        self._sessions: Dict[str, ActivationSessionCoordinator] = {}
+        self._access_order: List[str] = []
+        self._lock = threading.Lock()
+
+    @property
+    def max_sessions(self) -> int:
+        return self._max_sessions
+
+    @property
+    def active_session_count(self) -> int:
+        with self._lock:
+            return len(self._sessions)
+
+    def get_or_create(self, session_id: str, run_id_prefix: Optional[str] = None) -> ActivationSessionCoordinator:
+        """Returns the isolated ActivationSessionCoordinator for session_id, creating one if absent."""
+        if not isinstance(session_id, str) or not session_id.strip():
+            raise ValueError(f"session_id must be a non-empty string, got {session_id!r}")
+
+        with self._lock:
+            if session_id in self._sessions:
+                # Move to end of LRU access order
+                if session_id in self._access_order:
+                    self._access_order.remove(session_id)
+                self._access_order.append(session_id)
+                return self._sessions[session_id]
+
+            # Bounded LRU eviction
+            while len(self._sessions) >= self._max_sessions and self._access_order:
+                lru_id = self._access_order.pop(0)
+                evicted = self._sessions.pop(lru_id, None)
+                if evicted is not None:
+                    evicted.reset()
+
+            prefix = run_id_prefix or f"SESSION_{session_id}"
+            coord = ActivationSessionCoordinator(sequence_domain_run_id=prefix)
+            self._sessions[session_id] = coord
+            self._access_order.append(session_id)
+            return coord
+
+    def remove_session(self, session_id: str) -> None:
+        """Explicitly evicts and resets a session."""
+        with self._lock:
+            coord = self._sessions.pop(session_id, None)
+            if coord is not None:
+                coord.reset()
+            if session_id in self._access_order:
+                self._access_order.remove(session_id)
+
+    def clear(self) -> None:
+        """Clears and resets all managed sessions."""
+        with self._lock:
+            for coord in self._sessions.values():
+                coord.reset()
+            self._sessions.clear()
+            self._access_order.clear()
+
+
+_default_session_registry: Optional[ActivationSessionRegistry] = None
+
+
+def get_activation_session_registry() -> ActivationSessionRegistry:
+    """Returns the process-level ActivationSessionRegistry."""
+    global _default_session_registry
+    if _default_session_registry is None:
+        _default_session_registry = ActivationSessionRegistry()
+    return _default_session_registry
+
+
+def reset_activation_session_registry() -> None:
+    """Clears and resets the process-level ActivationSessionRegistry."""
+    global _default_session_registry
+    if _default_session_registry is not None:
+        _default_session_registry.clear()
 
 _default_session_coordinator: Optional[ActivationSessionCoordinator] = None
 
@@ -598,6 +715,7 @@ def calculate_msm(
     df: pd.DataFrame,
     context: MSMContext,
     *,
+    session_id: Optional[str] = None,
     activation_coordinator: Optional[ActivationSessionCoordinator] = None,
     usage_evidence: Optional[Mapping[StableLevelId, UsageEvidenceStatus]] = None,
     force_recalculation: bool = False,
@@ -706,7 +824,12 @@ def calculate_msm(
             last_sync_idx = None
             exact_obs_count = None
             act_error = None
-            act_coordinator = activation_coordinator or get_default_activation_coordinator()
+            if activation_coordinator is not None:
+                act_coordinator = activation_coordinator
+            elif session_id is not None:
+                act_coordinator = get_activation_session_registry().get_or_create(session_id)
+            else:
+                act_coordinator = get_default_activation_coordinator()
             try:
                 act_snap = act_coordinator.sync_tjl_snapshot(
                     tjl_snapshot=tjl_snap,

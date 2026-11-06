@@ -92,7 +92,9 @@ def _format_price(price: Optional[Any]) -> str:
 
     s = str(price)
     if "e" in s or "E" in s:
-        s = f"{price:.12f}".rstrip("0")
+        # Preserve exact scientific representation without lossy fixed-width expansion
+        return s
+
     if "." in s:
         parts = s.split(".")
         if len(parts[1]) < 4:
