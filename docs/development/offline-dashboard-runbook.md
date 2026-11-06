@@ -26,15 +26,15 @@ This runbook provides complete, executable, step-by-step instructions for any de
 - **Git**: Modern Git client.
 - **Operating System**: Windows 11 64-bit AMD64 (Native MT5 library requirement for live data mode; all offline demo, unit, integration, and browser validation suites are executed under Windows 11. Linux / macOS environments remain untested).
 - **Browser Automation Drivers & Binaries**:
-  * Python Package: `playwright` (Tested on `1.63.0` and `1.64.1`).
-  * Browser Binaries: Headless Chromium (`Chromium 153.0.8010.12` / `Chrome for Testing 156.0.8078.4 v1248`).
+  * Historical Accepted Baseline (Milestone 28): Python package `playwright==1.57.0` driving `Chromium 153.0.8010.12`.
+  * Clean Worktree Reproduction (Milestone 29): Python package `playwright==1.64.1` driving `Chrome for Testing 156.0.8078.4 (v1248)`.
 
 ### 2.2 Core Declared Dependencies (`pyproject.toml`)
 - `dash >= 2.14` (Verified: `4.5.0`)
-- `plotly >= 5.18` (Verified: `6.7.0` / `7.1.0`)
-- `pandas >= 2.0` (Verified: `2.2.3` / `3.1.1`)
-- `pytest >= 7.4` (Verified: `9.0.3` / `9.2.0`)
-- `playwright >= 1.50` (Verified: `1.63.0` / `1.64.1`)
+- `plotly >= 5.18` (Verified: `7.1.0`)
+- `pandas >= 2.0` (Verified: `3.1.1`)
+- `pytest >= 7.4` (Verified: `9.2.0`)
+- `playwright >= 1.50` (Verified: `1.64.1`)
 
 ---
 
@@ -75,24 +75,33 @@ python -m playwright install chromium
 ## 4. Local Offline Demo Dashboard Launch
 
 ### 4.1 Launching the Default Demo Dashboard
-To launch the interactive dashboard locally using the built-in offline mock adapter (`MockMT5Adapter`):
+To launch the interactive dashboard locally:
 
 ```powershell
 # Launch the dashboard server on localhost:8068
 python -c "from aladeen.app import create_app; app = create_app(); app.run(host='127.0.0.1', port=8068, debug=False)"
 ```
 
+#### Actual Default Source-Selection Path:
+When `create_app()` is invoked without explicit adapter arguments, it queries MetaTrader 5 terminal connectivity:
+- If MT5 is installed, running, and successfully initialized, `MT5Adapter` is instantiated.
+- If MT5 is unavailable, fails connection, or the terminal is not running, `create_app()` safely falls back to `MockMT5Adapter` in demo mode, displaying `CONNECTED_TO_BROKER (DEMO)`.
+
 ### 4.2 Launching with Controllable Mock Adapter
-To launch with the controllable test mock adapter (`ControllableActivationMockAdapter`) which exposes simulated activation scenarios:
+To explicitly launch with the controllable test mock adapter (`ControllableActivationMockAdapter`), which generates synthetic offline data and spies on live broker invocations:
 
 ```powershell
 python -c "from aladeen.app import create_app; from tests.activation_browser_harness import ControllableActivationMockAdapter; adapter = ControllableActivationMockAdapter(); app = create_app(adapter=adapter); app.run(host='127.0.0.1', port=8068, debug=False)"
 ```
 
+> [!NOTE]
+> **Adapter vs Fixture Harness Distinction**:  
+> `ControllableActivationMockAdapter` supplies mock MT5 tick and bar streams for the production app. It does not project multi-scenario activation test cases. The 13 catalog lifecycle scenarios are projected exclusively on the secondary visual fixture harness (`http://127.0.0.1:8069`) created via `_create_fixture_harness_app` in `tests/activation_browser_harness.py`.
+
 ### 4.3 Network Guards Scope Notice
 > [!NOTE]
 > **Automated vs Manual Network Isolation Scope**:  
-> Automated network firewall intercepts (`ContextSecurityFirewall`) and server-side socket monkeypatches (`install_server_socket_guard`) are test fixtures configured within the automated browser test runner (`tests/activation_browser_runner.py`). A standalone manual launch (`python -c "..."`) runs as a standard local Flask/Werkzeug process without attaching client firewalls. Both modes, however, run strictly against in-memory mock adapters without real MT5 or external broker connectivity.
+> Automated network firewall intercepts (`ContextSecurityFirewall`) and server-side socket monkeypatches (`install_server_socket_guard`) are test fixtures configured exclusively within the automated browser test runner (`tests/activation_browser_runner.py`). A standalone manual launch (`python -c "..."`) runs as a standard local Flask/Werkzeug process without attaching client firewalls. Both modes, however, run strictly against in-memory mock adapters without real MT5 or external broker connectivity.
 
 ### 4.4 UI Navigation Steps to Mount Activation Inspection Panel
 When accessing the running dashboard at `http://127.0.0.1:8068/`:
@@ -101,7 +110,7 @@ When accessing the running dashboard at `http://127.0.0.1:8068/`:
 3. **Select Structural Direction**: Choose `UPWARD` or `DOWNWARD` in `#msm-direction-selector`.
 4. **Choose Start Candle**: Select a reference start candle from `#msm-start-candle-dropdown`.
 5. **Apply Calculation**: Click the `#msm-apply-btn` button (`Calculate / Refresh Structure`).
-6. **Inspect Mounted Activation Panel**: The Activation Inspection Panel (`#activation-inspection-card`) dynamically mounts below the Plotly candlestick chart, displaying:
+6. **Inspect Mounted Activation Container**: The Activation Inspection Panel mounts dynamically inside the DOM with container ID `#activation-inspection-container`, displaying:
    * Non-Execution Disclaimer Banner (amber banner).
    * Context Card (Sequence Domain, Feed ID, Run ID, Timeframe mapping).
    * Registered Membership Table (zones, levels, roles, price bounds).
@@ -120,78 +129,50 @@ When accessing the running dashboard at `http://127.0.0.1:8068/`:
 
 ## 5. Executing the Test Suites & Clean Reproduction Records
 
-### 5.1 Focused Activation Dashboard & App Tests
-Runs the activation dashboard presentation unit/integration tests and core app callbacks:
+### 5.1 Durable Clean-Reproduction Record (Milestone 29)
+The following execution was performed and recorded in a clean worktree from checkout commit `3770989114997280b4f1b19406e294a16ec6c7b9`:
+- **Worktree Location**: `D:\Downloads\TopG-repro` (retained, branch `repro-run`)
+- **Virtual Environment**: `D:\Downloads\TopG-repro\.venv_repro`
+- **Operating System**: Windows 11 Version 10.0.26200 AMD64
+- **Python**: `3.13.12`
+- **Installed Packages**: Captured in `docs/development/evidence/reproduction_m29/01_pip_list.txt`
+- **Browser Binary**: `Chromium 156.0.8078.4 (v1248)` via `playwright==1.64.1`
 
-```powershell
-pytest tests/test_activation_dashboard_integration.py tests/test_app.py -v
-```
-**Empirical Reproduction Output**:
-- Exit code: `0`
-- Count: `38 passed in 2.24s` (0 failures).
+#### Commands & Results:
+1. **Focused Activation & App Tests**:
+   ```powershell
+   pytest tests/test_activation_dashboard_integration.py tests/test_app.py -v
+   ```
+   * Exit Code: `0`
+   * Duration: `2.96s`
+   * Result: `38 passed, 1 warning in 2.96s`
+   * Durable Log: `docs/development/evidence/reproduction_m29/02_focused_tests.log`
 
----
+2. **Full Offline Repository Test Suite**:
+   ```powershell
+   pytest -q tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py --ignore=tests/test_activation_browser_controlled.py --ignore=tests/activation_browser_runner.py --ignore=tests/activation_browser_harness.py
+   ```
+   * Exit Code: `0`
+   * Duration: `9.58s`
+   * Result: `542 passed, 1 warning in 9.58s`
+   * Durable Log: `docs/development/evidence/reproduction_m29/03_full_offline_suite.log`
 
-### 5.2 Full Repository Offline Test Suite
-Runs all offline unit and integration tests across MSM, CHOCH, ISS, TJL, Activation Engine, and UI components:
+3. **Controlled Activation Browser Validation Suite**:
+   ```powershell
+   python -u tests/activation_browser_runner.py
+   ```
+   * Exit Code: `0`
+   * Duration: `35.88s`
+   * Result: `ALL ASSERTIONS PASSED`
+   * Durable Log: `docs/development/evidence/reproduction_m29/04_browser_runner.log`
 
-```powershell
-pytest -q tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py --ignore=tests/test_activation_browser_controlled.py --ignore=tests/activation_browser_runner.py --ignore=tests/activation_browser_harness.py
-```
-**Empirical Reproduction Output**:
-- Exit code: `0`
-- Count: `542 passed in 9.92s` (0 failures).
+4. **Post-Run Working Tree Status**:
+   * Exit Code: `0`
+   * Changes: Binary screenshot file updates on disk recorded in `docs/development/evidence/reproduction_m29/05_git_status_post_browser_run.txt`.
 
 > [!NOTE]
 > **Why Browser Tests Are Excluded From the Default Suite**:  
 > Controlled browser validation tests require spawning local Werkzeug server processes on ports 8068/8069 and launching headless Chromium instances. To avoid port binding contention during rapid CI or local test loops, browser suites are orchestrated through dedicated runner scripts.
-
----
-
-### 5.3 Controlled Activation Browser Validation Suite
-Executes the comprehensive, end-to-end controlled browser validation for Milestone 28 under strict security firewalls and socket guards:
-
-```powershell
-python -u tests/activation_browser_runner.py
-```
-
-#### Detailed Execution Stages:
-1. **Server Lifecycle & Recovery Failure Injection**:
-   - Verifies single server clean startup, socket binding, thread join, and port release.
-   - Verifies multi-server collision recovery (simulating occupied port on Server 2 cleanly aborts and terminates Server 1).
-   - Verifies managed-body exception recovery (assertion raised inside execution body cleanly terminates both servers and releases sockets).
-2. **Isolation Guards Negative Controls**:
-   - `ContextSecurityFirewall`: Confirms that requests to unauthorized local ports (`8070`) or external domains (`example.com`) are immediately aborted with `blockedbyclient` / `ERR_BLOCKED_BY_CLIENT` before navigation.
-   - `install_server_socket_guard`: Confirms that prohibited destinations (`('8.8.8.8', 53)`) immediately raise `PermissionError` without reaching underlying connect methods, while permitted local hosts pass through. Confirms clean restoration on exceptions.
-3. **Managed Server Startup**:
-   - Production App launched on `http://127.0.0.1:8068`.
-   - Visual Fixture Harness launched on `http://127.0.0.1:8069`.
-4. **Section A (Mounting & Viewport Usability)**:
-   - Mounts desktop view at 1280x800; captures `01_app_mounting_desktop.png`.
-   - Resizes viewport to 800x600; asserts zero vertical overlap between disclaimer, context card, and table heading; captures `02_app_mounting_narrow_viewport.png`.
-   - Measures real horizontal scroll container (`window.scrollX` shift from 0 to 256px), asserting rightmost column (`Usage Evidence`) is visible.
-   - Asserts code typography font size is 10.0px (within `[9.0px, 11.5px]`).
-5. **Section B (Session & Tab Isolation)**:
-   - Validates multi-context isolation (`sid_a != sid_b`).
-   - Validates causal run domain advancement in Context A (`..._INC1_2` -> `..._INC1_3`) while Context B remains invariant.
-   - Validates steady polling interval retention.
-   - Validates timeframe switching to `D1` (confirmation `H1`).
-   - Validates same-tab reload preserves session identity.
-   - Validates programmatic `window.open` detects un-named tab, generates fresh UUID session ID, and maintains complete recalculation isolation.
-6. **Section C (15 Visual Lifecycle Scenarios)**:
-   - Scenarios 2–14 (13 catalog fixtures) plus 2 custom cases (history 50-limit bounding, synchronization diagnostic banner).
-   - Captures screenshots `05` through `09`.
-7. **Final Audits**:
-   - Zero console errors, zero page errors, zero failed callback requests/responses.
-   - Zero firewall violations, zero socket guard violations, zero live broker invocations.
-
-**Empirical Reproduction Output**:
-```text
-================================================================================
-CONTROLLED BROWSER VALIDATION COMPLETED SUCCESSFULLY (ALL ASSERTIONS PASSED)
-================================================================================
-```
-Exit code: `0`.
 
 ---
 
@@ -201,7 +182,7 @@ Upon successful execution of the controlled browser suite, exactly 9 PNG screens
 
 | Filename | Description | Key Visible Invariants |
 |---|---|---|
-| `01_app_mounting_desktop.png` | Desktop layout at 1280x800 | Non-execution disclaimer, sequence domain header, full layout mounting without clipping |
+| `01_app_mounting_desktop.png` | Desktop layout at 1280x800 | Non-execution disclaimer, sequence domain header, layout mounting in DOM |
 | `02_app_mounting_narrow_viewport.png` | Narrow viewport at 800x600 | Verifies non-overlapping geometry between disclaimer, context card, and table header under narrow viewport |
 | `03_session_isolation_context_a.png` | Context A post-recalculation | Advanced run domain `..._INC1_3`, active activations table |
 | `04_session_isolation_context_b.png` | Context B isolation | Invariant run domain `..._INC2_2`, preserved active activations table |
@@ -212,11 +193,8 @@ Upon successful execution of the controlled browser suite, exactly 9 PNG screens
 | `09_scenario_sync_error_banner.png` | Custom Scenario Sync Error | TJL cursor mismatch banner alongside established evidence |
 
 > [!WARNING]
-> **Post-Run Git Working Tree Notice**:  
-> Running `activation_browser_runner.py` re-generates and re-writes the screenshot PNG files on disk. Because binary images will differ slightly across operating system font rendering cycles, `git status` will show uncommitted modifications on these files (e.g. `tests/evidence/activation_browser/01_app_mounting_desktop.png`). To restore a pristine working tree, run:
-> ```powershell
-> git restore tests/evidence/activation_browser/
-> ```
+> **Evidence Retention Notice Before Git Restore**:  
+> Running `activation_browser_runner.py` re-generates and re-writes the screenshot PNG files on disk. If you need to preserve newly captured screenshots for evidence or review, **copy or back them up before running `git restore`**. Executing `git restore tests/evidence/activation_browser/` permanently discards all newly generated screenshot modifications in the working tree.
 
 ---
 
@@ -261,7 +239,7 @@ Upon successful execution of the controlled browser suite, exactly 9 PNG screens
 - Session state is managed by `ActivationSessionRegistry` in `src/aladeen/strategy/service.py`.
 - Sessions are stored in a process-local in-memory dictionary keyed by session ID (`sid`).
 - **Reset Trigger**: Stopping or restarting the Python process completely resets all session state.
-- **Tab Ownership**: Same-tab reloads preserve the session ID via `window.name` verification; opening a duplicate tab generates a fresh UUID session ID, maintaining complete isolation from parent tabs.
+- **Tab Ownership Scope**: Tested tab duplication protection applies to programmatic `window.open()` calls with fresh UUID generation. Native browser-menu / context-menu tab duplication is not automated due to Playwright API limitations.
 
 ---
 

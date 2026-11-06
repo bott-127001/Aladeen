@@ -1,0 +1,70 @@
+# Command: D:\Downloads\TopG-repro\.venv_repro\Scripts\python.exe -m pytest tests/test_activation_dashboard_integration.py tests/test_app.py -v
+# Working Directory: D:\Downloads\TopG-repro
+# Exit Code: 0
+# Duration: 2.96s
+
+=== STDOUT ===
+============================= test session starts =============================
+platform win32 -- Python 3.13.12, pytest-9.2.0, pluggy-1.7.0 -- D:\Downloads\TopG-repro\.venv_repro\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: D:\Downloads\TopG-repro
+configfile: pyproject.toml
+plugins: dash-4.5.0, asyncio-1.4.1.post1
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 38 items
+
+tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_all_16_scenarios_execute_through_presentation_builder_with_explicit_assertions PASSED [  2%]
+tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_repeated_rendering_invariance PASSED [  5%]
+tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_rendering_purity_preserves_engine_checkpoints_cursor_and_cache PASSED [  7%]
+tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_value_preserving_price_and_timestamp_formatting PASSED [ 10%]
+tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_missing_and_malformed_context_diagnostics PASSED [ 13%]
+tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_bounded_history_display_and_total_count PASSED [ 15%]
+tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_service_pipeline_execution_and_context_reset PASSED [ 18%]
+tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_real_engine_lifecycle_reactivation_presentation PASSED [ 21%]
+tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_same_run_successive_cancellation_sync_with_monotonic_sequences_and_error_preservation PASSED [ 23%]
+tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_interleaved_sessions_and_bounded_cleanup PASSED [ 26%]
+tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_explicit_recalculation_advances_run_and_steady_refresh_retains PASSED [ 28%]
+tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_mixed_events_observations_and_transitions_ordering PASSED [ 31%]
+tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_callback_facing_isolated_sessions_with_identical_context PASSED [ 34%]
+tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_recalculation_in_session_a_cannot_reset_session_b PASSED [ 36%]
+tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_same_session_overlapping_operations_are_serialized PASSED [ 39%]
+tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_capacity_pressure_cannot_reset_in_use_session PASSED [ 42%]
+tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_recreated_session_advances_run_incarnation_and_does_not_reuse_old_sequence_domain PASSED [ 44%]
+tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_clear_rejected_while_operational_lease_is_active PASSED [ 47%]
+tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_bounded_registry_bookkeeping_across_high_volume_unique_sessions PASSED [ 50%]
+tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_recreation_with_custom_run_prefix_enforces_fresh_incarnation PASSED [ 52%]
+tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_application_boundary_session_initialization_and_refresh_retention PASSED [ 55%]
+tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_all_active_over_capacity_overflow_and_cleanup_after_release PASSED [ 57%]
+tests/test_app.py::TestAppConstruction::test_create_app_returns_dash_instance PASSED [ 60%]
+tests/test_app.py::TestAppConstruction::test_app_title PASSED            [ 63%]
+tests/test_app.py::TestAppConstruction::test_layout_is_set PASSED        [ 65%]
+tests/test_app.py::TestAppConstruction::test_no_mt5_import_required PASSED [ 68%]
+tests/test_app.py::TestCommandLineArgs::test_debug_disabled_by_default PASSED [ 71%]
+tests/test_app.py::TestCommandLineArgs::test_debug_enabled_explicitly PASSED [ 73%]
+tests/test_app.py::TestCommandLineArgs::test_custom_host_and_port PASSED [ 76%]
+tests/test_app.py::TestModeIsolationAndFallbackRejection::test_demo_mode_unaffected_by_mt5 PASSED [ 78%]
+tests/test_app.py::TestModeIsolationAndFallbackRejection::test_mt5_failure_does_not_silently_fallback_to_demo PASSED [ 81%]
+tests/test_app.py::TestModeIsolationAndFallbackRejection::test_mt5_disconnected_shows_disconnected_state_not_demo PASSED [ 84%]
+tests/test_app.py::TestUIConsistencyAndStateSynchronization::test_connection_loss_during_refresh_clears_green_banner_atomically PASSED [ 86%]
+tests/test_app.py::TestUIConsistencyAndStateSynchronization::test_switch_to_demo_distinguishes_source_from_open_mt5_connection PASSED [ 89%]
+tests/test_app.py::TestUIConsistencyAndStateSynchronization::test_terminal_only_broker_offline_distinction PASSED [ 92%]
+tests/test_app.py::TestUIConsistencyAndStateSynchronization::test_broker_state_transition_synchronization PASSED [ 94%]
+tests/test_app.py::TestUIConsistencyAndStateSynchronization::test_symbol_preservation_across_reconnects PASSED [ 97%]
+tests/test_app.py::TestUIConsistencyAndStateSynchronization::test_steady_state_refresh_settles_without_trigger PASSED [100%]
+
+============================== warnings summary ===============================
+.venv_repro\Lib\site-packages\dash\testing\plugin.py:104
+  D:\Downloads\TopG-repro\.venv_repro\Lib\site-packages\dash\testing\plugin.py:104: PytestRemovedIn10Warning: The hookimpl pytest_addhooks uses old-style configuration options (marks or attributes).
+  Please use the pytest.hookimpl(tryfirst=True) decorator instead
+   to configure the hooks.
+   See https://docs.pytest.org/en/latest/deprecations.html#configuring-hook-specs-impls-using-markers
+    @pytest.mark.tryfirst
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 38 passed, 1 warning in 1.61s ========================
+
+=== STDERR ===
+D:\Downloads\TopG-repro\.venv_repro\Lib\site-packages\pytest_asyncio\plugin.py:300: PytestDeprecationWarning: The configuration option "asyncio_default_fixture_loop_scope" is unset.
+The event loop scope for asynchronous fixtures will default to the "fixture" caching scope. Future versions of pytest-asyncio will default the loop scope for asynchronous fixtures to "function" scope. Set the default fixture loop scope explicitly in order to avoid unexpected behavior in the future. Valid fixture loop scopes are: "function", "class", "module", "package", "session"
+
+  warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))

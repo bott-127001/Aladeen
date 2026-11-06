@@ -1,0 +1,15 @@
+# Command: git status
+# Working Directory: D:\Downloads\TopG-repro
+# Exit Code: 0
+# Duration: 0.12s
+
+=== STDOUT ===
+On branch repro-run
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   tests/evidence/activation_browser/01_app_mounting_desktop.png
+	modified:   tests/evidence/activation_browser/03_session_isolation_context_a.png
+	modified:   tests/evidence/activation_browser/04_session_isolation_context_b.png
+
+no changes added to commit (use "git add" and/or "git commit -a")

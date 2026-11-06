@@ -1,6 +1,6 @@
 # Development & Review Status — Aladeen / TopG
 
-Last Updated: 2026-11-06 (Milestone 29 Release-Readiness Audit & Offline Runbook — HANDOFF-079)
+Last Updated: 2026-11-06 (Milestone 29 Release-Readiness Audit & Offline Runbook — HANDOFF-080)
 
 ---
 
@@ -1852,6 +1852,62 @@ Last Updated: 2026-11-06 (Milestone 29 Release-Readiness Audit & Offline Runbook
   1. [`docs/requirements/dashboard-release-readiness.md`](file:///docs/requirements/dashboard-release-readiness.md): Rebuilt scope-completion matrix and bounded audit verdict.
   2. [`docs/development/offline-dashboard-runbook.md`](file:///docs/development/offline-dashboard-runbook.md): Reproducible offline operating guide with complete screenshot inventory and reproduction metrics.
   3. [`docs/development/status.md`](file:///docs/development/status.md): Appended HANDOFF-079 documentation.
+- **Standing Invariants Maintained**:
+  - Pure read-only dashboard presentation.
+  - Zero UI order execution, zero MT5 trading calls, zero live account modification.
+  - Zero confirmation arbitration/selection, zero usage ledger writes, zero trade entry signals.
+  - Strategy engines 100% untouched (0 diff against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`).
+  - Committed and pushed on `requirements/dashboard-release-readiness`. Never merge into `main`.
+
+---
+
+## Milestone 29 — Read-Only Dashboard Release-Readiness Audit and Reproducible Offline Runbook (HANDOFF-080)
+
+- **Active Branch**: `requirements/dashboard-release-readiness`
+- **Immediate Parent Commit**: `3770989114997280b4f1b19406e294a16ec6c7b9` (HANDOFF-079)
+- **Accepted Controlled Browser Baseline Commit**: `bf737ea41e8bfd554b9386a6e9be86f700824fb3` (Milestone 28 accepted)
+- **Accepted Offline Dashboard Implementation Commit**: `d6587a1200735fe6453ff24f043931699f21f407` (Milestone 27 accepted)
+- **Requirements Baseline Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d` (Milestone 26 / HANDOFF-066 accepted)
+- **Root Baseline Engine Commit**: `0867c740352297fb43e781fb654706218771d533` (Milestone 25 / HANDOFF-061)
+- **Reviewer Feedback Reconciled**:
+  1. *Source-Aligned Browser Traceability References*:
+     - Corrected runner entry point: `run_activation_browser_validation()` in `tests/activation_browser_runner.py` (not `main()`).
+     - Aligned section verification functions with their actual defining modules:
+       * `verify_section_a_mounting_and_viewport` defined in `tests/test_activation_browser_controlled.py`.
+       * `verify_section_b_session_isolation` defined in `tests/test_activation_browser_controlled.py`.
+       * `verify_section_c_lifecycle_scenarios` defined in `tests/test_activation_browser_controlled.py`.
+       * `verify_isolation_guards_negative_controls` defined in `tests/activation_browser_harness.py`.
+       * `verify_server_lifecycle_failure_injection` defined in `tests/activation_browser_harness.py`.
+     - Corrected assertion mapping for the unresolved-source banner: mapped to `tests/test_activation_dashboard_integration.py::TestActivationDashboardIntegration::test_all_16_scenarios_execute_through_presentation_builder_with_explicit_assertions` (`dash_act_13_unresolved_source_snapshot`), `tests/test_activation_dashboard_fixture_integrity.py::TestActivationDashboardFixtureIntegrity::test_fixture_13_unresolved_source_snapshot_matches_requirements`, and `tests/test_activation_browser_controlled.py::verify_section_c_lifecycle_scenarios` (capturing `07_scenario_13_unresolved_source_banner.png`).
+  2. *Authoritative G1–G8 Display Group Definitions & Construction Categories*:
+     - Restored exact contract definitions: G1 Context, G2 Membership, G3 Activation, G4 Gating, G5 Cancellation Audit, G6 Rearm Controller, G7 Terminal History, G8 Synchronization & Diagnostics.
+     - Categorized fixture snapshot reconstruction in `test_all_16_scenarios_execute_through_presentation_builder_with_explicit_assertions` as `Synthetic` construction.
+     - Differentiated supporting real-engine (`Engine-derived`) and service-pipeline (`Candle-pipeline-derived`) verification rows.
+  3. *TJL & ISS Strategy Semantics Corrected*:
+     - Corrected TJL lifecycle: at continuation t1, new labels do not replace the existing current eligible set; at t2, the next qualifying active P3 establishes the successor eligible set. Replacement cancels outgoing activation membership even where a physical level persists. CHOCH invalidation produces post-CHOCH gap.
+     - Removed unsupported "single-candle pullbacks verified" shorthand for ISS; restored exact accepted limitation wording: "Internal swing tracking only. Isolated candidate tracking distinct from main trend continuation; multi-candle pullbacks remain unreconciled and are strictly excluded from downstream live activation gating."
+  4. *One Exact, Durable Clean-Reproduction Record*:
+     - Retained clean reproduction worktree `D:\Downloads\TopG-repro` on branch `repro-run` with isolated virtual environment `.venv_repro`.
+     - Preserved single tested environment: Windows 11 AMD64, Python `3.13.12`, `playwright==1.64.1` driving `Chromium 156.0.8078.4 (v1248)`.
+     - Preserved historical accepted Milestone 28 environment: `playwright==1.57.0` driving `Chromium 153.0.8010.12`.
+     - Stored permanent durable logs in `docs/development/evidence/reproduction_m29/`:
+       * `01_pip_list.txt`: exact installed package inventory.
+       * `02_focused_tests.log`: 38 passed in 2.96s (exit code 0).
+       * `03_full_offline_suite.log`: 542 passed in 9.58s (exit code 0).
+       * `04_browser_runner.log`: complete browser validation transcript with zero console/page errors, all assertions passed (exit code 0).
+       * `05_git_status_post_browser_run.txt`: post-run binary diff status.
+  5. *Runbook Corrections*:
+     - Corrected mounted container ID selector to `#activation-inspection-container` (from `#activation-inspection-card`).
+     - Clarified adapter roles: `ControllableActivationMockAdapter` supplies mock data and tracks broker spy; `_create_fixture_harness_app` projects the 13 fixture scenarios.
+     - Documented actual default source selection path in `create_app()` and explicit automated runner isolation.
+     - Limited duplicate-tab claims to tested programmatic `window.open()`.
+     - Clarified that desktop screenshot verifies layout in live DOM without element truncation.
+     - Added evidence backup notice before executing `git restore tests/evidence/activation_browser/`.
+- **Completed Deliverables**:
+  1. [`docs/requirements/dashboard-release-readiness.md`](file:///docs/requirements/dashboard-release-readiness.md): Rebuilt scope matrix with exact G1–G8 display groups, defining modules, and corrected TJL/ISS semantics.
+  2. [`docs/development/offline-dashboard-runbook.md`](file:///docs/development/offline-dashboard-runbook.md): Updated runbook with `#activation-inspection-container`, adapter distinctions, evidence retention notices, and single durable reproduction record.
+  3. [`docs/development/evidence/reproduction_m29/`](file:///docs/development/evidence/reproduction_m29/): Permanent durable execution logs (`01_pip_list.txt` through `05_git_status_post_browser_run.txt`).
+  4. [`docs/development/status.md`](file:///docs/development/status.md): Appended HANDOFF-080 documentation.
 - **Standing Invariants Maintained**:
   - Pure read-only dashboard presentation.
   - Zero UI order execution, zero MT5 trading calls, zero live account modification.
