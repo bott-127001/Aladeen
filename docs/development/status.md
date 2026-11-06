@@ -1,6 +1,6 @@
 # Development & Review Status — Aladeen / TopG
 
-Last Updated: 2026-11-06 (Activation Engine Pure Offline Milestone Accepted — HANDOFF-061 Baseline)
+Last Updated: 2026-11-06 (Milestone 27 Read-Only Activation Dashboard Accepted — HANDOFF-073 Baseline)
 
 ---
 
@@ -1459,3 +1459,36 @@ Last Updated: 2026-11-06 (Activation Engine Pure Offline Milestone Accepted — 
   3. *Engine Integrity*: Strictly zero modification to accepted strategy engines (`msm_engine`, `choch_engine`, `iss_engine`, `tjl_coordinator`, `activation_engine`, `activation_adapter`).
   4. *Core Ambiguities Preserved*: Upstream $c_1 == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
   5. *Branch Boundary*: Committed and pushed strictly on `feature/activation-dashboard`. No merging into `main`.
+
+---
+
+## 27. Milestone Acceptance: Read-Only Activation Dashboard Integration (HANDOFF-073)
+- **Accepted Milestone**: Read-Only Activation Dashboard Integration (Milestone 27).
+- **Accepted Commit Hash**: `d6587a1200735fe6453ff24f043931699f21f407` (`feat(ui,tests): implement acknowledged lock contention, callback session normalization, and active capacity overflow tests (HANDOFF-073)`)
+- **Active Branch**: `feature/activation-dashboard`
+- **Requirements Baseline Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d` (Milestone 26 / HANDOFF-066 accepted)
+- **Root Baseline Engine Commit**: `0867c740352297fb43e781fb654706218771d533` (Milestone 25 / HANDOFF-061)
+- **Reviewer Status**: **ACCEPTED** by Perplexity for the bounded offline implementation baseline.
+- **Accepted Scope & Implementations**:
+  1. *Pure Functional Presentation Projection (`src/aladeen/ui/activation_inspection.py`)*:
+     - Read-only projection of immutable `ActivationSnapshot` and `TJLSnapshot` across all 8 display groups (G1-G8: Context, Membership, Activation Records, Evidence Gating, Cancellation, Rearm Controllers, Terminal History, Synchronization).
+     - Explicit missing-value fallbacks ("None", "Unknown", "—"), value-preserving price formatters, and UTC timestamp formatting.
+     - Unresolved diagnostic banner ("LAST AUTHORITATIVE EVIDENCE — SOURCE UNRESOLVED") preserved without forced boolean interpretation.
+     - Zero mutation of underlying strategy engines or coordinator state during rendering.
+  2. *Session-Keyed Coordination & Operational Leasing (`src/aladeen/strategy/service.py`)*:
+     - `ActivationSessionRegistry` provides isolated per-session coordinators, monotonic incarnation counters, and operational leasing context manager (`session_operation(session_id)`).
+     - Eviction protection for in-flight active leased operations; atomic clear rejection (`RuntimeError`) if any operational lease is active.
+     - Capacity semantics: Active leases temporarily accommodate callers beyond `max_sessions`; idle sessions and associated bookkeeping are bounded to configured `max_sessions` upon lease release.
+  3. *Application-Boundary Dynamic Layout & Callback Normalization (`src/aladeen/app.py`, `src/aladeen/ui/msm_callbacks.py`)*:
+     - Configured `app.layout = build_layout` as a callable ensuring fresh per-connection layouts and UUID session store initialization (`dcc.Store(id="dashboard-session-id-store", storage_type="session")`).
+     - Pure helper `normalize_session_id()` executes identity preservation for existing valid IDs and generates unique UUIDs for missing/empty IDs; registered callback delegates to helper.
+  4. *Integration Test Regressions (`tests/test_activation_dashboard_integration.py`)*:
+     - 22 comprehensive integration tests passing in 1.21s.
+     - Acknowledged instrumented lock contention verifies strict serialization without sleep inferences.
+     - All-active over-capacity overflow and post-release cleanup verified.
+- **Recorded Verification Boundaries & Disclaimers**:
+  - *Browser Visual & Storage Boundary*: Offline test suite verifies HTML DOM tree structure and Dash component properties; live browser visual rendering and browser `sessionStorage` persistence remain unverified in offline handoffs.
+  - *Scenario 13 Construction*: Scenario 13 genuine candle-pipeline construction remains planned/unverified; synthetic presentation evidence remains explicitly labeled.
+  - *Engine Integrity Baseline*: Strategy engines (`msm_engine.py`, `choch_engine.py`, `iss_engine.py`, `tjl_coordinator.py`, `activation_engine.py`, `activation_adapter.py`) remain 100% untouched.
+  - *Scope Exclusions*: Strictly zero UI order execution, zero MT5 trading calls, zero live account modification, zero confirmation arbitration/selection, zero usage ledger writes, zero trade entry signals.
+  - *Branch Boundary*: Committed and pushed strictly on `feature/activation-dashboard`. No merging into `main`.
