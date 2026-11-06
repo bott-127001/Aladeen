@@ -58,7 +58,10 @@
           "FEED_EURUSD_H4:H4:2026-10-01T04:00:00+00:00:HIGH"
         ],
         "is_broker_execution": false,
-        "signal_type": "CONCEPTUAL_ANALYSIS_SIGNAL"
+        "signal_type": "CONCEPTUAL_ANALYSIS_SIGNAL",
+        "entry_reference_price": 1.1395,
+        "price_basis": "BID",
+        "price_provenance": "CONFIRMATION_CANDLE_CLOSE"
       }
     },
     "sig_02_bearish_d1_h1_valid_iss_signal": {
@@ -107,7 +110,10 @@
           "FEED_EURUSD_D1:D1:2026-09-25T00:00:00+00:00:HIGH"
         ],
         "is_broker_execution": false,
-        "signal_type": "CONCEPTUAL_ANALYSIS_SIGNAL"
+        "signal_type": "CONCEPTUAL_ANALYSIS_SIGNAL",
+        "entry_reference_price": 1.1475,
+        "price_basis": "BID",
+        "price_provenance": "CONFIRMATION_CANDLE_CLOSE"
       }
     },
     "sig_03_bullish_h1_m1_valid_tap_candle_confirmation": {
@@ -156,7 +162,10 @@
           "FEED_GBPUSD_H1:H1:2026-10-01T10:00:00+00:00:LOW"
         ],
         "is_broker_execution": false,
-        "signal_type": "CONCEPTUAL_ANALYSIS_SIGNAL"
+        "signal_type": "CONCEPTUAL_ANALYSIS_SIGNAL",
+        "entry_reference_price": 1.2835,
+        "price_basis": "BID",
+        "price_provenance": "CONFIRMATION_CANDLE_CLOSE"
       }
     },
     "sig_04_activation_without_confirmation_no_signal": {
@@ -293,7 +302,10 @@
           "FEED_EURUSD_H4:H4:2026-10-01T04:00:00+00:00:HIGH"
         ],
         "is_broker_execution": false,
-        "signal_type": "CONCEPTUAL_ANALYSIS_SIGNAL"
+        "signal_type": "CONCEPTUAL_ANALYSIS_SIGNAL",
+        "entry_reference_price": 1.1405,
+        "price_basis": "BID",
+        "price_provenance": "CONFIRMATION_CANDLE_CLOSE"
       }
     },
     "sig_07_opposite_direction_confirmation_rejected": {
@@ -428,7 +440,7 @@
         "signal_timestamp": "2026-10-02T08:35:00+00:00",
         "entry_price": 1.1395,
         "cancelled_activation_ids": [
-          "CAND_D1_H1"
+          "ACT_G01[15:ACT_ENGINE_DEMO][2:D1][6:EURUSD][15:SET_20261001_D1][4:TJL1]"
         ],
         "consumed_level_keys": [
           "FEED_EURUSD_H4:H4:2026-10-01T04:00:00+00:00:HIGH"
@@ -473,7 +485,7 @@
         "signal_timestamp": "2026-10-02T09:00:00+00:00",
         "entry_price": 1.14,
         "cancelled_activation_ids": [
-          "CAND_D1_H1"
+          "ACT_G01[15:ACT_ENGINE_DEMO][2:D1][6:EURUSD][15:SET_20261001_D1][4:TJL1]"
         ],
         "consumed_level_keys": [
           "FEED_EURUSD_H4:H4:2026-10-01T04:00:00+00:00:HIGH"
@@ -518,7 +530,7 @@
         "signal_timestamp": "2026-10-02T09:00:00+00:00",
         "entry_price": 1.14,
         "cancelled_activation_ids": [
-          "CAND_H4_TJL1"
+          "ACT_G01[15:ACT_ENGINE_DEMO][2:H4][6:EURUSD][15:SET_20261001_H4][4:TJL1]"
         ],
         "consumed_level_keys": [
           "FEED_EURUSD_H4:H4:2026-10-01T04:00:00+00:00:LOW"
@@ -559,8 +571,8 @@
           "FEED_EURUSD_H4:H4:LVL_01"
         ],
         "cancelled_activation_ids": [
-          "CAND_D1",
-          "CAND_H1"
+          "ACT_G01[15:ACT_ENGINE_DEMO][2:D1][6:EURUSD][15:SET_20261001_D1][4:TJL1]",
+          "ACT_G01[15:ACT_ENGINE_DEMO][2:H1][6:EURUSD][15:SET_20261001_H1][4:TJL1]"
         ],
         "remaining_unused_level_keys": [
           "FEED_EURUSD_D1:D1:LVL_01",
@@ -768,8 +780,30 @@
           "EVT_CHOCH_01",
           "EVT_ISS_01"
         ],
-        "is_broker_execution": false
-      }
+        "is_broker_execution": false,
+        "entry_reference_price": 1.1395,
+        "price_basis": "BID",
+        "price_provenance": "CONFIRMATION_CANDLE_CLOSE",
+        "different_producers_consolidated": true
+      },
+      "shared_confirmation_config_id": "CONF_CFG_EURUSD_M5_v1",
+      "candidate_setup_key": "CSK[17:SESSION_EURUSD_01][7:REV_001][71:ACT_G01[15:ACT_ENGINE_DEMO][2:H4][6:EURUSD][15:SET_20261001_H4][4:TJL1]][30:MK[15:SET_20261001_H4][4:TJL1]][21:CONF_CFG_EURUSD_M5_v1][26:EURUSD:M5:20261002T083500Z][25:2026-10-02T08:35:00+00:00]",
+      "confirmation_events": [
+        {
+          "producer_id": "CHOCH_DETECTOR_v1",
+          "pattern_type": "CHOCH",
+          "event_id": "EVT_CHOCH_0835",
+          "close_price": 1.1395,
+          "price_basis": "BID"
+        },
+        {
+          "producer_id": "ISS_ENGINE_v1",
+          "pattern_type": "ISS",
+          "event_id": "EVT_ISS_0835",
+          "close_price": 1.1395,
+          "price_basis": "BID"
+        }
+      ]
     },
     "sig_19_chronological_listing_without_position_gating": {
       "category": [
@@ -1090,7 +1124,7 @@
         "source_settled",
         "edge_boundary_specification"
       ],
-      "description": "CHOCH confirms at 08:35, immediately publishing BUY signal. Second confirmation completes on later candle at 08:45 after 08:35 batch was finalized. Late confirmation cannot mutate published signal.",
+      "description": "Confirmation at 08:35 publishes BUY signal and consumes Level A. A second confirmation on Level A at 08:45 is evaluated in the 08:45 batch against activation state at 08:45. It does not mutate the 08:35 signal (signals are immutable), and is rejected as LEVEL_ALREADY_USED in the 08:45 batch.",
       "authority": "approved-clarifications.md (OPEN-07, OPEN-09), trade-signal-acceptance.md \u00a72 (Stage 6)",
       "finalized_signal": {
         "signal_id": "SIG_0835",
@@ -1105,7 +1139,10 @@
       },
       "expected": {
         "published_signal_mutated": false,
-        "late_event_status": "LATE_CONFIRMATION_IGNORED",
+        "evaluated_in_own_batch": true,
+        "batch_timestamp": "2026-10-02T08:45:00+00:00",
+        "signal_published_at_0845": false,
+        "rejection_reason": "LEVEL_ALREADY_USED",
         "is_immutable": true
       }
     },
@@ -1229,13 +1266,17 @@
       "description": "A persistent physical level (StableLevelId) retained into a subsequent week appears in SET_1 with activation ACT_01, and later in successor SET_2 with activation ACT_02. The CandidateSetupKey embeds full activation_id and source_set_id, preventing collision or conflation across sets.",
       "authority": "trade-signal-acceptance.md \u00a72 (Stage 6), MTF-Analysis.pdf \u00a74",
       "physical_level": "FEED_EURUSD_H4:H4:2026-10-01T04:00:00+00:00:HIGH",
-      "setup_key_set_1": "[15:SESSION_DEFAULT][7:REV_001][24:EURUSD:H4:LVL_01:GEN_1][15:SET_20261001_H4][4:TJL1][17:CONF_M5_CHOCH_v1][26:EURUSD:M5:20261002T083500Z][25:2026-10-02T08:35:00+00:00]",
-      "setup_key_set_2": "[15:SESSION_DEFAULT][7:REV_001][24:EURUSD:H4:LVL_01:GEN_2][15:SET_20261008_H4][4:TJL1][17:CONF_M5_CHOCH_v1][26:EURUSD:M5:20261009T083500Z][25:2026-10-09T08:35:00+00:00]",
+      "setup_key_set_1": "CSK[17:SESSION_EURUSD_01][7:REV_001][71:ACT_G01[15:ACT_ENGINE_DEMO][2:H4][6:EURUSD][15:SET_20261001_H4][4:TJL1]][30:MK[15:SET_20261001_H4][4:TJL1]][21:CONF_CFG_EURUSD_M5_v1][26:EURUSD:M5:20261002T083500Z][25:2026-10-02T08:35:00+00:00]",
+      "setup_key_set_2": "CSK[17:SESSION_EURUSD_01][7:REV_001][71:ACT_G01[15:ACT_ENGINE_DEMO][2:H4][6:EURUSD][15:SET_20261008_H4][4:TJL1]][30:MK[15:SET_20261008_H4][4:TJL1]][21:CONF_CFG_EURUSD_M5_v1][26:EURUSD:M5:20261009T083500Z][25:2026-10-09T08:35:00+00:00]",
       "expected": {
         "setup_keys_distinct": true,
         "collision_detected": false,
         "separate_activation_lifecycles": true
-      }
+      },
+      "activation_id_set_1": "ACT_G01[15:ACT_ENGINE_DEMO][2:H4][6:EURUSD][15:SET_20261001_H4][4:TJL1]",
+      "activation_id_set_2": "ACT_G01[15:ACT_ENGINE_DEMO][2:H4][6:EURUSD][15:SET_20261008_H4][4:TJL1]",
+      "member_key_set_1": "MK[15:SET_20261001_H4][4:TJL1]",
+      "member_key_set_2": "MK[15:SET_20261008_H4][4:TJL1]"
     },
     "sig_39_different_confirmation_configurations_distinct_setup_keys": {
       "category": [
@@ -1243,12 +1284,14 @@
       ],
       "description": "Two confirmation engines running distinct configurations (CONF_M5_CHOCH_v1 vs CONF_M5_CHOCH_v2) on the same timeframe evaluate the same candle. Distinct confirmation_engine_id in CandidateSetupKey ensures candidates are not conflated.",
       "authority": "trade-signal-acceptance.md \u00a72 (Stage 6), approved-clarifications.md (OPEN-08)",
-      "setup_key_config_a": "[15:SESSION_DEFAULT][7:REV_001][24:EURUSD:H4:LVL_01:GEN_1][15:SET_20261001_H4][4:TJL1][17:CONF_M5_CHOCH_v1][26:EURUSD:M5:20261002T083500Z][25:2026-10-02T08:35:00+00:00]",
-      "setup_key_config_b": "[15:SESSION_DEFAULT][7:REV_001][24:EURUSD:H4:LVL_01:GEN_1][15:SET_20261001_H4][4:TJL1][17:CONF_M5_CHOCH_v2][26:EURUSD:M5:20261002T083500Z][25:2026-10-02T08:35:00+00:00]",
+      "setup_key_config_a": "CSK[17:SESSION_EURUSD_01][7:REV_001][71:ACT_G01[15:ACT_ENGINE_DEMO][2:H4][6:EURUSD][15:SET_20261001_H4][4:TJL1]][30:MK[15:SET_20261001_H4][4:TJL1]][21:CONF_CFG_EURUSD_M5_v1][26:EURUSD:M5:20261002T083500Z][25:2026-10-02T08:35:00+00:00]",
+      "setup_key_config_b": "CSK[17:SESSION_EURUSD_01][7:REV_001][71:ACT_G01[15:ACT_ENGINE_DEMO][2:H4][6:EURUSD][15:SET_20261001_H4][4:TJL1]][30:MK[15:SET_20261001_H4][4:TJL1]][21:CONF_CFG_EURUSD_M5_v2][26:EURUSD:M5:20261002T083500Z][25:2026-10-02T08:35:00+00:00]",
       "expected": {
         "setup_keys_distinct": true,
         "cross_engine_conflation": false
-      }
+      },
+      "config_id_a": "CONF_CFG_EURUSD_M5_v1",
+      "config_id_b": "CONF_CFG_EURUSD_M5_v2"
     }
   }
 }

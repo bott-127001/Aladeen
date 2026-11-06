@@ -2375,3 +2375,59 @@ Last Updated: 2026-11-06 (Milestone 29 Release-Readiness Audit & Offline Runbook
   - Zero confirmation arbitration implementation, zero usage ledger runtime writes, zero automated trading.
   - Strategy engines 100% untouched (0 diff against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`).
   - Dedicated branch boundary: committed and pushed strictly on `requirements/trade-signal-acceptance`. Never merge into `main`.
+
+
+---
+
+## Milestone 30 — Trade-Signal Business Logic Requirements and Acceptance Contract (HANDOFF-089)
+
+- **Active Branch**: `requirements/trade-signal-acceptance`
+- **Immediate Parent Commit**: `2b356489ddefc1deb168e4b8b83c9febb3ed9d07` (HANDOFF-088)
+- **Accepted Milestone 29 Baseline Commit**: `0144ddb8150b4132a7b60d24698105d897514cb2`
+- **Accepted Milestone 28 Controlled Browser Baseline**: `bf737ea41e8bfd554b9386a6e9be86f700824fb3`
+- **Requirements Baseline Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d`
+- **Root Baseline Engine Commit**: `0867c740352297fb43e781fb654706218771d533`
+- **Reviewer Feedback Addressed (HANDOFF-088 Review Directives 1–8 & HANDOFF-089 Directives)**:
+  1. *Separated Shared Confirmation Stream Config from Detector Producer Identity*:
+     - In `CandidateSetupKey`, replaced the pattern-specific engine ID with the shared confirmation stream/configuration identity `confirmation_config_id` (`CONF_CFG_EURUSD_M5_v1`).
+     - Preserved individual detector/producer provenance (`producer_id`, `pattern_type`, `event_id`, close price) on each evidence record.
+     - Enabled CHOCH and ISS from different producers (`CHOCH_DETECTOR_v1` vs `ISS_ENGINE_v1`) completing at the same candle close to consolidate cleanly into a single candidate setup under `OPEN-07` without producer conflation (verified via `sig_18`).
+     - Distinct confirmation stream configurations produce distinct setup keys, preventing cross-config conflation (verified via `sig_39`).
+  2. *Generated Canonical Setup Keys from Structured Inputs & Verified Round-Trip Parsing*:
+     - Implemented `format_candidate_setup_key()` and `parse_candidate_setup_key()` with length-prefixed encoding:  
+       `CSK[{len:session}][{len:rev}][{len:act}][{len:member}][{len:conf_cfg}][{len:candle}][{len:close}]`.
+     - Validated that all length prefixes in all 39 fixtures match their actual string slice lengths bit-for-bit, eliminating malformed hand-authored strings.
+     - Proved mathematical round-trip parse equality and collision resistance against adversarial inputs containing delimiters (`]`, `[`, `:`, `\n`).
+  3. *Corrected Identity Descriptions & Validated Associations*:
+     - Explicitly separated and defined:
+       * **Role**: `"TJL1"` or `"TJL2_A_PLUS"`
+       * **Canonical Member Key**: `format_member_key(set_id, role)` e.g. `MK[15:SET_20261001_H4][4:TJL1]`
+       * **Activation ID**: `format_activation_id(engine_id, source_timeframe, symbol, set_id, role, generation_seq)` e.g. `ACT_G01[15:ACT_ENGINE_DEMO][2:H4][6:EURUSD][15:SET_20261001_H4][4:TJL1]`
+       * **Physical Level ID**: Full 4-tuple physical identity `StableLevelId(symbol_feed_id, source_timeframe, source_open_time, side)`
+     - Clarified that `format_activation_id()` embeds engine, source timeframe, symbol, set, role, and generation (not the full `StableLevelId`), maintaining structured associations without field conflation.
+  4. *Restored Reference Price/Basis/Provenance & Activation Cancellation Targets*:
+     - Enriched `PublishedTradeSignal` (22 fields) and `CandidateSignalRecord` (20 fields) schemas with `entry_reference_price: float`, `price_basis: str`, and `price_provenance: str`.
+     - Corrected `cancelled_activation_ids` across all fixtures (`sig_09`, `sig_10`, `sig_11`, `sig_12`) to contain canonical activation IDs (`ACT_G01[...]`), eliminating `CAND_*` candidate IDs.
+  5. *Clarified Later-Timestamp Confirmation Batch Evaluation*:
+     - In `sig_32`, clarified that later confirmations ($T_{later} > T$) are evaluated in their own batch at $T_{later}$ against current activation state at $T_{later}$.
+     - When the level was already consumed by an earlier signal, evaluation at $T_{later}$ rejects with `LEVEL_ALREADY_USED`. Prior signals at $T$ remain strictly immutable.
+  6. *Computed Integrity Assertions*:
+     - Expanded `tests/test_trade_signal_fixture_integrity.py` with 28 automated integrity test methods computing component relationships, round-trip parsing, producer distinctions, and activation ID formats.
+  7. *Test Verification*:
+     - Trade-Signal fixture integrity suite: **28/28 passed in 0.94s**.
+     - Full offline repository test suite: **570/570 passed in 12.79s**.
+- **Verification Summary**:
+  - Trade-Signal fixture integrity suite: 28/28 passed in 0.94s (`pytest tests/test_trade_signal_fixture_integrity.py -v`).
+  - Full offline repository test suite: 570/570 passed in 12.79s (`pytest -q tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py --ignore=tests/test_activation_browser_controlled.py --ignore=tests/activation_browser_runner.py --ignore=tests/activation_browser_harness.py`).
+- **Completed Deliverables**:
+  1. [`docs/requirements/trade-signal-acceptance.md`](file:///docs/requirements/trade-signal-acceptance.md): Complete requirements contract with shared `confirmation_config_id`, `CandidateSetupKey` canonical formatter/parser, explicit schemas, restored entry reference price, activation cancellation targets, and later-candle batch evaluation.
+  2. [`tests/fixtures/trade_signal_acceptance.json`](file:///tests/fixtures/trade_signal_acceptance.json): Standardized 39-fixture acceptance test suite (`sig_01` through `sig_39`).
+  3. [`tests/test_trade_signal_fixture_integrity.py`](file:///tests/test_trade_signal_fixture_integrity.py): 28 automated integrity test methods computing component relationships.
+  4. [`docs/requirements/trade-signal-open-questions.md`](file:///docs/requirements/trade-signal-open-questions.md): Grounded open strategy questions with intra-candle limitation reframed as technical evidence invariant.
+  5. [`docs/development/status.md`](file:///docs/development/status.md): Milestone 30 HANDOFF-089 status update.
+- **Standing Invariants Maintained**:
+  - Pure requirements reconciliation, fixture design, and test specification.
+  - Strictly zero runtime signal engine implementation, zero UI order execution, zero MT5 live trading calls, zero live account modification.
+  - Zero confirmation arbitration implementation, zero usage ledger runtime writes, zero automated trading.
+  - Strategy engines 100% untouched (0 diff against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`).
+  - Dedicated branch boundary: committed and pushed strictly on `requirements/trade-signal-acceptance`. Never merge into `main`.

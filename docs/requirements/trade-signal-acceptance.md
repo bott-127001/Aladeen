@@ -3,7 +3,7 @@
 **Milestone**: Milestone 30 — Trade-Signal Business Logic Requirements and Acceptance Contract  
 **Active Branch**: `requirements/trade-signal-acceptance`  
 **Accepted Baseline Commit**: `0144ddb8150b4132a7b60d24698105d897514cb2` (Milestone 29 accepted)  
-**Parent Documentation Commit**: `d64cbb15959a0aa5f63ec50d97e91a5598060ebe` (HANDOFF-087)  
+**Parent Documentation Commit**: `2b356489ddefc1deb168e4b8b83c9febb3ed9d07` (HANDOFF-088)  
 
 > [!IMPORTANT]
 > **Specification Authority & Provenance Boundary**:
@@ -55,6 +55,7 @@ The trade-signal business logic defines five distinct conceptual entities across
 ┌────────────────────────────────────────────────────────────────────────────────────────┐
 │ 2. Pending Activation (Activation Engine)                                              │
 │    - PENDING_ACTIVATION (initial touch) or REARMED_PENDING (fresh touch after cancel)  │
+│    - Canonical activation_id: ACT_G{gen}[{len}:engine][{len}:tf][{len}:sym]...         │
 │    - Maps designated confirmation timeframe (D1->H1, H4->M5, H1->M1)                   │
 │    - Non-resetting across subsequent touches within the same activation generation     │
 └──────────────────────────────────────┬─────────────────────────────────────────────────┘
@@ -63,7 +64,8 @@ The trade-signal business logic defines five distinct conceptual entities across
 ┌────────────────────────────────────────────────────────────────────────────────────────┐
 │ 3. Confirmed Setup Candidate (Signal Engine Evaluation)                                │
 │    - Lower-timeframe directional pattern (Bullish/Bearish Normal CHOCH or ISS)        │
-│    - Explicit CandidateSetupKey tracking full activation, set, and confirmation engine │
+│    - Explicit CandidateSetupKey tracking full activation, set, and confirmation stream │
+│    - Consolidates CHOCH + ISS under shared confirmation configuration (OPEN-07)        │
 │    - Valid provenance: completed pattern, resolved dependencies, unbroken causality   │
 │    - Invalidation pre-checks: source replacement, source main CHOCH                    │
 └──────────────────────────────────────┬─────────────────────────────────────────────────┘
@@ -74,7 +76,7 @@ The trade-signal business logic defines five distinct conceptual entities across
 │    - Earliest close timestamp wins; ties broken by lower TF, then TJL2 (A+)            │
 │    - ATOMIC CONCEPTUAL COMMIT:                                                         │
 │        * Selects winning candidate                                                     │
-│        * Emits immutable PublishedTradeSignal: BUY or SELL                             │
+│        * Emits immutable PublishedTradeSignal: BUY or SELL with entry_reference_price  │
 │        * Consumes physical level: marks StableLevelId as USED in scoped ledger         │
 │        * Cancels all other pending activations across D1, H4, H1 in domain session     │
 └──────────────────────────────────────┬─────────────────────────────────────────────────┘
@@ -103,9 +105,13 @@ The trade-signal business logic defines five distinct conceptual entities across
   - Bullish Structure $\rightarrow$ Both TJL1 and TJL2 qualify for **BUY** trade signals (`MTF-Analysis.pdf` §3).
   - Bearish Structure $\rightarrow$ Both TJL1 and TJL2 qualify for **SELL** trade signals (`MTF-Analysis.pdf` §3).
   - TJL1 strictly follows the source structure trend direction. It does not trade in the opposite direction merely because its source point is a high or low (`MTF-Analysis.pdf` §3, Q&A 20).
-- **Physical Level Identity**:
-  - Identified authoritatively by the 4-tuple:  
-    `StableLevelId(symbol_feed_id, source_timeframe, source_open_time, side)`.
+- **Identity Disambiguation**:
+  The following four concepts are strictly distinct and must never be conflated:
+  1. **Structural Role**: `"TJL1"` or `"TJL2_A_PLUS"` (structural role within a TJL set).
+  2. **Canonical Member Key**: Length-prefixed member identifier `format_member_key(set_id, role)` e.g. `MK[15:SET_20261001_H4][4:TJL1]`.
+  3. **Activation ID**: Length-prefixed transient activation identifier `format_activation_id(engine_id, source_timeframe, symbol, set_id, role, generation_seq)` e.g. `ACT_G01[15:ACT_ENGINE_DEMO][2:H4][6:EURUSD][15:SET_20261001_H4][4:TJL1]`.
+  4. **Physical Level ID**: Full 4-tuple physical identity `StableLevelId(symbol_feed_id, source_timeframe, source_open_time, side)`.
+  *Note*: The activation ID embeds engine, timeframe, symbol, set, role, and generation; it does not embed the full `StableLevelId`. Their associations are maintained explicitly via structured metadata.
 - **Set Membership**: Only zones belonging to the active `CurrentEligibleSet` (`SET_1` or `SET_2`) are eligible. At continuation `t1`, the current set remains eligible; labels-only zones awaiting set replacement are ineligible (`docs/requirements/tjl-acceptance.md` §5.2).
 
 ### Stage 2: Activation Prerequisite
@@ -157,6 +163,7 @@ The trade-signal business logic defines five distinct conceptual entities across
   2. *Source Main CHOCH*: A Main CHOCH on the activated level's source timeframe immediately cancels old-direction activation (`MTF-Analysis.pdf` §9, Q&A 24).
   3. *Cross-Timeframe Non-Interference*: A new TJL update on another source timeframe does NOT cancel pending activations on other timeframes (`MTF-Analysis.pdf` §9, Q&A 10).
   4. *Winning Entry on Any Timeframe*: A winning entry selection immediately cancels all other pending activations across D1, H4, and H1 within the active domain session (`MTF-Analysis.pdf` §8, §9, Q&A 16).
+  *Note*: Cancellation targets are strictly **activation IDs** (identifying active or pending activations that were open at that moment, including those that produced zero confirmation candidates). Cancellation targets are never candidate IDs (`sig_09`, `sig_10`, `sig_11`, `sig_12`).
 
 ### Stage 5: Declared Arbitration Domain, Completeness & Tie-Breaking
 - **Three-Tier Calculation Namespace Separation**:
@@ -182,26 +189,28 @@ The trade-signal business logic defines five distinct conceptual entities across
 ### Stage 6: Candidate Identity, Setup Grouping, Schemas, and Atomic Commit
 
 #### 6.1 Explicit Candidate / Setup Identity (`CandidateSetupKey`)
-To eliminate ambiguous grouping and prevent conflation across distinct sets, engines, or sessions, candidate setups are identified by a canonical length-prefixed key:
+To eliminate ambiguous grouping and prevent conflation across distinct sets, confirmation configurations, or sessions, candidate setups are identified by a canonical length-prefixed key:
 ```
-CandidateSetupKey = [len:domain_session_id][len:revision_id][len:activation_id][len:source_set_id][len:source_member_key][len:confirmation_engine_id][len:confirmation_candle_id][len:confirmation_close_iso]
+CandidateSetupKey = CSK[{len(domain_session_id)}:{domain_session_id}][{len(revision_id)}:{revision_id}][{len(activation_id)}:{activation_id}][{len(source_member_key)}:{source_member_key}][{len(confirmation_config_id)}:{confirmation_config_id}][{len(confirmation_candle_id)}:{confirmation_candle_id}][{len(confirmation_close_iso)}:{confirmation_close_iso}]
 ```
 Where:
 - `domain_session_id`: Runtime calculation namespace `(calculation_identity, session_id, sequence_domain_run_id)`.
 - `revision_id`: Replay version / run version.
-- `activation_id`: Canonical activation identifier (`format_activation_id`) embedding symbol, source timeframe, level ID, and generation.
-- `source_set_id`: Source TJL set identifier (e.g. `SET_20261001_H4`).
-- `source_member_key`: Source member role key (e.g. `TJL1`, `TJL2_A_PLUS`).
-- `confirmation_engine_id`: Configuration identity of the confirmation engine (e.g. `CONF_M5_CHOCH_v1`).
-- `confirmation_candle_id`: Canonical confirmation bar identifier (e.g. `EURUSD:M5:2026-10-02T08:35:00Z`).
+- `activation_id`: Canonical length-prefixed activation identifier `format_activation_id()` embedding engine, timeframe, symbol, set, role, and generation.
+- `source_member_key`: Canonical length-prefixed member key `format_member_key()` embedding set and role.
+- `confirmation_config_id`: Shared confirmation stream / configuration identity (common timeframe, market data feed, rule version, start candle, e.g. `CONF_CFG_EURUSD_M5_v1`).
+- `confirmation_candle_id`: Canonical confirmation bar identifier (e.g. `EURUSD:M5:20261002T083500Z`).
 - `confirmation_close_iso`: UTC ISO 8601 close timestamp of the confirming candle.
 
 #### 6.2 Proposed Setup Grouping Policy (`OPEN-07` Operational Proposal)
 - *Engineering Proposal Label*: In accordance with `OPEN-07`, when a single entry setup possesses both CHOCH and ISS confirmation evidence, both confirmation identifiers are recorded on a single signal record to avoid duplicate entries.
+- *Separation of Shared Stream vs Detector Identity*:
+  * **Shared Configuration Context**: The confirmation stream/configuration identity (`confirmation_config_id`) represents the shared candle timeline, data resolution, start candle, and parameter set. Both CHOCH and ISS detectors evaluating that timeline share this configuration ID.
+  * **Individual Evidence Provenance**: Each individual confirmation event retains its detector/producer identity (`producer_id="CHOCH_DETECTOR_v1"`, `pattern_type="CHOCH"` vs `producer_id="ISS_ENGINE_v1"`, `pattern_type="ISS"`), its unique `event_id`, and its confirmation close price.
 - *Grouping Rule*: Multiple qualifying confirmation events consolidate into a single candidate setup if and only if they share the exact same `CandidateSetupKey`.
-- The setup aggregates individual confirmation event IDs (`confirmation_event_ids: Tuple[str, ...]`) and their pattern types (`confirmation_patterns: Tuple[str, ...]`), retaining complete individual event provenance.
-- Different confirmation engine configurations, distinct activation IDs, or distinct source sets produce different `CandidateSetupKey`s and CANNOT be conflated (`sig_38`, `sig_39`).
-- A second confirmation completing on a later candle does NOT delay entry and does NOT retrospectively mutate the published signal (`OPEN-09`).
+- Because `CandidateSetupKey` uses the shared `confirmation_config_id` (rather than a pattern-specific detector ID), CHOCH and ISS events completing on the same stream at the same close consolidate cleanly into one setup (`sig_18`).
+- Different confirmation stream configurations (e.g. different parameters or start candles) produce distinct `confirmation_config_id`s, generating distinct setup keys and preventing conflation (`sig_39`).
+- Persistent physical levels across different sets receive distinct `activation_id`s, producing distinct setup keys without cross-set collision (`sig_38`).
 
 #### 6.3 Required Candidate Record Schema (`CandidateSignalRecord`)
 Every candidate evaluated in arbitration must supply the following explicit typed fields:
@@ -217,11 +226,14 @@ Every candidate evaluated in arbitration must supply the following explicit type
 10. `signal_side`: str (`"BUY"` | `"SELL"`).
 11. `confirmation_timeframe`: str (`"H1"` | `"M5"` | `"M1"`).
 12. `confirmation_close_timestamp`: str (UTC ISO 8601).
-13. `confirmation_event_ids`: Tuple[str, ...] (individual confirmation event IDs).
-14. `confirmation_patterns`: Tuple[str, ...] (`"CHOCH"`, `"ISS"`).
-15. `is_consolidated`: bool (True if both CHOCH and ISS present).
-16. `timeframe_rank`: int (M1=1, M5=2, H1=3).
-17. `role_rank`: int (TJL2_A_PLUS=1, TJL1=2).
+13. `entry_reference_price`: float (confirmation-close price of confirming candle).
+14. `price_basis`: str (`"BID"` | `"ASK"` | `"MID"`).
+15. `price_provenance`: str (`"CONFIRMATION_CANDLE_CLOSE"`).
+16. `confirmation_event_ids`: Tuple[str, ...] (individual confirmation event IDs).
+17. `confirmation_patterns`: Tuple[str, ...] (`"CHOCH"`, `"ISS"`).
+18. `is_consolidated`: bool (True if both CHOCH and ISS present).
+19. `timeframe_rank`: int (M1=1, M5=2, H1=3).
+20. `role_rank`: int (TJL2_A_PLUS=1, TJL1=2).
 
 #### 6.4 Required Published Signal Record Schema (`PublishedTradeSignal`)
 Every signal committed and published on the dashboard must supply the following explicit typed fields:
@@ -231,19 +243,22 @@ Every signal committed and published on the dashboard must supply the following 
 4. `revision_id`: str.
 5. `winning_candidate_id`: str.
 6. `consumed_level_id`: `StableLevelId` (physical level consumed by this signal).
-7. `activation_id`: str.
+7. `activation_id`: str (activation ID of winning setup).
 8. `source_timeframe`: str.
 9. `source_set_id`: str.
 10. `source_role`: str.
 11. `signal_side`: str (`"BUY"` | `"SELL"`).
 12. `confirmation_timeframe`: str.
 13. `signal_timestamp`: str (UTC ISO 8601, equals confirmation candle close).
-14. `confirmation_event_ids`: Tuple[str, ...].
-15. `confirmation_patterns`: Tuple[str, ...].
-16. `cancelled_activation_ids`: Tuple[str, ...] (all other pending activations cancelled by this commit across D1/H4/H1).
-17. `is_broker_execution`: bool = False (Mandatory safety invariant).
-18. `signal_type`: str = `"CONCEPTUAL_ANALYSIS_SIGNAL"` (Mandatory safety invariant).
-19. `publication_status`: str = `"FINALIZED_IMMUTABLE"`.
+14. `entry_reference_price`: float (confirmation-close price of confirming candle).
+15. `price_basis`: str (`"BID"` | `"ASK"` | `"MID"`).
+16. `price_provenance`: str (`"CONFIRMATION_CANDLE_CLOSE"`).
+17. `confirmation_event_ids`: Tuple[str, ...].
+18. `confirmation_patterns`: Tuple[str, ...].
+19. `cancelled_activation_ids`: Tuple[str, ...] (canonical activation IDs of all other pending activations cancelled by this commit across D1/H4/H1).
+20. `is_broker_execution`: bool = False (Mandatory safety invariant).
+21. `signal_type`: str = `"CONCEPTUAL_ANALYSIS_SIGNAL"` (Mandatory safety invariant).
+22. `publication_status`: str = `"FINALIZED_IMMUTABLE"`.
 
 #### 6.5 Atomic Conceptual Commit Transaction
 - The winning entry commit is an atomic, idempotent operation within the active `DomainSession`:
@@ -264,8 +279,11 @@ Every signal committed and published on the dashboard must supply the following 
     * **Published records are never mutated in place**; the published signal at $T$ remains immutable.
     * **Subsequent dependent decisions** on the affected symbol/domain timeline are **blocked fail-closed** until versioned reconciliation is performed (e.g. recalculation/replay under a new `revision_id` / `run_version`), without freezing unrelated symbols or independent domains.
     * Such evidence is **never silently discarded**, because it could have changed the approved earliest-confirmation winner or level consumption (`sig_37`).
-- **Late Evidence for Future Timestamps ($> T$)**:
-  - Confirmations with close timestamp $> T$ are simply evaluated in their own subsequent candle batch at timestamp $T_{next}$.
+- **Future-Timestamp Confirmation Eligibility ($T_{later} > T$)**:
+  - A confirmation completing on a later candle ($T_{later} > T$) is NOT globally suppressed or discarded as "ignored".
+  - It is evaluated in its own batch at $T_{later}$ against current activation state at $T_{later}$.
+  - The earlier signal at $T$ is immutable and cannot be mutated by later events (`OPEN-09`).
+  - If the level was consumed by the signal at $T$, evaluation at $T_{later}$ sees `used_status == true` and rejects with `LEVEL_ALREADY_USED` (`sig_32`). If another level or rearmed level is active, it evaluates normally.
 
 ### Stage 7: Scoped Usage Accounting & Namespace Isolation
 - **One Trade Per Level Contract (`MTF-Analysis.pdf` §10)**:
