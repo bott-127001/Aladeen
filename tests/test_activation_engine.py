@@ -309,15 +309,21 @@ class TestActivationEngineExecution:
         engine.process_event(ExactPricePrint(observation_id="O2", price=1.1420, price_basis=PriceBasis.BID, timestamp=datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc), sequence_domain=default_domain, sequence_ref=502))
         # External commit -> Armed (Path B)
         engine.process_event(ExternalCommitEvent(event_id="C1", timestamp=datetime(2026, 10, 2, 8, 45, tzinfo=timezone.utc), sequence_domain=default_domain, sequence_ref=503, winning_engine_id="O", winning_set_id="S", winning_role="R"))
-        assert engine.get_snapshot().active_activations[m.member_key].state == ActivationState.OUT_OF_ZONE_ARMED
+        assert engine.get_snapshot().rearm_controllers[m.member_key].state == ActivationState.OUT_OF_ZONE_ARMED
+        assert m.member_key not in engine.get_snapshot().active_activations
+        assert len(engine.get_snapshot().terminal_activations) == 1
+        assert engine.get_snapshot().terminal_activations[0].state == ActivationState.CANCELLED_EXTERNAL_ENTRY
 
         # Source CHOCH arrives
         choch = SourceCancellationEvent(event_id="CHOCH1", cancellation_reason=CancellationReason.SOURCE_CHOCH, sequence_domain=default_domain, sequence_ref=504, affected_direction=Direction.UPWARD)
         snap = engine.process_event(choch)
 
-        # Member is completely removed
+        # Member is completely removed from current members, active activations, and rearm controllers
         assert m.member_key not in snap.current_members
         assert m.member_key not in snap.active_activations
+        assert m.member_key not in snap.rearm_controllers
+        # Zero duplicate terminal record created for the old activation ID!
+        assert len(snap.terminal_activations) == 1
 
     def test_missing_usage_evidence_strictly_defaults_to_unknown(self) -> None:
         """Directive 2: Missing usage evidence in adapt_tjl_current_set strictly defaults to UNKNOWN."""
@@ -458,8 +464,9 @@ class TestActivationEngineExecution:
 
         # TJL1 is NOT cancelled (remains PENDING_ACTIVATION)
         assert snap.active_activations[m1.member_key].state == ActivationState.PENDING_ACTIVATION
-        # TJL2 is cancelled (competing role in same set)
-        assert snap.active_activations[m2.member_key].state == ActivationState.CANCELLED_EXTERNAL_ENTRY
+        # TJL2 is cancelled (competing role in same set): terminalized and moved to rearm controller
+        assert m2.member_key not in snap.active_activations
+        assert snap.rearm_controllers[m2.member_key].state == ActivationState.CANCELLED_EXTERNAL_ENTRY
 
     def test_rearming_path_b_already_outside(self, engine: ActivationEngine, sample_member: SourceMemberReference, default_domain: SequenceDomain) -> None:
         """Path B: Already outside at cancellation -> armed immediately -> next touch rearms."""
@@ -467,29 +474,36 @@ class TestActivationEngineExecution:
         engine.process_event(ExactPricePrint(observation_id="IN1", price=1.1370, price_basis=PriceBasis.BID, timestamp=datetime(2026, 10, 2, 8, 15, tzinfo=timezone.utc), sequence_domain=default_domain, sequence_ref=1101))
         engine.process_event(ExactPricePrint(observation_id="OUT1", price=1.1450, price_basis=PriceBasis.BID, timestamp=datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc), sequence_domain=default_domain, sequence_ref=1102))
         snap_cancel = engine.process_event(ExternalCommitEvent(event_id="C1", timestamp=datetime(2026, 10, 2, 8, 45, tzinfo=timezone.utc), sequence_domain=default_domain, sequence_ref=1103, winning_engine_id="O", winning_set_id="S", winning_role="R"))
-        assert snap_cancel.active_activations[sample_member.member_key].state == ActivationState.OUT_OF_ZONE_ARMED
+        assert sample_member.member_key not in snap_cancel.active_activations
+        assert snap_cancel.rearm_controllers[sample_member.member_key].state == ActivationState.OUT_OF_ZONE_ARMED
+        assert snap_cancel.rearm_controllers[sample_member.member_key].rearm_armed is True
 
         snap_rearm = engine.process_event(ExactPricePrint(observation_id="RETOUCH", price=1.1380, price_basis=PriceBasis.BID, timestamp=datetime(2026, 10, 2, 9, 0, tzinfo=timezone.utc), sequence_domain=default_domain, sequence_ref=1104))
         assert snap_rearm.active_activations[sample_member.member_key].state == ActivationState.REARMED_PENDING
+        assert sample_member.member_key not in snap_rearm.rearm_controllers
 
     def test_rearming_path_a_departure_requirement(self, engine: ActivationEngine, sample_member: SourceMemberReference, default_domain: SequenceDomain) -> None:
         """Path A: Inside at cancellation -> lingering inside blocks -> outside departure arms -> retouch rearms."""
         engine.register_source_member(sample_member)
         engine.process_event(ExactPricePrint(observation_id="IN1", price=1.1370, price_basis=PriceBasis.BID, timestamp=datetime(2026, 10, 2, 8, 15, tzinfo=timezone.utc), sequence_domain=default_domain, sequence_ref=1201))
         engine.process_event(ExternalCommitEvent(event_id="C1", timestamp=datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc), sequence_domain=default_domain, sequence_ref=1202, winning_engine_id="O", winning_set_id="S", winning_role="R"))
-        assert engine.get_snapshot().active_activations[sample_member.member_key].state == ActivationState.CANCELLED_EXTERNAL_ENTRY
+        assert sample_member.member_key not in engine.get_snapshot().active_activations
+        assert engine.get_snapshot().rearm_controllers[sample_member.member_key].state == ActivationState.CANCELLED_EXTERNAL_ENTRY
+        assert engine.get_snapshot().rearm_controllers[sample_member.member_key].rearm_armed is False
 
         # Lingering inside: blocks
         engine.process_event(ExactPricePrint(observation_id="LINGER", price=1.1360, price_basis=PriceBasis.BID, timestamp=datetime(2026, 10, 2, 8, 45, tzinfo=timezone.utc), sequence_domain=default_domain, sequence_ref=1203))
-        assert engine.get_snapshot().active_activations[sample_member.member_key].state == ActivationState.CANCELLED_EXTERNAL_ENTRY
+        assert engine.get_snapshot().rearm_controllers[sample_member.member_key].state == ActivationState.CANCELLED_EXTERNAL_ENTRY
 
         # Departure (1.1320 < 1.1350)
         engine.process_event(ExactPricePrint(observation_id="DEPART", price=1.1320, price_basis=PriceBasis.BID, timestamp=datetime(2026, 10, 2, 9, 0, tzinfo=timezone.utc), sequence_domain=default_domain, sequence_ref=1204))
-        assert engine.get_snapshot().active_activations[sample_member.member_key].state == ActivationState.OUT_OF_ZONE_ARMED
+        assert engine.get_snapshot().rearm_controllers[sample_member.member_key].state == ActivationState.OUT_OF_ZONE_ARMED
+        assert engine.get_snapshot().rearm_controllers[sample_member.member_key].rearm_armed is True
 
         # Retouch
         snap = engine.process_event(ExactPricePrint(observation_id="RETOUCH", price=1.1380, price_basis=PriceBasis.BID, timestamp=datetime(2026, 10, 2, 9, 15, tzinfo=timezone.utc), sequence_domain=default_domain, sequence_ref=1205))
         assert snap.active_activations[sample_member.member_key].state == ActivationState.REARMED_PENDING
+        assert sample_member.member_key not in snap.rearm_controllers
 
     def test_rejection_of_recycled_evidence_across_generations(self, engine: ActivationEngine, sample_member: SourceMemberReference, default_domain: SequenceDomain) -> None:
         """A price observation used in generation 1 cannot trigger generation 2."""
@@ -542,6 +556,59 @@ class TestActivationEngineExecution:
             assert s_seq.last_processed_sequence == s_rep.last_processed_sequence
             assert s_seq.active_activations == s_rep.active_activations
             assert s_seq.terminal_activations == s_rep.terminal_activations
+
+    def test_full_registration_replacement_cancellation_rearm_prefix_replay(self, default_domain: SequenceDomain) -> None:
+        """Directive 6: Full multi-phase lifecycle replay matches sequential execution across every prefix bit-for-bit."""
+        m_set1_tjl1 = SourceMemberReference(
+            engine_id="ENGINE_EURUSD_H1", symbol="EURUSD", source_timeframe="H1", set_id="SET_1", role="TJL1", side="HIGH",
+            lower_edge=1.1350, upper_edge=1.1400, is_line=False, direction=Direction.UPWARD,
+            eligibility_available_time=datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc), usage_evidence_status=UsageEvidenceStatus.UNUSED,
+        )
+        m_set1_tjl2 = SourceMemberReference(
+            engine_id="ENGINE_EURUSD_H1", symbol="EURUSD", source_timeframe="H1", set_id="SET_1", role="TJL2_A_PLUS", side="LOW",
+            lower_edge=1.1040, upper_edge=1.1050, is_line=False, direction=Direction.UPWARD,
+            eligibility_available_time=datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc), usage_evidence_status=UsageEvidenceStatus.UNUSED,
+        )
+        m_set2_tjl1 = SourceMemberReference(
+            engine_id="ENGINE_EURUSD_H1", symbol="EURUSD", source_timeframe="H1", set_id="SET_2", role="TJL1", side="HIGH",
+            lower_edge=1.1550, upper_edge=1.1600, is_line=False, direction=Direction.UPWARD,
+            eligibility_available_time=datetime(2026, 10, 2, 10, 0, tzinfo=timezone.utc), usage_evidence_status=UsageEvidenceStatus.UNUSED,
+        )
+
+        events = [
+            RegisterMembersEvent("EVT_REG_1", default_domain, 2001, datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc), (m_set1_tjl1, m_set1_tjl2)),
+            ExactPricePrint("OBS_TOUCH_1", 1.1370, PriceBasis.BID, datetime(2026, 10, 2, 8, 15, tzinfo=timezone.utc), default_domain, 2002),
+            ExactPricePrint("OBS_OUT_1", 1.1420, PriceBasis.BID, datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc), default_domain, 2003),
+            ExternalCommitEvent("EVT_COMMIT", datetime(2026, 10, 2, 8, 45, tzinfo=timezone.utc), default_domain, 2004, winning_engine_id="OTHER", winning_set_id="OTHER", winning_role="OTHER"),
+            ExactPricePrint("OBS_RETOUCH_1", 1.1380, PriceBasis.BID, datetime(2026, 10, 2, 9, 0, tzinfo=timezone.utc), default_domain, 2005),
+            SourceCancellationEvent(
+                event_id="EVT_REPL_SET1",
+                cancellation_reason=CancellationReason.SOURCE_REPLACEMENT,
+                sequence_domain=default_domain,
+                sequence_ref=2006,
+                timestamp=datetime(2026, 10, 2, 10, 0, tzinfo=timezone.utc),
+                target_set_id="SET_1",
+            ),
+            RegisterMembersEvent("EVT_REG_2", default_domain, 2007, datetime(2026, 10, 2, 10, 0, tzinfo=timezone.utc), (m_set2_tjl1,)),
+        ]
+
+        engine = ActivationEngine(ActivationEngineConfig("ENGINE_EURUSD_H1", "EURUSD", "H1", default_domain, PriceBasis.BID))
+        seq_snapshots = []
+        for ev in events:
+            seq_snapshots.append(engine.process_event(ev))
+
+        # Isolated replay from baseline
+        replay_snapshots = engine.replay(events)
+
+        assert len(seq_snapshots) == len(replay_snapshots) == len(events)
+        for idx in range(len(events)):
+            s_seq = seq_snapshots[idx]
+            s_rep = replay_snapshots[idx]
+            assert s_seq.last_processed_sequence == s_rep.last_processed_sequence
+            assert s_seq.active_activations == s_rep.active_activations
+            assert s_seq.terminal_activations == s_rep.terminal_activations
+            assert s_seq.current_members == s_rep.current_members
+            assert s_seq.rearm_controllers == s_rep.rearm_controllers
 
 
 class TestActivationTJLAdapter:
@@ -632,8 +699,15 @@ class TestActivationTJLAdapter:
         with pytest.raises(InvalidEvidenceError):
             synchronizer.sync(truncated_snap, sequence_ref_start=1604)
 
-    def test_unresolved_snapshot_creates_zero_eligibility(self, engine: ActivationEngine) -> None:
+    def test_unresolved_snapshot_creates_zero_eligibility(self, default_domain: SequenceDomain) -> None:
         """Frozen unresolved snapshot strictly creates zero fresh eligibility."""
+        sync_engine = ActivationEngine(ActivationEngineConfig(
+            engine_id="ENGINE_EURUSD_H1",
+            symbol="FEED_EURUSD_H1",
+            source_timeframe="H1",
+            sequence_domain=default_domain,
+            price_basis=PriceBasis.BID,
+        ))
         unresolved_snap = TJLSnapshot(
             source_engine_id="ENGINE_EURUSD_H1", symbol_feed_id="FEED_EURUSD_H1", source_timeframe="H1",
             direction=Direction.UPWARD, current_eligible_set=None, all_labeled_zones=(), historical_sets=(),
@@ -641,7 +715,7 @@ class TestActivationTJLAdapter:
             is_unresolved=True, unresolved_diagnostic="Unresolved ambiguity c1 == p2",
             last_processed_index=10, last_received_index=15,
         )
-        snap = sync_tjl_snapshot_to_activation_engine(engine, unresolved_snap, sequence_ref=100)
+        snap = sync_tjl_snapshot_to_activation_engine(sync_engine, unresolved_snap, sequence_ref=100)
         assert len(snap.current_members) == 0
         assert len(snap.active_activations) == 0
 
@@ -739,3 +813,253 @@ class TestActivationTJLAdapter:
         snap_after = adapter_engine.process_event(ev_subsequent)
         assert len(snap_after.active_activations) == 0
         assert len(snap_after.current_members) == 0
+
+    def test_single_event_failure_leaves_envelope_unconsumed(self, engine: ActivationEngine, default_domain: SequenceDomain) -> None:
+        """Directive 3: Failed single event processing leaves the event envelope completely unconsumed."""
+        m_good = SourceMemberReference(
+            engine_id="ENGINE_EURUSD_H1", symbol="EURUSD", source_timeframe="H1", set_id="SET_1", role="TJL1", side="HIGH",
+            lower_edge=1.1350, upper_edge=1.1400, is_line=False, direction=Direction.UPWARD,
+            eligibility_available_time=datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc),
+            usage_evidence_status=UsageEvidenceStatus.UNUSED,
+        )
+        engine.register_source_member(m_good)
+
+        # Baseline sequence ref: None
+        assert engine.get_snapshot().last_processed_sequence is None
+
+        # Create invalid RegisterMembersEvent: symbol mismatch
+        m_bad = SourceMemberReference(
+            engine_id="ENGINE_EURUSD_H1", symbol="WRONG_SYMBOL", source_timeframe="H1", set_id="SET_2", role="TJL1", side="HIGH",
+            lower_edge=1.1350, upper_edge=1.1400, is_line=False, direction=Direction.UPWARD,
+            eligibility_available_time=datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc),
+            usage_evidence_status=UsageEvidenceStatus.UNUSED,
+        )
+        bad_event = RegisterMembersEvent(
+            event_id="EVT_BAD_REG", sequence_domain=default_domain, sequence_ref=101,
+            timestamp=datetime(2026, 10, 2, 8, 15, tzinfo=timezone.utc), members=(m_bad,),
+        )
+
+        with pytest.raises(InvalidEvidenceError):
+            engine.process_event(bad_event)
+
+        # Verification: Envelope is 100% UNCONSUMED
+        snap_after_fail = engine.get_snapshot()
+        assert snap_after_fail.last_processed_sequence is None
+        assert snap_after_fail.last_processed_timestamp is None
+        assert "EVT_BAD_REG" not in engine._processed_events
+
+        # Retry at the EXACT SAME sequence ref 101 with a valid event
+        m_corrected = SourceMemberReference(
+            engine_id="ENGINE_EURUSD_H1", symbol="EURUSD", source_timeframe="H1", set_id="SET_2", role="TJL1", side="HIGH",
+            lower_edge=1.1350, upper_edge=1.1400, is_line=False, direction=Direction.UPWARD,
+            eligibility_available_time=datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc),
+            usage_evidence_status=UsageEvidenceStatus.UNUSED,
+        )
+        good_event = RegisterMembersEvent(
+            event_id="EVT_CORRECTED_REG", sequence_domain=default_domain, sequence_ref=101,
+            timestamp=datetime(2026, 10, 2, 8, 15, tzinfo=timezone.utc), members=(m_corrected,),
+        )
+        snap_after_retry = engine.process_event(good_event)
+        assert snap_after_retry.last_processed_sequence == 101
+        assert m_corrected.member_key in snap_after_retry.current_members
+
+        # Fresh reference comparison
+        ref_engine = ActivationEngine(engine.config)
+        ref_engine.register_source_member(m_good)
+        snap_ref = ref_engine.process_event(good_event)
+        assert snap_after_retry.active_activations == snap_ref.active_activations
+        assert snap_after_retry.current_members == snap_ref.current_members
+        assert snap_after_retry.last_processed_sequence == snap_ref.last_processed_sequence
+
+    def test_conflicting_member_registration_rejected_without_mutation(self, engine: ActivationEngine, sample_member: SourceMemberReference, default_domain: SequenceDomain) -> None:
+        """Directive 4: Conflicting geometry or availability registration for existing member is rejected without mutation."""
+        engine.register_source_member(sample_member)
+        # Touch -> PENDING_ACTIVATION
+        engine.process_event(ExactPricePrint(
+            observation_id="OBS_1", price=1.1370, price_basis=PriceBasis.BID,
+            timestamp=datetime(2026, 10, 2, 8, 15, tzinfo=timezone.utc), sequence_domain=default_domain, sequence_ref=201,
+        ))
+        assert engine.get_snapshot().active_activations[sample_member.member_key].state == ActivationState.PENDING_ACTIVATION
+
+        # Conflicting bounds for the same member_key
+        conflicting_member = SourceMemberReference(
+            engine_id="ENGINE_EURUSD_H1", symbol="EURUSD", source_timeframe="H1", set_id="SET_1", role="TJL1", side="HIGH",
+            lower_edge=1.1200, upper_edge=1.1500,  # CONFLICTING BOUNDS!
+            is_line=False, direction=Direction.UPWARD,
+            eligibility_available_time=sample_member.eligibility_available_time,
+            usage_evidence_status=UsageEvidenceStatus.UNUSED,
+        )
+        with pytest.raises(InvalidEvidenceError):
+            engine.register_source_member(conflicting_member)
+
+        # Assert zero mutation: bounds and pending activation intact
+        snap = engine.get_snapshot()
+        assert snap.current_members[sample_member.member_key].lower_edge == 1.1350
+        assert snap.current_members[sample_member.member_key].upper_edge == 1.1400
+        assert snap.active_activations[sample_member.member_key].state == ActivationState.PENDING_ACTIVATION
+
+    def test_terminal_activation_ids_remain_globally_unique(self, engine: ActivationEngine, sample_member: SourceMemberReference, default_domain: SequenceDomain) -> None:
+        """Directive 5: Terminal activation IDs remain globally unique across commit -> arm -> source invalidation."""
+        engine.register_source_member(sample_member)
+        engine.process_event(ExactPricePrint(observation_id="O1", price=1.1370, price_basis=PriceBasis.BID, timestamp=datetime(2026, 10, 2, 8, 15, tzinfo=timezone.utc), sequence_domain=default_domain, sequence_ref=301))
+        engine.process_event(ExactPricePrint(observation_id="O2", price=1.1420, price_basis=PriceBasis.BID, timestamp=datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc), sequence_domain=default_domain, sequence_ref=302))
+
+        # External commit -> terminalizes ACT::...::01, arms controller for gen 2
+        engine.process_event(ExternalCommitEvent(event_id="C1", timestamp=datetime(2026, 10, 2, 8, 45, tzinfo=timezone.utc), sequence_domain=default_domain, sequence_ref=303, winning_engine_id="O", winning_set_id="S", winning_role="R"))
+
+        # Source CHOCH invalidation arrives
+        engine.process_event(SourceCancellationEvent(event_id="CH1", cancellation_reason=CancellationReason.SOURCE_CHOCH, sequence_domain=default_domain, sequence_ref=304, affected_direction=Direction.UPWARD))
+
+        snap = engine.get_snapshot()
+        term_ids = [a.activation_id for a in snap.terminal_activations]
+        assert len(term_ids) == 1
+        assert len(term_ids) == len(set(term_ids))
+        assert term_ids[0] == format_activation_id("ENGINE_EURUSD_H1", "H1", "EURUSD", "SET_1", "TJL1", 1)
+
+    def test_rearm_controller_retouch_creates_linked_new_generation(self, engine: ActivationEngine, sample_member: SourceMemberReference, default_domain: SequenceDomain) -> None:
+        """Directive 5: Qualifying retouch after departure creates a brand-new activation ID linked to prior."""
+        engine.register_source_member(sample_member)
+        # Gen 1 touch
+        engine.process_event(ExactPricePrint(observation_id="O1", price=1.1370, price_basis=PriceBasis.BID, timestamp=datetime(2026, 10, 2, 8, 15, tzinfo=timezone.utc), sequence_domain=default_domain, sequence_ref=401))
+        # Commit while inside
+        engine.process_event(ExternalCommitEvent(event_id="C1", timestamp=datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc), sequence_domain=default_domain, sequence_ref=402, winning_engine_id="O", winning_set_id="S", winning_role="R"))
+
+        # Depart outside
+        engine.process_event(ExactPricePrint(observation_id="O_DEP", price=1.1300, price_basis=PriceBasis.BID, timestamp=datetime(2026, 10, 2, 8, 45, tzinfo=timezone.utc), sequence_domain=default_domain, sequence_ref=403))
+        # Retouch inside
+        snap = engine.process_event(ExactPricePrint(observation_id="O_RET", price=1.1380, price_basis=PriceBasis.BID, timestamp=datetime(2026, 10, 2, 9, 0, tzinfo=timezone.utc), sequence_domain=default_domain, sequence_ref=404))
+
+        act_gen2 = snap.active_activations[sample_member.member_key]
+        assert act_gen2.generation_seq == 2
+        assert act_gen2.activation_id == format_activation_id("ENGINE_EURUSD_H1", "H1", "EURUSD", "SET_1", "TJL1", 2)
+        assert act_gen2.prior_activation_id == format_activation_id("ENGINE_EURUSD_H1", "H1", "EURUSD", "SET_1", "TJL1", 1)
+        assert act_gen2.state == ActivationState.REARMED_PENDING
+
+        # Terminal history contains gen 1
+        assert len(snap.terminal_activations) == 1
+        assert snap.terminal_activations[0].generation_seq == 1
+        assert snap.terminal_activations[0].activation_id == format_activation_id("ENGINE_EURUSD_H1", "H1", "EURUSD", "SET_1", "TJL1", 1)
+
+    def test_tjl_synchronizer_failure_rollback_and_valid_retry(self, default_domain: SequenceDomain) -> None:
+        """Directive 1: Complete rollback on sync failure and valid retry equality with independent reference."""
+        adapter_engine = ActivationEngine(ActivationEngineConfig("ENGINE_EURUSD_H1", "FEED_EURUSD_H1", "H1", default_domain, PriceBasis.BID))
+        synchronizer = TJLSynchronizer(engine=adapter_engine)
+
+        lvl1 = StableLevelId("FEED_EURUSD_H1", "H1", datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc), TJLSide.HIGH)
+        lvl2 = StableLevelId("FEED_EURUSD_H1", "H1", datetime(2026, 10, 1, 3, 0, tzinfo=timezone.utc), TJLSide.LOW)
+        z1 = TJLZone(lvl1, TJLLabel.TJL1, 1.1350, 1.1400, False, 10, datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc), 12)
+        z2 = TJLZone(lvl2, TJLLabel.TJL2_A_PLUS, 1.1040, 1.1050, False, 8, datetime(2026, 10, 1, 3, 0, tzinfo=timezone.utc), 12)
+
+        cset1 = CurrentEligibleSet("SET_1", TJLFingerprint("ENGINE_EURUSD_H1", Direction.UPWARD, 10, 8, 11), Direction.UPWARD, "ENGINE_EURUSD_H1", "FEED_EURUSD_H1", "H1", z1, z2, 11, datetime(2026, 10, 1, 5, 0, tzinfo=timezone.utc), 1.1040, datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc), 12)
+        t0 = TJLTransitionRecord(TJLTransitionType.FIRST_CREATION, False, cset1, (), 12, datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc))
+
+        snap1 = TJLSnapshot("ENGINE_EURUSD_H1", "FEED_EURUSD_H1", "H1", Direction.UPWARD, cset1, (), (), False, t0, (t0,), False, None, 12, 12)
+        usage = {lvl1: UsageEvidenceStatus.UNUSED, lvl2: UsageEvidenceStatus.UNUSED}
+        synchronizer.sync(snap1, sequence_ref_start=1001, usage_evidence=usage)
+
+        pre_fail_cursor = synchronizer.last_synced_transition_index
+        pre_fail_usage = dict(synchronizer._usage_cache)
+        pre_fail_fps = list(synchronizer._consumed_transition_fingerprints)
+        pre_fail_engine_snap = adapter_engine.get_snapshot()
+
+        # Construct snap2 with cancellation AND invalid set whose member symbol does not match engine
+        t1 = TJLTransitionRecord(
+            TJLTransitionType.CHOCH_INVALIDATION, True, None, (), 14,
+            datetime(2026, 10, 2, 9, 0, tzinfo=timezone.utc),
+            outgoing_cancelled_set_id="SET_1",
+            outgoing_cancelled_fingerprint=cset1.fingerprint,
+        )
+        lvl1_other = StableLevelId("FEED_OTHER_SYMBOL", "H1", datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc), TJLSide.HIGH)
+        lvl2_other = StableLevelId("FEED_OTHER_SYMBOL", "H1", datetime(2026, 10, 1, 3, 0, tzinfo=timezone.utc), TJLSide.LOW)
+        z1_other = TJLZone(lvl1_other, TJLLabel.TJL1, 1.1350, 1.1400, False, 10, datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc), 12)
+        z2_other = TJLZone(lvl2_other, TJLLabel.TJL2_A_PLUS, 1.1040, 1.1050, False, 8, datetime(2026, 10, 1, 3, 0, tzinfo=timezone.utc), 12)
+        cset_bad = CurrentEligibleSet("SET_2", TJLFingerprint("ENGINE_EURUSD_H1", Direction.UPWARD, 10, 8, 11), Direction.UPWARD, "ENGINE_EURUSD_H1", "FEED_OTHER_SYMBOL", "H1", z1_other, z2_other, 11, datetime(2026, 10, 1, 5, 0, tzinfo=timezone.utc), 1.1040, datetime(2026, 10, 2, 9, 0, tzinfo=timezone.utc), 14)
+        snap2_failing = TJLSnapshot("ENGINE_EURUSD_H1", "FEED_EURUSD_H1", "H1", Direction.UPWARD, cset_bad, (), (), True, t1, (t0, t1), False, None, 14, 14)
+
+        with pytest.raises(InvalidEvidenceError):
+            synchronizer.sync(snap2_failing, sequence_ref_start=1002)
+
+        # 100% COMPLETE ROLLBACK VERIFICATION
+        assert synchronizer.last_synced_transition_index == pre_fail_cursor
+        assert synchronizer._usage_cache == pre_fail_usage
+        assert synchronizer._consumed_transition_fingerprints == pre_fail_fps
+        assert adapter_engine.get_snapshot().active_activations == pre_fail_engine_snap.active_activations
+        assert adapter_engine.get_snapshot().current_members == pre_fail_engine_snap.current_members
+        assert adapter_engine.get_snapshot().terminal_activations == pre_fail_engine_snap.terminal_activations
+
+        # VALID RETRY with correct snap2
+        snap2_valid = TJLSnapshot("ENGINE_EURUSD_H1", "FEED_EURUSD_H1", "H1", Direction.UPWARD, None, (), (), True, t1, (t0, t1), False, None, 14, 14)
+        snap_post_retry = synchronizer.sync(snap2_valid, sequence_ref_start=1002)
+
+        # Independent reference comparison
+        ref_engine = ActivationEngine(ActivationEngineConfig("ENGINE_EURUSD_H1", "FEED_EURUSD_H1", "H1", default_domain, PriceBasis.BID))
+        ref_sync = TJLSynchronizer(engine=ref_engine)
+        ref_sync.sync(snap1, sequence_ref_start=1001, usage_evidence=usage)
+        snap_ref = ref_sync.sync(snap2_valid, sequence_ref_start=1002)
+
+        assert snap_post_retry.active_activations == snap_ref.active_activations
+        assert snap_post_retry.current_members == snap_ref.current_members
+        assert snap_post_retry.terminal_activations == snap_ref.terminal_activations
+
+    def test_tjl_synchronizer_rejects_changed_history_prefix(self, default_domain: SequenceDomain) -> None:
+        """Directive 2: Synchronizer strictly rejects rewritten history with modified prefix."""
+        adapter_engine = ActivationEngine(ActivationEngineConfig("ENGINE_EURUSD_H1", "FEED_EURUSD_H1", "H1", default_domain, PriceBasis.BID))
+        synchronizer = TJLSynchronizer(engine=adapter_engine)
+
+        lvl1 = StableLevelId("FEED_EURUSD_H1", "H1", datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc), TJLSide.HIGH)
+        lvl2 = StableLevelId("FEED_EURUSD_H1", "H1", datetime(2026, 10, 1, 3, 0, tzinfo=timezone.utc), TJLSide.LOW)
+        z1 = TJLZone(lvl1, TJLLabel.TJL1, 1.1350, 1.1400, False, 10, datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc), 12)
+        z2 = TJLZone(lvl2, TJLLabel.TJL2_A_PLUS, 1.1040, 1.1050, False, 8, datetime(2026, 10, 1, 3, 0, tzinfo=timezone.utc), 12)
+        cset = CurrentEligibleSet("SET_1", TJLFingerprint("ENGINE_EURUSD_H1", Direction.UPWARD, 10, 8, 11), Direction.UPWARD, "ENGINE_EURUSD_H1", "FEED_EURUSD_H1", "H1", z1, z2, 11, datetime(2026, 10, 1, 5, 0, tzinfo=timezone.utc), 1.1040, datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc), 12)
+
+        t0 = TJLTransitionRecord(TJLTransitionType.FIRST_CREATION, False, cset, (), 12, datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc))
+        snap1 = TJLSnapshot("ENGINE_EURUSD_H1", "FEED_EURUSD_H1", "H1", Direction.UPWARD, cset, (), (), False, t0, (t0,), False, None, 12, 12)
+        synchronizer.sync(snap1, sequence_ref_start=1001)
+
+        # Rewritten t0 (different candle index: 99 instead of 12)
+        t0_rewritten = TJLTransitionRecord(TJLTransitionType.FIRST_CREATION, False, cset, (), 99, datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc))
+        t1 = TJLTransitionRecord(TJLTransitionType.CONTINUATION_RETAINED, False, cset, (), 13, datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc))
+        snap_rewritten = TJLSnapshot("ENGINE_EURUSD_H1", "FEED_EURUSD_H1", "H1", Direction.UPWARD, cset, (), (), False, t1, (t0_rewritten, t1), False, None, 13, 13)
+
+        with pytest.raises(InvalidEvidenceError, match="Consumed transition history prefix mismatch"):
+            synchronizer.sync(snap_rewritten, sequence_ref_start=1002)
+
+    def test_tjl_synchronizer_rejects_cross_context_snapshot(self, default_domain: SequenceDomain) -> None:
+        """Directive 2: Synchronizer strictly rejects snapshots from different engine/symbol/timeframe."""
+        adapter_engine = ActivationEngine(ActivationEngineConfig("ENGINE_EURUSD_H1", "FEED_EURUSD_H1", "H1", default_domain, PriceBasis.BID))
+        synchronizer = TJLSynchronizer(engine=adapter_engine)
+
+        # Mismatched symbol
+        snap_bad_symbol = TJLSnapshot("ENGINE_EURUSD_H1", "FEED_GBPUSD_H1", "H1", Direction.UPWARD, None, (), (), False, None, (), False, None, 1, 1)
+        with pytest.raises(InvalidEvidenceError, match="Cross-symbol snapshot rejected"):
+            synchronizer.sync(snap_bad_symbol, sequence_ref_start=100)
+
+        # Mismatched engine
+        snap_bad_engine = TJLSnapshot("ENGINE_OTHER", "FEED_EURUSD_H1", "H1", Direction.UPWARD, None, (), (), False, None, (), False, None, 1, 1)
+        with pytest.raises(InvalidEvidenceError, match="Cross-engine snapshot rejected"):
+            synchronizer.sync(snap_bad_engine, sequence_ref_start=100)
+
+        # Mismatched timeframe
+        snap_bad_tf = TJLSnapshot("ENGINE_EURUSD_H1", "FEED_EURUSD_H1", "D1", Direction.UPWARD, None, (), (), False, None, (), False, None, 1, 1)
+        with pytest.raises(InvalidEvidenceError, match="Cross-timeframe snapshot rejected"):
+            synchronizer.sync(snap_bad_tf, sequence_ref_start=100)
+
+    def test_tjl_synchronizer_repeated_sync_is_idempotent(self, default_domain: SequenceDomain) -> None:
+        """Directive 6: Repeating synchronization on same snapshot is an idempotent no-op."""
+        adapter_engine = ActivationEngine(ActivationEngineConfig("ENGINE_EURUSD_H1", "FEED_EURUSD_H1", "H1", default_domain, PriceBasis.BID))
+        synchronizer = TJLSynchronizer(engine=adapter_engine)
+
+        lvl1 = StableLevelId("FEED_EURUSD_H1", "H1", datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc), TJLSide.HIGH)
+        lvl2 = StableLevelId("FEED_EURUSD_H1", "H1", datetime(2026, 10, 1, 3, 0, tzinfo=timezone.utc), TJLSide.LOW)
+        z1 = TJLZone(lvl1, TJLLabel.TJL1, 1.1350, 1.1400, False, 10, datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc), 12)
+        z2 = TJLZone(lvl2, TJLLabel.TJL2_A_PLUS, 1.1040, 1.1050, False, 8, datetime(2026, 10, 1, 3, 0, tzinfo=timezone.utc), 12)
+        cset = CurrentEligibleSet("SET_1", TJLFingerprint("ENGINE_EURUSD_H1", Direction.UPWARD, 10, 8, 11), Direction.UPWARD, "ENGINE_EURUSD_H1", "FEED_EURUSD_H1", "H1", z1, z2, 11, datetime(2026, 10, 1, 5, 0, tzinfo=timezone.utc), 1.1040, datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc), 12)
+
+        t0 = TJLTransitionRecord(TJLTransitionType.FIRST_CREATION, False, cset, (), 12, datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc))
+        snap = TJLSnapshot("ENGINE_EURUSD_H1", "FEED_EURUSD_H1", "H1", Direction.UPWARD, cset, (), (), False, t0, (t0,), False, None, 12, 12)
+
+        s1 = synchronizer.sync(snap, sequence_ref_start=1001)
+        s2 = synchronizer.sync(snap, sequence_ref_start=1001)
+        assert s1.current_members == s2.current_members
+        assert s1.active_activations == s2.active_activations
+        assert synchronizer.last_synced_transition_index == 0

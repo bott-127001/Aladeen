@@ -38,6 +38,7 @@ from .activation_types import (
     IntervalBoundedCandleEvidence,
     InvalidEvidenceError,
     PriceBasis,
+    RearmController,
     RegisterMembersEvent,
     SequenceDomain,
     SequenceOrderError,
@@ -86,6 +87,7 @@ class ActivationEngine:
         self._current_members: Dict[str, SourceMemberReference] = {}
         self._active_activations: Dict[str, ActivationRecord] = {}
         self._terminal_activations: List[ActivationRecord] = []
+        self._rearm_controllers: Dict[str, RearmController] = {}
 
         # Association and consumption tracking (does NOT mutate raw print objects)
         self._processed_events: Dict[str, Any] = {}
@@ -146,6 +148,32 @@ class ActivationEngine:
                     f"Member source_timeframe {m.source_timeframe!r} does not match activation engine {self.source_timeframe!r}"
                 )
 
+            # Check conflicting registration against existing membership
+            existing_m = self._current_members.get(m.member_key)
+            if existing_m is not None:
+                if existing_m == m:
+                    continue
+                # Validate explicit usage-evidence update only:
+                is_usage_update = (
+                    existing_m.engine_id == m.engine_id
+                    and existing_m.symbol == m.symbol
+                    and existing_m.source_timeframe == m.source_timeframe
+                    and existing_m.set_id == m.set_id
+                    and existing_m.role == m.role
+                    and existing_m.level_id == m.level_id
+                    and existing_m.lower_edge == m.lower_edge
+                    and existing_m.upper_edge == m.upper_edge
+                    and existing_m.is_line == m.is_line
+                    and existing_m.side == m.side
+                    and existing_m.direction == m.direction
+                    and existing_m.eligibility_available_time == m.eligibility_available_time
+                )
+                if not is_usage_update:
+                    raise InvalidEvidenceError(
+                        f"Conflicting member registration for {m.member_key}: existing {existing_m} != new {m}. "
+                        "Geometry, role, identity, and availability are immutable; cannot silently replace bounds beneath existing member."
+                    )
+
         # 2. Mutate state atomically
         for m in members:
             existing_rec = self._active_activations.get(m.member_key)
@@ -173,8 +201,6 @@ class ActivationEngine:
                 if existing_rec.state in (
                     ActivationState.PENDING_ACTIVATION,
                     ActivationState.REARMED_PENDING,
-                    ActivationState.OUT_OF_ZONE_ARMED,
-                    ActivationState.CANCELLED_EXTERNAL_ENTRY,
                 ):
                     if init_state == ActivationState.INACTIVE_INELIGIBLE:
                         # Gating revoked! Transition to INACTIVE_INELIGIBLE
@@ -222,31 +248,36 @@ class ActivationEngine:
         return self.get_snapshot()
 
     def process_event(self, event: Any) -> ActivationSnapshot:
-        """Dispatches and processes a single event through the activation reducer."""
-        if isinstance(event, ExactPricePrint):
-            return self._process_exact_price_print(event)
-        elif isinstance(event, SourceCancellationEvent):
-            return self._process_cancellation_event(event)
-        elif isinstance(event, ExternalCommitEvent):
-            return self._process_external_commit_event(event)
-        elif isinstance(event, IntervalBoundedCandleEvidence):
-            return self._process_candle_evidence(event)
-        elif isinstance(event, CoverageEvidence):
-            return self._process_coverage_evidence(event)
-        elif isinstance(event, RegisterMembersEvent):
-            return self._process_register_members_event(event)
-        else:
-            raise TypeError(f"Unsupported event type: {type(event)!r}")
+        """Dispatches and processes a single event through the activation reducer transactionally."""
+        checkpoint = self.create_checkpoint()
+        try:
+            if isinstance(event, ExactPricePrint):
+                return self._process_exact_price_print(event)
+            elif isinstance(event, SourceCancellationEvent):
+                return self._process_cancellation_event(event)
+            elif isinstance(event, ExternalCommitEvent):
+                return self._process_external_commit_event(event)
+            elif isinstance(event, IntervalBoundedCandleEvidence):
+                return self._process_candle_evidence(event)
+            elif isinstance(event, CoverageEvidence):
+                return self._process_coverage_evidence(event)
+            elif isinstance(event, RegisterMembersEvent):
+                return self._process_register_members_event(event)
+            else:
+                raise TypeError(f"Unsupported event type: {type(event)!r}")
+        except Exception:
+            self.restore_checkpoint(checkpoint)
+            raise
 
     def process_batch(self, events: Sequence[Any]) -> ActivationSnapshot:
         """Processes a sequence of events atomically. Rolls back state if any event fails."""
-        checkpoint = self._create_checkpoint()
+        checkpoint = self.create_checkpoint()
         try:
             for ev in events:
                 self.process_event(ev)
             return self.get_snapshot()
         except Exception:
-            self._restore_checkpoint(checkpoint)
+            self.restore_checkpoint(checkpoint)
             raise
 
     def replay(
@@ -270,6 +301,7 @@ class ActivationEngine:
         self._current_members.clear()
         self._active_activations.clear()
         self._terminal_activations.clear()
+        self._rearm_controllers.clear()
         self._processed_events.clear()
         self._observation_associations.clear()
         self._member_consumed_observations.clear()
@@ -292,6 +324,7 @@ class ActivationEngine:
             last_processed_sequence=self._last_processed_sequence,
             last_processed_timestamp=self._last_processed_timestamp,
             current_members=MappingProxyType(dict(self._current_members)),
+            rearm_controllers=MappingProxyType(dict(self._rearm_controllers)),
         )
 
     # -------------------------------------------------------------------------
@@ -375,6 +408,10 @@ class ActivationEngine:
 
         # Evaluate against all currently registered members
         for member_key, member in list(self._current_members.items()):
+            if member_key in self._rearm_controllers:
+                # Under active rearm controller supervision: handled below
+                continue
+
             # Fail closed on coverage
             if self._coverage_status != CoverageStatus.COMPLETE:
                 continue
@@ -447,15 +484,39 @@ class ActivationEngine:
                     # Note outside departure while pending
                     self._active_activations[member_key] = replace(rec, last_observed_position="OUTSIDE")
 
-            elif rec.state == ActivationState.OUT_OF_ZONE_ARMED:
-                # Level was armed for rearm!
+        # Evaluate rearm controllers decoupled from activation records
+        for member_key, ctrl in list(self._rearm_controllers.items()):
+            member = self._current_members.get(member_key)
+            if member is None:
+                continue
+
+            is_inside = (event.price == member.lower_edge) if member.is_line else (member.lower_edge <= event.price <= member.upper_edge)
+            is_outside = (event.price < member.lower_edge or event.price > member.upper_edge)
+
+            if ctrl.state == ActivationState.CANCELLED_EXTERNAL_ENTRY:
+                # Path A: inside at cancellation, awaiting confirmed outside departure
+                if is_outside:
+                    self._rearm_controllers[member_key] = replace(
+                        ctrl,
+                        state=ActivationState.OUT_OF_ZONE_ARMED,
+                        rearm_armed=True,
+                        last_observed_position="OUTSIDE",
+                    )
+                elif is_inside:
+                    # Lingering inside without departure: blocks rearming
+                    self._rearm_controllers[member_key] = replace(
+                        ctrl,
+                        last_observed_position="INSIDE",
+                    )
+
+            elif ctrl.state == ActivationState.OUT_OF_ZONE_ARMED:
                 if is_inside:
                     consumed = self._member_consumed_observations.get(member_key, set())
                     if event.observation_id in consumed:
                         continue
 
-                    # Fresh touch rearms to REARMED_PENDING!
-                    gen_seq = self._generation_counts.get(member_key, 0) + 1
+                    # Fresh touch rearms to REARMED_PENDING with a brand-new activation ID!
+                    gen_seq = ctrl.generation_seq
                     self._generation_counts[member_key] = gen_seq
                     act_id = format_activation_id(
                         self.engine_id, self.source_timeframe, self.symbol, member.set_id, member.role, gen_seq
@@ -475,7 +536,7 @@ class ActivationEngine:
                         first_touch_time=event.timestamp,
                         first_touch_price=event.price,
                         trigger_observation_id=event.observation_id,
-                        prior_activation_id=rec.activation_id,
+                        prior_activation_id=ctrl.prior_activation_id,
                         rearm_armed=False,
                         last_observed_position="INSIDE",
                         usage_evidence_status=member.usage_evidence_status,
@@ -483,22 +544,14 @@ class ActivationEngine:
                         terminal=False,
                     )
                     self._active_activations[member_key] = new_rec
+                    self._rearm_controllers.pop(member_key, None)
                     self._observation_associations.setdefault(event.observation_id, set()).add(act_id)
                     self._member_consumed_observations.setdefault(member_key, set()).add(event.observation_id)
-
-            elif rec.state == ActivationState.CANCELLED_EXTERNAL_ENTRY:
-                # Path A: Cancelled while inside; awaiting confirmed outside departure
-                if is_outside:
-                    # Confirmed departure! Armed for next touch
-                    self._active_activations[member_key] = replace(
-                        rec,
-                        state=ActivationState.OUT_OF_ZONE_ARMED,
-                        rearm_armed=True,
+                elif is_outside:
+                    self._rearm_controllers[member_key] = replace(
+                        ctrl,
                         last_observed_position="OUTSIDE",
                     )
-                elif is_inside:
-                    # Lingering inside without departure: blocks rearming
-                    pass
 
         return self.get_snapshot()
 
@@ -529,13 +582,11 @@ class ActivationEngine:
             # 1. Remove membership eligibility permanently from current members
             member = self._current_members.pop(member_key, None)
 
-            # 2. Transition active activation to terminal if it was active/pending/armed
+            # 2. Transition active activation to terminal if it was pending or rearmed pending
             rec = self._active_activations.pop(member_key, None)
             if rec is not None and rec.state in (
                 ActivationState.PENDING_ACTIVATION,
                 ActivationState.REARMED_PENDING,
-                ActivationState.OUT_OF_ZONE_ARMED,
-                ActivationState.CANCELLED_EXTERNAL_ENTRY,
             ):
                 cancel_state = (
                     ActivationState.CANCELLED_SOURCE_CHOCH
@@ -552,6 +603,9 @@ class ActivationEngine:
                     rearm_armed=False,
                 )
                 self._terminal_activations.append(term_rec)
+
+            # 3. Disable rearm controller if present (zero second terminal outcome for prior activation ID!)
+            self._rearm_controllers.pop(member_key, None)
 
         return self.get_snapshot()
 
@@ -578,7 +632,8 @@ class ActivationEngine:
                 continue
 
             if rec.state in (ActivationState.PENDING_ACTIVATION, ActivationState.REARMED_PENDING):
-                # Save outgoing record to terminal history
+                # 1. Terminalize active activation (single, unique terminal outcome per activation ID)
+                self._active_activations.pop(member_key, None)
                 term_rec = replace(
                     rec,
                     state=ActivationState.CANCELLED_EXTERNAL_ENTRY,
@@ -589,23 +644,20 @@ class ActivationEngine:
                 )
                 self._terminal_activations.append(term_rec)
 
-                # Rearming evaluation: Path B (already outside) vs Path A (inside)
-                if rec.last_observed_position == "OUTSIDE":
-                    # Path B: Already outside at cancellation -> Armed immediately!
-                    self._active_activations[member_key] = replace(
-                        term_rec,
-                        state=ActivationState.OUT_OF_ZONE_ARMED,
-                        rearm_armed=True,
-                        terminal=False,
-                    )
-                else:
-                    # Path A: Inside or unknown -> un-armed; requires departure
-                    self._active_activations[member_key] = replace(
-                        term_rec,
-                        state=ActivationState.CANCELLED_EXTERNAL_ENTRY,
-                        rearm_armed=False,
-                        terminal=False,
-                    )
+                # 2. Initialize separate RearmController for next generation
+                is_outside = (rec.last_observed_position == "OUTSIDE")
+                init_state = ActivationState.OUT_OF_ZONE_ARMED if is_outside else ActivationState.CANCELLED_EXTERNAL_ENTRY
+                controller = RearmController(
+                    member_key=member_key,
+                    prior_activation_id=rec.activation_id,
+                    generation_seq=rec.generation_seq + 1,
+                    state=init_state,
+                    rearm_armed=is_outside,
+                    last_observed_position=rec.last_observed_position,
+                    cancellation_time=event.timestamp,
+                    cancellation_sequence_ref=event.sequence_ref,
+                )
+                self._rearm_controllers[member_key] = controller
 
         return self.get_snapshot()
 
@@ -655,12 +707,13 @@ class ActivationEngine:
         self._coverage_status = event.coverage_status
         return self.get_snapshot()
 
-    def _create_checkpoint(self) -> Dict[str, Any]:
+    def create_checkpoint(self) -> Dict[str, Any]:
         """Creates an internal state checkpoint for atomic rollback."""
         return {
             "current_members": dict(self._current_members),
             "active_activations": dict(self._active_activations),
             "terminal_activations": list(self._terminal_activations),
+            "rearm_controllers": dict(self._rearm_controllers),
             "processed_events": dict(self._processed_events),
             "observation_associations": {k: set(v) for k, v in self._observation_associations.items()},
             "member_consumed_observations": {k: set(v) for k, v in self._member_consumed_observations.items()},
@@ -670,11 +723,12 @@ class ActivationEngine:
             "coverage_status": self._coverage_status,
         }
 
-    def _restore_checkpoint(self, cp: Dict[str, Any]) -> None:
+    def restore_checkpoint(self, cp: Dict[str, Any]) -> None:
         """Restores internal state from a checkpoint on atomic rollback."""
         self._current_members = dict(cp["current_members"])
         self._active_activations = dict(cp["active_activations"])
         self._terminal_activations = list(cp["terminal_activations"])
+        self._rearm_controllers = dict(cp["rearm_controllers"])
         self._processed_events = dict(cp["processed_events"])
         self._observation_associations = {k: set(v) for k, v in cp["observation_associations"].items()}
         self._member_consumed_observations = {k: set(v) for k, v in cp["member_consumed_observations"].items()}
@@ -682,3 +736,6 @@ class ActivationEngine:
         self._last_processed_sequence = cp["last_processed_sequence"]
         self._last_processed_timestamp = cp["last_processed_timestamp"]
         self._coverage_status = cp["coverage_status"]
+
+    _create_checkpoint = create_checkpoint
+    _restore_checkpoint = restore_checkpoint

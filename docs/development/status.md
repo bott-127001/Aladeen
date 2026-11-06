@@ -582,102 +582,53 @@ Last Updated: 2026-11-05 (MSM Dashboard Milestone Accepted — Transition to CHO
 
 ---
 
-## 18. Milestone Implementation Hardening: Pure Offline Activation Lifecycle Engine (HANDOFF-052)
+## 18. Milestone Implementation Hardening: Pure Offline Activation Lifecycle Engine (HANDOFF-053)
 - **Active Branch**: `feature/activation-engine`
-- **Parent Commit**: `b553a24d36525af9661d9cf16bd4859f3b18f42b` (HANDOFF-051)
-- **Objective**: Harden the offline Activation Lifecycle Engine against all 6 review findings from Perplexity review of HANDOFF-051.
+- **Parent Commit**: `cb8d250816674ae375742e80e04f9cc9fd58cc55` (HANDOFF-052)
+- **Objective**: Complete transaction safety, history continuity, single-event envelope preservation, member immutability, and rearm controller separation per Perplexity HANDOFF-052 review.
 - **Scope Boundary**: Pure offline strategy calculation. **Strictly zero UI order execution, zero MT5 trading calls, zero usage ledger implementation, zero confirmation arbitration, zero trade entry signals, zero automated trading, and zero merging to `main`**.
 - **Completed Hardening Deliverables**:
-  1. **Source Cancellation Eligibility Invariant**:
-     - In `src/aladeen/strategy/activation_engine.py`, source cancellations (CHOCH or t2 replacement) permanently remove affected outgoing members from `_current_members`.
-     - Active slots in `_active_activations` are cleared; any in-flight pending, rearmed, armed, or externally cancelled activations transition to terminal states (`CANCELLED_SOURCE_CHOCH`, `CANCELLED_SOURCE_REPLACEMENT`) in `_terminal_activations`.
-     - Untouched members have membership eligibility permanently removed without polluting terminal activations.
-     - Outgoing members can never be reactivated by subsequent price prints; subsequent prints inside old zones are ignored without active member reference.
-  2. **Usage Evidence Gating & Atomic Multi-Member Registration**:
-     - In `src/aladeen/strategy/activation_adapter.py`, `adapt_tjl_current_set` strictly defaults missing usage evidence to `UsageEvidenceStatus.UNKNOWN` (fail-closed).
-     - In `ActivationEngine.register_source_members`, strict pre-validation checks `engine_id`, `symbol`, and `source_timeframe` before applying any state mutations.
-     - Re-registration of identical members (such as continuation snapshots across bars) is idempotent and preserves in-flight activation records without resetting them.
-  3. **Zero Wall-Clock Fabrication**:
-     - In `adapt_tjl_cancellation_record`, completely eliminated `datetime.now(timezone.utc)`. Preserves `transition.transition_time` strictly as `Optional[datetime]` (None if unknown) without corrupting causal order.
-  4. **Configured Price-Basis & Domain Validation**:
-     - `_process_exact_price_print` strictly enforces `event.price_basis == self.price_basis` (raises `InvalidEvidenceError` on mismatch).
-     - `SequenceDomain(feed_id, run_id)` strictly matched across all events (`DomainMismatchError`).
-  5. **Unified Event Envelope & Monotonic Sequence Reference**:
-     - Enforces strictly increasing causal sequence numbers (`sequence_ref <= last_sequence` raises `SequenceOrderError` for distinct events). Retouch at same sequence as commit is rejected.
-     - Exact identical duplicate events are idempotent no-ops.
-     - Uncertain candle evidence (`IntervalBoundedCandleEvidence`) preserves existing authoritative `PENDING_ACTIVATION` / `REARMED_PENDING` states rather than overwriting with `BLOCKED_UNKNOWN_ORDER`.
-  6. **Stateful TJLSynchronizer Cursor, Transition Continuity, and Isolated Replay**:
-     - Introduced stateful `TJLSynchronizer` in `src/aladeen/strategy/activation_adapter.py` maintaining explicit cursor `last_synced_transition_index`.
-     - Validates transition continuity and input completeness (`last_transition == history[-1]`, `len(history) >= cursor + 1`), rejecting truncated snapshots.
-     - Caches verified usage evidence across continuation snapshots.
-     - `ActivationEngine.replay()` operates on a fresh, isolated `ActivationEngine` instance, ensuring every-prefix sequential vs replay bit-for-bit equivalence.
-  7. **Real Candle-Derived MSM/CHOCH/TJL Pipeline Integration**:
-     - Added `test_real_pipeline_msm_choch_tjl_feeding_activation_adapter` executing real candles through `TJLCoordinator`:
-       - Replays to Bar 7: SET_1 created, registered with exact candle body bounds (TJL1: [1.135, 1.140], TJL2: [1.104, 1.105]).
-       - Exact price print in TJL1 zone activates to `PENDING_ACTIVATION`.
-       - Bar 8 continuation retains pending activation state.
-       - Bar 9 Bearish CHOCH confirmation syncs cancellation: SET_1 members permanently removed from active membership, active activation transitions to terminal with `CANCELLED_SOURCE_CHOCH`.
-       - Subsequent price print inside old TJL1 zone cannot reactivate cancelled member.
+  1. **Transactional TJL Synchronization**:
+     - `TJLSynchronizer.sync()` now executes as a staged transaction spanning: engine state, explicit cursor, usage cache, and consumed transition fingerprints.
+     - Captures pre-sync checkpoints of all 4 state components.
+     - Commits only after the entire synchronization (cancellations and member registrations) succeeds completely.
+     - Full rollback across all 4 components if any step fails (e.g. member validation failure), verified by failure injection.
+  2. **Source Context Binding & Consumed History Continuity**:
+     - `TJLSynchronizer` binds strictly to its source engine (`source_engine_id`), symbol (`symbol_feed_id`), and timeframe (`source_timeframe`). Cross-engine, cross-symbol, and cross-timeframe snapshots are strictly rejected before any state mutation.
+     - Validates that the already-consumed prefix in `snapshot.transition_history` matches `_consumed_transition_fingerprints` bit-for-bit. Rewritten histories or cross-run snapshots are strictly rejected (`InvalidEvidenceError`).
+     - Repeated synchronization is idempotent and preserves cursor and snapshots without redundant execution.
+  3. **Transactional Single-Event Processing (Unconsumed Envelope on Failure)**:
+     - `ActivationEngine.process_event` executes under an engine checkpoint.
+     - If event processing fails (e.g. member context or geometry validation failure in `_process_register_members_event`), the engine state is 100% restored.
+     - The event envelope, event ID, sequence number, and timestamp are left completely unconsumed.
+     - A corrected retry at the same sequence succeeds cleanly and matches an independent fresh reference engine.
+  4. **Immutable Member Bounds & Conflicting Registration Rejection**:
+     - In `register_source_members`, registration validates existing member keys against incoming definitions.
+     - Distinguishes: idempotent re-observation (identical), explicit usage evidence updates (validated without changing bounds), and conflicting registrations (differing geometry, role, side, direction, or availability).
+     - Conflicting registrations strictly raise `InvalidEvidenceError` without mutating existing member bounds or in-flight activation records.
+  5. **Decoupled Rearm Controller & Unique Terminal Activation Identifiers**:
+     - Introduced `RearmController` dataclass strictly separate from immutable `ActivationRecord`s.
+     - When an activation is cancelled by an external commit:
+       - The active record is terminalized, appended once to `_terminal_activations`, and removed from `_active_activations`.
+       - A `RearmController` is created with `prior_activation_id = rec.activation_id` and `generation_seq = rec.generation_seq + 1`.
+       - If subsequent source invalidation occurs, the controller is disabled; no duplicate terminal record is created for the old activation ID.
+       - Terminal activation IDs are guaranteed globally unique.
+       - When a fresh retouch occurs after confirmed outside departure, a brand-new activation record is created (`ACT::...::02`) with state `REARMED_PENDING` linked to `prior_activation_id`.
+  6. **Comprehensive Test Suite & Replay Determinism**:
+     - 30 execution tests in `tests/test_activation_engine.py` covering all 6 review directives:
+       - Synchronization failure rollback and valid retry comparison.
+       - Changed consumed history prefix rejection.
+       - Cross-context snapshot rejection before mutation.
+       - Repeated synchronization idempotence.
+       - Single-event failure leaving envelope unconsumed.
+       - Conflicting member registration rejection.
+       - Unique terminal activation IDs.
+       - Linked new-generation activation via rearm controller.
+       - Full multi-phase lifecycle replay matching sequential execution across every prefix bit-for-bit.
 - **Verification Summary**:
-  - Activation engine execution suite: 21/21 passed in 0.68s (`pytest tests/test_activation_engine.py -v`).
-  - Activation fixture integrity suite: 28/28 passed in 0.61s (`pytest tests/test_activation_fixture_integrity.py -v`).
-  - Full offline repository test suite: 469/469 passed in 9.45s (`pytest -q tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py`).
-- **Scope Compliance & Standing Invariants**:
-  1. *Offline Only*: Strictly zero UI order execution, zero MT5 trading calls, zero live account modification.
-  2. *Downstream Invariant*: Strictly zero usage ledger implementation, zero confirmation arbitration, zero trade entry signals.
-  3. *Core Ambiguities Preserved*: Upstream $c_1 == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
-  4. *Branch Boundary*: Committed and pushed strictly on `feature/activation-engine`. No merging into `main`.
-- **Active Branch**: `feature/activation-engine`
-- **Parent Commit**: `447242983fc3e8589bd9d0575676de92d2d61493` (Accepted Activation Requirements Baseline)
-- **Objective**: Implement pure offline exact-observed-print activation lifecycle engine with immutable typing, deterministic pure reducer, cancellation & rearming state machines, TJL adapter, and comprehensive execution tests.
-- **Scope Boundary**: Pure offline strategy calculation. **Strictly zero UI order execution, zero MT5 trading calls, zero usage ledger implementation, zero confirmation arbitration, zero trade entry signals, zero automated trading, and zero merging to `main`**.
-- **Completed Deliverables**:
-  1. **Immutable Domain Models & Contracts (`src/aladeen/strategy/activation_types.py`)**:
-     - `SequenceDomain`: Scopes causal sequences to `(feed_id, run_id)`. Mismatched sequence domains strictly raise `DomainMismatchError`.
-     - `ExactPricePrint`: Immutable discrete observation with `observation_id`, `price`, `price_basis` (`BID`, `ASK`, `MID`), `timestamp`, `sequence_domain`, and `sequence_ref`. Raw observations remain immutable facts; association with activations is tracked separately without mutating shared prints.
-     - `IntervalBoundedCandleEvidence`: Preserves unknown intra-bar occurrence time (`sub_bar_sequence_available=False`).
-     - `SourceMemberReference`: Structural registration model preserving `StableLevelId`, geometry, set ID, role (`TJL1`, `TJL2_A_PLUS`), and `eligibility_available_time`.
-     - `SourceCancellationEvent` & `ExternalCommitEvent`: Structured cancellation notifications (inputs only; external commits do not select winners or write usage).
-     - `CoverageEvidence` & `CoverageStatus`: Batch completeness gating (`COMPLETE`, `INCOMPLETE`, `UNCERTAIN`).
-     - Canonical unambiguous activation ID encoding: `ACT::<engine_id>::<source_timeframe>::<symbol>::<set_id>::<role>::<generation_seq:02d>`.
-     - Standard MTF timeframe mapping: D1 $\rightarrow$ H1, H4 $\rightarrow$ M5, H1 $\rightarrow$ M1 (`TIMEFRAME_CONFIRMATION_MAP`).
-     - Immutable `ActivationRecord` and `ActivationSnapshot`.
-  2. **Pure Reducer & State Machine Engine (`src/aladeen/strategy/activation_engine.py`)**:
-     - Registration of current eligible source members; both TJL1 and TJL2 remain independently pending.
-     - Known availability + explicitly unused + valid in-zone print transitions level to `PENDING_ACTIVATION`.
-     - Repeated touches while pending do NOT reset `first_touch_time` or restart search.
-     - Inclusive boundary touches ($p = L$ or $p = U$) and zero-width lines ($L = U$) activate cleanly.
-     - Rejection of recycled evidence across cancelled generations for the same level.
-     - Complete rearming state machine: Path B (already observed outside at cancellation arms immediately; next touch rearms) vs Path A (inside at cancellation requires confirmed outside departure $p < L$ or $p > U$ before arming; lingering inside blocks rearming).
-     - Cancellation handling: source CHOCH cancels old direction; source t2 replacement cancels outgoing set; persistent physical levels surviving replacement retain identity but inherit zero activation state.
-     - Context & order enforcement: domain matching, monotonic sequence/timestamp validation (`SequenceOrderError`), duplicate event idempotence, and conflicting duplicate rejection (`ConflictingEventError`).
-     - Atomic batch processing (`process_batch`) with full state rollback on failure.
-     - Fresh replay (`replay`) with immutable prefix snapshots.
-     - Clean reset isolation (`reset`).
-  3. **TJL Adapter (`src/aladeen/strategy/activation_adapter.py`)**:
-     - `adapt_tjl_current_set`: Converts accepted `CurrentEligibleSet` into exactly two `SourceMemberReference`s (`tjl1_zone` and `tjl2_zone`).
-     - `adapt_tjl_cancellation_record`: Maps TJL transition cancellation records (`CHOCH_INVALIDATION`, `SET_REPLACEMENT`) into `SourceCancellationEvent`.
-     - `sync_tjl_snapshot_to_activation_engine`: Coordinates synchronization from `TJLSnapshot`. Enforces that frozen unresolved snapshots (`is_unresolved=True`) strictly create zero fresh eligibility.
-  4. **Comprehensive Execution Test Suite (`tests/test_activation_engine.py`)**:
-     - 24 focused execution tests validating all 26 acceptance fixtures and regression requirements:
-       - Shared print touching multiple levels independently.
-       - Rejection of recycled evidence across generations.
-       - Sequence domain mismatch rejection (`DomainMismatchError`).
-       - Duplicate event idempotence and conflicting content rejection (`ConflictingEventError`).
-       - Monotonic sequence and timestamp enforcement (`SequenceOrderError`).
-       - Source invalidation despite unrelated incomplete evidence.
-       - Persistent member replacement without activation inheritance.
-       - Both rearming paths (Path A departure requirement vs Path B already outside).
-       - Preceding candle close rejected at availability boundary.
-       - Intra-candle availability with unknown sequence fails closed (`BLOCKED_UNKNOWN_ORDER`).
-       - Atomic batch rollback on failure and retry against fresh reference.
-       - Bit-for-bit sequential vs batch vs replay equivalence.
-       - Reset isolation and immutable snapshots.
-       - TJL Adapter integration with accepted `CurrentEligibleSet` and `TJLSnapshot`.
-- **Verification Summary**:
-  - Activation engine execution suite: 24/24 passed in 0.60s (`pytest tests/test_activation_engine.py -v`).
-  - Activation fixture integrity suite: 28/28 passed in 0.96s (`pytest tests/test_activation_fixture_integrity.py -v`).
-  - Full offline repository test suite: 472/472 passed in 13.08s (`pytest -q tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py`).
+  - Activation engine execution suite: 30/30 passed in 0.71s (`pytest tests/test_activation_engine.py -v`).
+  - Activation fixture integrity suite: 28/28 passed in 0.59s (`pytest tests/test_activation_fixture_integrity.py -v`).
+  - Full offline repository test suite: 478/478 passed in 8.53s (`pytest -q tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py`).
 - **Scope Compliance & Standing Invariants**:
   1. *Offline Only*: Strictly zero UI order execution, zero MT5 trading calls, zero live account modification.
   2. *Downstream Invariant*: Strictly zero usage ledger implementation, zero confirmation arbitration, zero trade entry signals.

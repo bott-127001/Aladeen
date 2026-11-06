@@ -94,6 +94,7 @@ from .activation_types import (
     TIMEFRAME_CONFIRMATION_MAP,
     UsageEvidenceStatus,
     format_activation_id,
+    RearmController,
 )
 from .activation_engine import ActivationEngine, ActivationEngineConfig
 from .activation_adapter import (
@@ -182,6 +183,7 @@ __all__ = [
     "TIMEFRAME_CONFIRMATION_MAP",
     "UsageEvidenceStatus",
     "format_activation_id",
+    "RearmController",
     "ActivationEngine",
     "ActivationEngineConfig",
     "TJLSynchronizer",

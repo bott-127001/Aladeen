@@ -308,6 +308,22 @@ class ActivationRecord:
 
 
 @dataclass(frozen=True)
+class RearmController:
+    """Stateful rearm controller managing outside departure and arming after external cancellation.
+
+    Strictly decoupled from immutable terminal activation records. References prior_activation_id.
+    """
+    member_key: str
+    prior_activation_id: str
+    generation_seq: int
+    state: ActivationState  # CANCELLED_EXTERNAL_ENTRY or OUT_OF_ZONE_ARMED
+    rearm_armed: bool
+    last_observed_position: Optional[str] = None  # "INSIDE", "OUTSIDE"
+    cancellation_time: Optional[datetime] = None
+    cancellation_sequence_ref: Optional[int] = None
+
+
+@dataclass(frozen=True)
 class ActivationSnapshot:
     """Immutable point-in-time state of the Activation Engine."""
     engine_id: str
@@ -321,6 +337,7 @@ class ActivationSnapshot:
     last_processed_sequence: Optional[int]
     last_processed_timestamp: Optional[datetime]
     current_members: Mapping[str, SourceMemberReference]
+    rearm_controllers: Mapping[str, RearmController] = field(default_factory=dict)
 
 
 # Standard MTF timeframe mapping dictionary (§6)

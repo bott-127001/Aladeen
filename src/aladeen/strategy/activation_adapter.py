@@ -115,10 +115,14 @@ def adapt_tjl_cancellation_record(
 
 @dataclass
 class TJLSynchronizer:
-    """Stateful adapter maintaining an explicit processed-transition cursor over TJLSnapshot."""
+    """Stateful, transactional adapter maintaining an explicit processed-transition cursor over TJLSnapshot."""
     engine: ActivationEngine
     last_synced_transition_index: int = -1
     _usage_cache: Dict[StableLevelId, UsageEvidenceStatus] = field(default_factory=dict)
+    _consumed_transition_fingerprints: List[Tuple[Any, ...]] = field(default_factory=list)
+    _bound_engine_id: Optional[str] = None
+    _bound_symbol_feed_id: Optional[str] = None
+    _bound_source_timeframe: Optional[str] = None
 
     def sync(
         self,
@@ -126,20 +130,44 @@ class TJLSynchronizer:
         sequence_ref_start: int,
         usage_evidence: Optional[Mapping[StableLevelId, UsageEvidenceStatus]] = None,
     ) -> ActivationSnapshot:
-        """Synchronizes an accepted TJLSnapshot atomically and idempotently."""
+        """Synchronizes an accepted TJLSnapshot atomically and idempotently across all components."""
         if not isinstance(snapshot, TJLSnapshot):
             raise TypeError(f"Expected TJLSnapshot, got {type(snapshot).__name__}")
 
-        if usage_evidence is not None:
-            self._usage_cache.update(usage_evidence)
+        # 1. Validate source context before ANY state mutation
+        if snapshot.source_engine_id != self.engine.engine_id:
+            raise InvalidEvidenceError(
+                f"Cross-engine snapshot rejected: snapshot source_engine_id {snapshot.source_engine_id!r} "
+                f"!= activation engine {self.engine.engine_id!r}"
+            )
+        if snapshot.symbol_feed_id != self.engine.symbol:
+            raise InvalidEvidenceError(
+                f"Cross-symbol snapshot rejected: snapshot symbol_feed_id {snapshot.symbol_feed_id!r} "
+                f"!= activation engine {self.engine.symbol!r}"
+            )
+        if snapshot.source_timeframe != self.engine.source_timeframe:
+            raise InvalidEvidenceError(
+                f"Cross-timeframe snapshot rejected: snapshot source_timeframe {snapshot.source_timeframe!r} "
+                f"!= activation engine {self.engine.source_timeframe!r}"
+            )
 
-        # Frozen unresolved snapshots strictly create ZERO fresh eligibility
+        if self._bound_engine_id is None:
+            self._bound_engine_id = snapshot.source_engine_id
+            self._bound_symbol_feed_id = snapshot.symbol_feed_id
+            self._bound_source_timeframe = snapshot.source_timeframe
+        else:
+            if (
+                snapshot.source_engine_id != self._bound_engine_id
+                or snapshot.symbol_feed_id != self._bound_symbol_feed_id
+                or snapshot.source_timeframe != self._bound_source_timeframe
+            ):
+                raise InvalidEvidenceError("Cross-context snapshot rejected against previously bound synchronizer context")
+
+        # 2. Frozen unresolved snapshots strictly create ZERO fresh eligibility
         if snapshot.is_unresolved:
             return self.engine.get_snapshot()
 
-        curr_seq = sequence_ref_start
-
-        # Validate synchronization input completeness
+        # 3. Validate transition input completeness and history continuity
         history = snapshot.transition_history
         if snapshot.last_transition is not None:
             if not history or snapshot.last_transition != history[-1]:
@@ -147,36 +175,84 @@ class TJLSynchronizer:
                     "Incomplete synchronization input: last_transition is not the tail of transition_history"
                 )
 
-        if len(history) < self.last_synced_transition_index + 1:
+        if len(history) < len(self._consumed_transition_fingerprints):
             raise InvalidEvidenceError(
-                f"Transition history truncated: expected at least {self.last_synced_transition_index + 1} records, got {len(history)}"
+                f"Transition history truncated: expected at least {len(self._consumed_transition_fingerprints)} records, got {len(history)}"
             )
 
-        # Process transition history sequentially via explicit cursor
-        for idx in range(self.last_synced_transition_index + 1, len(history)):
-            trans = history[idx]
-            if trans.outgoing_cancellation_intent:
-                stable_event_id = f"EVT_TJL_TRANS_{trans.transition_type.value}_{trans.transition_candle_index}_{idx}"
-                cancel_evt = adapt_tjl_cancellation_record(
-                    transition=trans,
-                    sequence_domain=self.engine.sequence_domain,
-                    sequence_ref=curr_seq,
-                    event_id=stable_event_id,
+        # Validate that the already-consumed prefix matches bit-for-bit (rejects rewritten/cross-run history)
+        for idx, expected_fp in enumerate(self._consumed_transition_fingerprints):
+            trans_idx = history[idx]
+            actual_fp = (
+                trans_idx.transition_type,
+                trans_idx.transition_candle_index,
+                trans_idx.outgoing_cancelled_set_id,
+            )
+            if actual_fp != expected_fp:
+                raise InvalidEvidenceError(
+                    f"Consumed transition history prefix mismatch at index {idx}: expected {expected_fp}, got {actual_fp}. "
+                    "Rewritten history or cross-run snapshots are strictly rejected."
                 )
-                if cancel_evt is not None:
-                    self.engine.process_event(cancel_evt)
-                    curr_seq += 1
 
-            self.last_synced_transition_index = idx
+        # Check if repeating identical sync without new transitions or sets
+        if len(history) == len(self._consumed_transition_fingerprints) and snapshot.current_eligible_set is None:
+            return self.engine.get_snapshot()
 
-        # Atomically register current eligible set members if present
-        if snapshot.current_eligible_set is not None:
-            tjl1_ref, tjl2_ref = adapt_tjl_current_set(
-                snapshot.current_eligible_set, usage_evidence=self._usage_cache
-            )
-            self.engine.register_source_members([tjl1_ref, tjl2_ref])
+        # 4. Staged Transactional Commit across engine, cursor, usage cache, and consumed fingerprints
+        engine_checkpoint = self.engine.create_checkpoint()
+        prev_cursor = self.last_synced_transition_index
+        prev_usage_cache = dict(self._usage_cache)
+        prev_consumed_fps = list(self._consumed_transition_fingerprints)
 
-        return self.engine.get_snapshot()
+        try:
+            staged_usage_cache = dict(self._usage_cache)
+            if usage_evidence is not None:
+                staged_usage_cache.update(usage_evidence)
+
+            staged_fps = list(self._consumed_transition_fingerprints)
+            curr_seq = sequence_ref_start
+
+            # Process newly observed transitions sequentially
+            for idx in range(len(self._consumed_transition_fingerprints), len(history)):
+                trans = history[idx]
+                if trans.outgoing_cancellation_intent:
+                    stable_event_id = f"EVT_TJL_TRANS_{trans.transition_type.value}_{trans.transition_candle_index}_{idx}"
+                    cancel_evt = adapt_tjl_cancellation_record(
+                        transition=trans,
+                        sequence_domain=self.engine.sequence_domain,
+                        sequence_ref=curr_seq,
+                        event_id=stable_event_id,
+                    )
+                    if cancel_evt is not None:
+                        self.engine.process_event(cancel_evt)
+                        curr_seq += 1
+
+                staged_fps.append((
+                    trans.transition_type,
+                    trans.transition_candle_index,
+                    trans.outgoing_cancelled_set_id,
+                ))
+
+            # Atomically register current eligible set members if present
+            if snapshot.current_eligible_set is not None:
+                tjl1_ref, tjl2_ref = adapt_tjl_current_set(
+                    snapshot.current_eligible_set, usage_evidence=staged_usage_cache
+                )
+                self.engine.register_source_members([tjl1_ref, tjl2_ref])
+
+            # Commit staged transaction
+            self.last_synced_transition_index = len(history) - 1
+            self._usage_cache = staged_usage_cache
+            self._consumed_transition_fingerprints = staged_fps
+            return self.engine.get_snapshot()
+
+        except Exception:
+            # Atomic rollback across all components
+            self.engine.restore_checkpoint(engine_checkpoint)
+            self.last_synced_transition_index = prev_cursor
+            self._usage_cache = prev_usage_cache
+            self._consumed_transition_fingerprints = prev_consumed_fps
+            raise
 
 
 def sync_tjl_snapshot_to_activation_engine(
