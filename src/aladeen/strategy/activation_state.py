@@ -55,6 +55,10 @@ class ActivationEngineState:
         self.last_processed_timestamp: Optional[datetime] = None
         self.coverage_status: CoverageStatus = CoverageStatus.COMPLETE
 
+        # Authoritative invalidation tracking (prevents re-registration of cancelled outgoing sets)
+        self.invalidated_member_keys: Set[str] = set()
+        self.invalidated_set_ids: Set[str] = set()
+
     def create_checkpoint(self) -> Dict[str, Any]:
         """Creates an internal state checkpoint for atomic rollback."""
         return {
@@ -69,6 +73,8 @@ class ActivationEngineState:
             "last_processed_sequence": self.last_processed_sequence,
             "last_processed_timestamp": self.last_processed_timestamp,
             "coverage_status": self.coverage_status,
+            "invalidated_member_keys": set(self.invalidated_member_keys),
+            "invalidated_set_ids": set(self.invalidated_set_ids),
         }
 
     def restore_checkpoint(self, cp: Dict[str, Any]) -> None:
@@ -84,6 +90,8 @@ class ActivationEngineState:
         self.last_processed_sequence = cp["last_processed_sequence"]
         self.last_processed_timestamp = cp["last_processed_timestamp"]
         self.coverage_status = cp["coverage_status"]
+        self.invalidated_member_keys = set(cp["invalidated_member_keys"])
+        self.invalidated_set_ids = set(cp["invalidated_set_ids"])
 
     def reset(self) -> None:
         """Resets all mutable state collections to fresh baseline."""
@@ -98,6 +106,8 @@ class ActivationEngineState:
         self.last_processed_sequence = None
         self.last_processed_timestamp = None
         self.coverage_status = CoverageStatus.COMPLETE
+        self.invalidated_member_keys.clear()
+        self.invalidated_set_ids.clear()
 
     def get_snapshot(self) -> ActivationLifecycleSnapshot:
         """Returns an immutable snapshot projection of the engine's current state."""

@@ -902,3 +902,47 @@ Last Updated: 2026-11-05 (MSM Dashboard Milestone Accepted — Transition to CHO
   2. *Downstream Invariant*: Strictly zero usage ledger implementation, zero confirmation arbitration, zero trade entry signals.
   3. *Core Ambiguities Preserved*: Upstream $c_1 == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
   4. *Branch Boundary*: Committed and pushed strictly on `feature/activation-engine`. No merging into `main`.
+
+
+### Milestone 24 (Activation Engine): Cancelled Membership Invalidation Continuity and Pending Activation Provenance Preservation (HANDOFF-061)
+- **Active Branch**: feature/activation-engine
+- **Parent Commit**: 952c13996ca4ab36e6aceecef79196cce7521fa5 (HANDOFF-060)
+- **Root Baseline Commit**: 535af1434ed9a6b93328202039db7f1d4f4be410 (Accepted TJL Dashboard Integration)
+- **Objective**: Address Perplexity's review of HANDOFF-060:
+  1. **Cancelled Membership Invalidation Continuity**: Ensure outgoing source set identities cancelled via `SOURCE_CHOCH` or `SOURCE_REPLACEMENT` cannot be re-registered within the same run. Distinct successor sets (`SET_SUCCESSOR_02`) containing the same physical level must register cleanly.
+  2. **Pending Activation Provenance Preservation Across Usage Uncertainty**: Ensure active touch provenance (`first_touch_time`, `first_touch_price`, `activation_id`, `generation_seq`) is strictly preserved across temporary `UNKNOWN` usage evidence fluctuations, rather than resetting to generation zero on recovery.
+  3. Ensure all strategy runtime modules and test files strictly respect the 380-line boundary.
+- **Completed Deliverables**:
+  1. **Authoritative Invalidation Tracking**:
+     - Added `invalidated_member_keys: Set[str]` and `invalidated_set_ids: Set[str]` to `ActivationEngineState` in [`src/aladeen/strategy/activation_state.py`](file:///src/aladeen/strategy/activation_state.py).
+     - Recorded cancelled `member_key`s and `set_id`s in `process_cancellation_event()` in [`src/aladeen/strategy/activation_evidence.py`](file:///src/aladeen/strategy/activation_evidence.py).
+     - Enforced rejection in `register_source_members()` in [`src/aladeen/strategy/activation_handlers.py`](file:///src/aladeen/strategy/activation_handlers.py) with `InvalidEvidenceError` prior to batch staging or mutation.
+     - Preserved in `create_checkpoint()`, `restore_checkpoint()`, and `reset()`.
+     - Distinct successor set identities containing identical physical levels register cleanly as generation 0 inactive-eligible slots.
+  2. **Touch Provenance Preservation Across Evidence Gating**:
+     - In `register_source_members()` in [`src/aladeen/strategy/activation_handlers.py`](file:///src/aladeen/strategy/activation_handlers.py), if an existing member record already has touch provenance (`first_touch_time is not None` or active state), evidence updates to `UNKNOWN` update `usage_evidence_status` and apply `blocked_reason="USAGE_EVIDENCE_UNCERTAIN_FAIL_CLOSED"` without wiping or resetting `activation_id`, `first_touch_time`, `first_touch_price`, or `generation_seq`.
+     - When evidence recovers to `UNUSED`, `blocked_reason` clears to `None` while fully maintaining original activation provenance and state.
+  3. **Module Line Count Verification**:
+     - `activation_adapter.py`: 258 lines
+     - `activation_engine.py`: 199 lines
+     - `activation_evidence.py`: 252 lines
+     - `activation_handlers.py`: 379 lines
+     - `activation_state.py`: 111 lines
+     - `activation_types.py`: 335 lines
+     - `test_activation_replay.py`: 179 lines
+     - All runtime files strictly under 380 lines.
+  4. **Decisive Regressions Added**:
+     - `test_invalidated_membership_reregistration_rejected_and_successor_set_allowed`
+     - `test_pending_activation_provenance_preserved_across_usage_uncertainty`
+- **Verification Summary**:
+  - Activation engine execution suite: 46/46 passed in 0.95s (`pytest tests/test_activation_engine.py -q`).
+  - Activation replay execution suite: 1/1 passed in 1.48s (`pytest tests/test_activation_replay.py -q`).
+  - Activation adapter suite: 14/14 passed in 0.61s (`pytest tests/test_activation_adapter.py -q`).
+  - Activation fixture integrity suite: 28/28 passed in 0.60s (`pytest tests/test_activation_fixture_integrity.py -q`).
+  - Total activation tests: 89/89 passed.
+  - Full offline repository test suite: 509/509 passed in 13.56s (`pytest -q tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py`).
+- **Scope Compliance & Standing Invariants**:
+  1. *Offline Only*: Strictly zero UI order execution, zero MT5 trading calls, zero live account modification.
+  2. *Downstream Invariant*: Strictly zero usage ledger implementation, zero confirmation arbitration, zero trade entry signals.
+  3. *Core Ambiguities Preserved*: Upstream $c_1 == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
+  4. *Branch Boundary*: Committed and pushed strictly on `feature/activation-engine`. No merging into `main`.

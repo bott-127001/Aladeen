@@ -100,6 +100,14 @@ def register_source_members(
                 f"Member source_timeframe {m.source_timeframe!r} does not match activation engine {state.source_timeframe!r}"
             )
 
+        # Check against permanently invalidated outgoing memberships/sets
+        if m.member_key in state.invalidated_member_keys or m.set_id in state.invalidated_set_ids:
+            raise InvalidEvidenceError(
+                f"Cannot register source-invalidated outgoing member or set {m.member_key!r}. "
+                "Source cancellations permanently retire outgoing set identities within the run; "
+                "persistent physical levels must return under a new successor set identity."
+            )
+
         # Check intra-batch conflicts
         if m.member_key in staged_candidates:
             prev_cand = staged_candidates[m.member_key]
@@ -162,25 +170,27 @@ def register_source_members(
             blocked = None
 
         if existing_rec is not None:
-            # Member existed: if usage or timing changed, update state without resetting ongoing activations if valid
-            if existing_rec.state in (
+            # Check if this activation record has already established touch provenance
+            has_touch_provenance = existing_rec.first_touch_time is not None or existing_rec.state in (
                 ActivationState.PENDING_ACTIVATION,
                 ActivationState.REARMED_PENDING,
-            ):
-                if init_state == ActivationState.INACTIVE_INELIGIBLE:
-                    # Gating revoked! Transition to INACTIVE_INELIGIBLE
-                    state.active_activations[m.member_key] = replace(
-                        existing_rec,
-                        state=ActivationState.INACTIVE_INELIGIBLE,
-                        blocked_reason=blocked,
-                        usage_evidence_status=m.usage_evidence_status,
-                    )
-                else:
-                    # Gating still valid: keep current active state
-                    state.active_activations[m.member_key] = replace(
-                        existing_rec,
-                        usage_evidence_status=m.usage_evidence_status,
-                    )
+            )
+            if has_touch_provenance:
+                # Active activation provenance must NEVER be erased by temporary evidence fluctuations
+                state.active_activations[m.member_key] = replace(
+                    existing_rec,
+                    usage_evidence_status=m.usage_evidence_status,
+                    blocked_reason=blocked,
+                )
+                continue
+            else:
+                # Untouched member slot: update state and blocked gating cleanly
+                state.active_activations[m.member_key] = replace(
+                    existing_rec,
+                    state=init_state,
+                    blocked_reason=blocked,
+                    usage_evidence_status=m.usage_evidence_status,
+                )
                 continue
 
         # First time registering member or re-registering an inactive slot

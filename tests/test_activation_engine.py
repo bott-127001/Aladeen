@@ -1181,6 +1181,89 @@ class TestActivationEngineExecution:
         assert m2.member_key in snap.active_activations
         assert snap.active_activations[m2.member_key].state == ActivationState.PENDING_ACTIVATION
 
+    def test_invalidated_membership_reregistration_rejected_and_successor_set_allowed(self, default_domain: SequenceDomain) -> None:
+        """Directive 1 & 3: Re-registration of cancelled outgoing sets rejected; distinct successor sets allowed."""
+        config = ActivationEngineConfig("ENGINE_TEST", "FEED_EURUSD_H1", "H1", default_domain, PriceBasis.BID)
+        eng = ActivationEngine(config)
+        lvl1 = StableLevelId("FEED_EURUSD_H1", "H1", datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc), TJLSide.HIGH)
+        m_pending = SourceMemberReference("ENGINE_TEST", "FEED_EURUSD_H1", "H1", "SET_PENDING", "TJL1", "HIGH", 1.1350, 1.1400, False, Direction.UPWARD, lvl1, datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc), UsageEvidenceStatus.UNUSED)
+        m_untouched = SourceMemberReference("ENGINE_TEST", "FEED_EURUSD_H1", "H1", "SET_UNTOUCHED", "TJL1", "HIGH", 1.1000, 1.1050, False, Direction.UPWARD, lvl1, datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc), UsageEvidenceStatus.UNUSED)
+        eng.register_source_members([m_pending, m_untouched])
+
+        # Touch m_pending to PENDING_ACTIVATION
+        eng.process_event(ExactPricePrint("OBS_1", 1.1370, PriceBasis.BID, datetime(2026, 10, 2, 8, 15, tzinfo=timezone.utc), default_domain, 100))
+        assert eng.get_snapshot().active_activations[m_pending.member_key].state == ActivationState.PENDING_ACTIVATION
+
+        # 1. Source replacement cancels SET_PENDING
+        eng.process_event(SourceCancellationEvent("CAN_REPL", CancellationReason.SOURCE_REPLACEMENT, default_domain, 101, datetime(2026, 10, 2, 8, 20, tzinfo=timezone.utc), target_set_id="SET_PENDING"))
+        assert m_pending.member_key not in eng.get_snapshot().current_members
+
+        # Source CHOCH cancels SET_UNTOUCHED
+        eng.process_event(SourceCancellationEvent("CAN_CHOCH", CancellationReason.SOURCE_CHOCH, default_domain, 102, datetime(2026, 10, 2, 8, 25, tzinfo=timezone.utc), target_set_id="SET_UNTOUCHED"))
+        assert m_untouched.member_key not in eng.get_snapshot().current_members
+
+        cp = eng.create_checkpoint()
+
+        # 2. Attempting to re-register pending cancelled outgoing member is rejected atomically
+        with pytest.raises(InvalidEvidenceError, match="Cannot register source-invalidated outgoing member"):
+            eng.register_source_member(m_pending)
+        assert eng.create_checkpoint() == cp
+
+        # 3. Attempting to re-register untouched cancelled outgoing member is rejected atomically
+        with pytest.raises(InvalidEvidenceError, match="Cannot register source-invalidated outgoing member"):
+            eng.register_source_member(m_untouched)
+        assert eng.create_checkpoint() == cp
+
+        # 4. A distinct successor set containing the exact same physical level registers cleanly
+        m_successor = SourceMemberReference(
+            "ENGINE_TEST", "FEED_EURUSD_H1", "H1", "SET_SUCCESSOR_02", "TJL1", "HIGH",
+            1.1350, 1.1400, False, Direction.UPWARD, lvl1,
+            datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc), UsageEvidenceStatus.UNUSED
+        )
+        snap_succ = eng.register_source_member(m_successor)
+        assert m_successor.member_key in snap_succ.current_members
+        assert snap_succ.active_activations[m_successor.member_key].state == ActivationState.INACTIVE_ELIGIBLE
+        assert snap_succ.active_activations[m_successor.member_key].generation_seq == 0
+
+    def test_pending_activation_provenance_preserved_across_usage_uncertainty(self, default_domain: SequenceDomain) -> None:
+        """Directive 2 & 3: Pending activation identity and first-touch provenance are preserved across UNKNOWN usage."""
+        config = ActivationEngineConfig("ENGINE_TEST", "FEED_EURUSD_H1", "H1", default_domain, PriceBasis.BID)
+        eng = ActivationEngine(config)
+        lvl = StableLevelId("FEED_EURUSD_H1", "H1", datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc), TJLSide.HIGH)
+        m_unused = SourceMemberReference("ENGINE_TEST", "FEED_EURUSD_H1", "H1", "SET_1", "TJL1", "HIGH", 1.1350, 1.1400, False, Direction.UPWARD, lvl, datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc), UsageEvidenceStatus.UNUSED)
+        eng.register_source_member(m_unused)
+
+        # First touch activates level to PENDING_ACTIVATION
+        snap_act = eng.process_event(ExactPricePrint("OBS_1", 1.1370, PriceBasis.BID, datetime(2026, 10, 2, 8, 15, tzinfo=timezone.utc), default_domain, 100))
+        orig_rec = snap_act.active_activations[m_unused.member_key]
+        assert orig_rec.state == ActivationState.PENDING_ACTIVATION
+        assert orig_rec.first_touch_time == datetime(2026, 10, 2, 8, 15, tzinfo=timezone.utc)
+        assert orig_rec.first_touch_price == 1.1370
+        assert orig_rec.generation_seq == 1
+        orig_act_id = orig_rec.activation_id
+
+        # Usage evidence becomes UNKNOWN: blocks transitions but preserves activation record
+        m_unknown = SourceMemberReference("ENGINE_TEST", "FEED_EURUSD_H1", "H1", "SET_1", "TJL1", "HIGH", 1.1350, 1.1400, False, Direction.UPWARD, lvl, datetime(2026, 10, 2, 8, 0, tzinfo=timezone.utc), UsageEvidenceStatus.UNKNOWN)
+        snap_unknown = eng.register_source_member(m_unknown)
+        rec_unknown = snap_unknown.active_activations[m_unused.member_key]
+        assert rec_unknown.activation_id == orig_act_id
+        assert rec_unknown.first_touch_time == orig_rec.first_touch_time
+        assert rec_unknown.first_touch_price == orig_rec.first_touch_price
+        assert rec_unknown.generation_seq == 1
+        assert rec_unknown.blocked_reason == "USAGE_EVIDENCE_UNCERTAIN_FAIL_CLOSED"
+        assert rec_unknown.usage_evidence_status == UsageEvidenceStatus.UNKNOWN
+
+        # Usage evidence returns to UNUSED: unblocks without resetting to generation zero
+        snap_restored = eng.register_source_member(m_unused)
+        rec_restored = snap_restored.active_activations[m_unused.member_key]
+        assert rec_restored.activation_id == orig_act_id
+        assert rec_restored.first_touch_time == orig_rec.first_touch_time
+        assert rec_restored.first_touch_price == orig_rec.first_touch_price
+        assert rec_restored.generation_seq == 1
+        assert rec_restored.blocked_reason is None
+        assert rec_restored.usage_evidence_status == UsageEvidenceStatus.UNUSED
+        assert rec_restored.state == ActivationState.PENDING_ACTIVATION
+
     def test_supported_roles_validation(self) -> None:
         """Directive 3: Validates supported roles and rejects undocumented roles."""
         from aladeen.strategy.activation_types import SUPPORTED_SOURCE_ROLES

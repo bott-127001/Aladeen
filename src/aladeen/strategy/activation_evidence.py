@@ -94,7 +94,16 @@ def process_cancellation_event(
         members_to_cancel.append(member_key)
 
     # 8. Apply cancellations to matching members
+    if event.target_set_id is not None:
+        state.invalidated_set_ids.add(event.target_set_id)
+
     for member_key in members_to_cancel:
+        # Record permanent invalidation to prevent re-registration under same outgoing identity
+        state.invalidated_member_keys.add(member_key)
+        old_member = state.current_members.get(member_key)
+        if old_member is not None:
+            state.invalidated_set_ids.add(old_member.set_id)
+
         # Remove membership eligibility permanently from current members
         state.current_members.pop(member_key, None)
 
