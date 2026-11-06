@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple, Union
 import numpy as np
 import pandas as pd
 
+from .activation_types import ActivationSnapshot
 from .coordinator import CoordinatorSnapshot, MSMChochCoordinator
 from .choch_types import ChochDiagnostic, ConfirmedChoch
 from .engine import MSMEngine
@@ -292,6 +293,9 @@ class MSMServiceResult:
     iss_snapshot: Optional[ISSSnapshot] = None
     confirmed_iss_events: Tuple[ConfirmedISSEvent, ...] = ()
     tjl_snapshot: Optional[TJLSnapshot] = None
+    activation_snapshot: Optional[ActivationSnapshot] = None
+    last_synced_transition_index: Optional[int] = None
+    exact_observation_count: Optional[int] = None
     is_unresolved: bool = False
     unresolved_diagnostic: Optional[ChochDiagnostic] = None
     unresolved_candle_index: Optional[int] = None

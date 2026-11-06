@@ -1135,3 +1135,39 @@ Last Updated: 2026-11-06 (Activation Engine Pure Offline Milestone Accepted — 
   3. *Downstream Invariant*: Strictly zero usage ledger implementation, zero confirmation arbitration, zero trade entry signals.
   4. *Core Ambiguities Preserved*: Upstream $c_1 == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
   5. *Branch Boundary*: Committed and pushed strictly on `requirements/activation-dashboard-acceptance`. No merging into `main`.
+
+### HANDOFF-067: Read-Only Activation Dashboard Implementation, Pure Functional Presentation, and Engine Lifecycle Invariance
+- **Active Branch**: `feature/activation-dashboard`
+- **Immediate Parent Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d` (HANDOFF-066)
+- **Root Baseline Engine Commit**: `0867c740352297fb43e781fb654706218771d533` (Milestone 25 / HANDOFF-061)
+- **Objective**: Implement Milestone 27 read-only activation inspection dashboard panel based on the formally accepted requirements contract (Milestone 26 / HANDOFF-066):
+  1. *Pure Functional Presentation*: Implement `src/aladeen/ui/activation_inspection.py` (`build_activation_inspection_elements`) projecting immutable `ActivationSnapshot` and `TJLSnapshot` state without invoking any mutating engine or synchronizer methods (`process_event()`, `register_source_members()`, `reset()`, `sync()`).
+  2. *Architecture Safeguards Verified*:
+     - Mandatory non-execution disclaimer banner: `LIFECYCLE OBSERVATION ONLY — NOT AN ENTRY SIGNAL` with distinct visual styling.
+     - Canonical unresolved diagnostic banner: `LAST AUTHORITATIVE EVIDENCE — SOURCE UNRESOLVED` when source TJL snapshot is unresolved.
+     - Coverage & observation gating summary: renders `CoverageStatus` enum and authoritative `exact_observation_count` diagnostic without synthetic observation counter fallback.
+     - Active Members & Activations table: renders state badges (`INACTIVE_ELIGIBLE`, `PENDING_ACTIVATION`, `REARMED_PENDING`, `INACTIVE_INELIGIBLE`), generation sequence, and fail-closed blocked reason labels.
+     - Rearm Controllers table: renders active controller state (`CANCELLED_EXTERNAL_ENTRY`, `OUT_OF_ZONE_ARMED`), next generation (`generation_seq = 2`), and departure status.
+     - Bounded Terminal Activation History table: displays up to 10 most recent records with deterministic multi-tier sorting (cancellation sequence desc, cancellation time desc, activation ID asc) and prominent total record count indicator.
+     - Dedicated cancellation timestamp column vs sequence ref column (`#<seq>` vs `Unknown`).
+  3. *Service Bridge*: Added optional bridge fields on `MSMServiceResult` (`activation_snapshot`, `last_synced_transition_index`, `exact_observation_count`) without altering core engine signatures.
+  4. *UI Mounting*: Mounted `build_activation_inspection_elements` in `src/aladeen/ui/msm_callbacks.py` (`render_msm_inspection_table`) and exported from `src/aladeen/ui/__init__.py`.
+  5. *Integration Test Suite*: Created `tests/test_activation_dashboard_integration.py` covering all 16 acceptance scenarios, repeated rendering invariance, engine purity/state preservation, missing context fallback, bounded history, and service result bridge mounting.
+- **Completed Deliverables**:
+  1. [`src/aladeen/ui/activation_inspection.py`](file:///src/aladeen/ui/activation_inspection.py) (584 lines): Pure functional presentation builder.
+  2. [`src/aladeen/strategy/service.py`](file:///src/aladeen/strategy/service.py): 3 optional diagnostic/snapshot bridge fields on `MSMServiceResult`.
+  3. [`src/aladeen/ui/msm_callbacks.py`](file:///src/aladeen/ui/msm_callbacks.py): Mounted activation inspection panel.
+  4. [`src/aladeen/ui/__init__.py`](file:///src/aladeen/ui/__init__.py): Exported `build_activation_inspection_elements`.
+  5. [`tests/test_activation_dashboard_integration.py`](file:///tests/test_activation_dashboard_integration.py) (544 lines): Comprehensive integration suite.
+- **Verification Summary**:
+  - Activation dashboard integration suite: **7 / 7 passed** in 0.76s (`pytest tests/test_activation_dashboard_integration.py -q`).
+  - Activation dashboard fixture integrity suite: **11 / 11 passed** in 0.62s (`pytest tests/test_activation_dashboard_fixture_integrity.py -q`).
+  - Full offline repository test suite: **527 / 527 passed** in 19.71s (`pytest -q tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py`).
+  - Reconciled Test Inventory: 519 baseline tests + 7 dashboard integration tests + 1 canonical key formatter test = 527 tests total.
+  - Visual Limitation: Offline test suite verifies HTML DOM component tree structure and CSS styles; visual browser appearance in live Dash runtime remains unverified until live browser testing.
+- **Scope Compliance & Standing Invariants**:
+  1. *Pure Read-Only Presentation*: Strictly zero UI order execution, zero MT5 trading calls, zero live account modification.
+  2. *Downstream Invariant*: Strictly zero confirmation arbitration/selection, zero usage ledger writes, zero trade entry signals.
+  3. *Engine Integrity*: Strictly zero modification to accepted strategy engines (`msm_engine`, `choch_engine`, `iss_engine`, `tjl_coordinator`, `activation_engine`).
+  4. *Core Ambiguities Preserved*: Upstream $c_1 == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
+  5. *Branch Boundary*: Committed and pushed strictly on `feature/activation-dashboard`. No merging into `main`.

@@ -1,5 +1,6 @@
 """UI components: chart, layout, callbacks, and MSM coordinator."""
 
+from .activation_inspection import build_activation_inspection_elements
 from .chart import create_candlestick_chart, create_empty_chart
 from .layout import build_layout, register_callbacks
 from .msm_callbacks import (
@@ -11,6 +12,7 @@ from .msm_callbacks import (
 )
 
 __all__ = [
+    "build_activation_inspection_elements",
     "create_candlestick_chart",
     "create_empty_chart",
     "build_layout",

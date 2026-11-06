@@ -40,6 +40,7 @@ from aladeen.strategy.tjl_types import (
     TJLTransitionType,
     TJLZone,
 )
+from aladeen.ui.activation_inspection import build_activation_inspection_elements
 from aladeen.ui.tjl_inspection import build_tjl_inspection_elements
 from aladeen.strategy.service import (
     MSMContext,
@@ -447,6 +448,8 @@ def render_msm_inspection_table(
         container_children.extend(iss_elements)
         tjl_elements = build_tjl_inspection_elements(msm_result)
         container_children.extend(tjl_elements)
+        act_elements = build_activation_inspection_elements(msm_result)
+        container_children.extend(act_elements)
     if choch_events_table is not None:
         container_children.append(choch_events_table)
     if choch_zones_table is not None:
