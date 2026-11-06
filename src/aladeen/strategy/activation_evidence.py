@@ -1,8 +1,8 @@
 """Deterministic evidence and lifecycle event processing for ActivationEngine.
 
 Provides retrievable, isolated handlers for:
-- Source cancellation (CHOCH and Replacement)
-- External commit processing and winner exclusion
+- Source cancellation (CHOCH and Replacement) with explicit targeting and contradiction rejection
+- External commit processing with scope contract enforcement and winner exclusion
 - Interval-bounded candle evidence and fail-closed intra-candle availability
 - Scoped coverage evidence updates
 """
@@ -15,12 +15,14 @@ from typing import List
 from aladeen.strategy.activation_handlers import validate_sequence_and_domain
 from aladeen.strategy.activation_state import ActivationEngineState
 from aladeen.strategy.activation_types import (
+    SUPPORTED_COMMIT_SCOPES,
     ActivationLifecycleSnapshot,
     ActivationState,
     CancellationReason,
     CoverageEvidence,
     ExternalCommitEvent,
     IntervalBoundedCandleEvidence,
+    InvalidEvidenceError,
     RearmController,
     SourceCancellationEvent,
 )
@@ -30,7 +32,32 @@ def process_cancellation_event(
     state: ActivationEngineState,
     event: SourceCancellationEvent,
 ) -> ActivationLifecycleSnapshot:
-    """Processes source CHOCH and replacement cancellations."""
+    """Processes source CHOCH and replacement cancellations with explicit targeting validation."""
+    # 1. Reject unsupported partial-role targeting (source cancellations operate at set/direction level)
+    if event.target_role is not None:
+        raise InvalidEvidenceError(
+            f"Partial-role targeting is not supported for {event.cancellation_reason.value}; "
+            "source cancellations operate at full set or directional level."
+        )
+
+    # 2. Validate targeting contracts per cancellation reason
+    if event.cancellation_reason == CancellationReason.SOURCE_REPLACEMENT:
+        if event.target_set_id is None or not event.target_set_id.strip():
+            raise InvalidEvidenceError("SOURCE_REPLACEMENT cancellation requires non-empty target_set_id")
+    elif event.cancellation_reason == CancellationReason.SOURCE_CHOCH:
+        if event.target_set_id is None and event.affected_direction is None:
+            raise InvalidEvidenceError("SOURCE_CHOCH cancellation requires target_set_id and/or affected_direction")
+
+    # 3. Check for contradictory targeting against known members in current state
+    if event.target_set_id is not None and event.affected_direction is not None:
+        for m in state.current_members.values():
+            if m.set_id == event.target_set_id and m.direction != event.affected_direction:
+                raise InvalidEvidenceError(
+                    f"Contradictory cancellation targets: target_set_id {event.target_set_id!r} "
+                    f"has direction {m.direction.value!r} but event declared affected_direction {event.affected_direction.value!r}"
+                )
+
+    # 4. Domain and sequence validation
     is_dup = validate_sequence_and_domain(
         state=state,
         event_id=event.event_id,
@@ -42,20 +69,25 @@ def process_cancellation_event(
     if is_dup:
         return state.get_snapshot()
 
+    # 5. Identify matching members strictly by declared targets
     members_to_cancel: List[str] = []
     for member_key, member in list(state.current_members.items()):
-        if event.cancellation_reason == CancellationReason.SOURCE_CHOCH:
-            if event.affected_direction is None or member.direction == event.affected_direction:
-                members_to_cancel.append(member_key)
-        elif event.cancellation_reason == CancellationReason.SOURCE_REPLACEMENT:
-            if event.target_set_id is None or member.set_id == event.target_set_id:
-                members_to_cancel.append(member_key)
+        # If target_set_id is specified, member must match that set
+        if event.target_set_id is not None and member.set_id != event.target_set_id:
+            continue
 
+        # If affected_direction is specified, member must match that direction
+        if event.affected_direction is not None and member.direction != event.affected_direction:
+            continue
+
+        members_to_cancel.append(member_key)
+
+    # 6. Apply cancellations to matching members
     for member_key in members_to_cancel:
-        # 1. Remove membership eligibility permanently from current members
+        # Remove membership eligibility permanently from current members
         state.current_members.pop(member_key, None)
 
-        # 2. Transition active activation to terminal if it was pending or rearmed pending
+        # Transition active activation to terminal
         rec = state.active_activations.pop(member_key, None)
         if rec is not None and rec.state in (
             ActivationState.PENDING_ACTIVATION,
@@ -77,7 +109,7 @@ def process_cancellation_event(
             )
             state.terminal_activations.append(term_rec)
 
-        # 3. Disable rearm controller if present
+        # Disable rearm controller if present
         state.rearm_controllers.pop(member_key, None)
 
     return state.get_snapshot()
@@ -87,7 +119,21 @@ def process_external_commit_event(
     state: ActivationEngineState,
     event: ExternalCommitEvent,
 ) -> ActivationLifecycleSnapshot:
-    """Processes external commit notifications, terminalizing competitors and instantiating rearm controllers."""
+    """Processes external commit notifications, enforcing scope contract and excluding the winner."""
+    # 1. Enforce supported external-commit scope contract before consuming sequence/domain
+    if event.cancelled_competing_scope not in SUPPORTED_COMMIT_SCOPES:
+        raise InvalidEvidenceError(
+            f"Unsupported external commit scope {event.cancelled_competing_scope!r}. "
+            f"Supported scopes are: {sorted(SUPPORTED_COMMIT_SCOPES)}"
+        )
+
+    # 2. Context routing: if target symbol or timeframe is specified, verify match
+    if event.target_symbol is not None and event.target_symbol != state.symbol:
+        return state.get_snapshot()
+    if event.target_source_timeframe is not None and event.target_source_timeframe != state.source_timeframe:
+        return state.get_snapshot()
+
+    # 3. Domain and monotonic sequence validation (consumes sequence only after scope is validated)
     is_dup = validate_sequence_and_domain(
         state=state,
         event_id=event.event_id,
@@ -99,7 +145,7 @@ def process_external_commit_event(
     if is_dup:
         return state.get_snapshot()
 
-    # External commit cancels competing pending activations, excluding the winner
+    # 4. External commit cancels competing pending activations in scope, excluding the external winner
     for member_key, rec in list(state.active_activations.items()):
         is_winner = (
             event.winning_engine_id == state.engine_id
@@ -110,7 +156,7 @@ def process_external_commit_event(
             continue
 
         if rec.state in (ActivationState.PENDING_ACTIVATION, ActivationState.REARMED_PENDING):
-            # 1. Terminalize active activation
+            # Terminalize active activation
             state.active_activations.pop(member_key, None)
             term_rec = replace(
                 rec,
@@ -122,7 +168,7 @@ def process_external_commit_event(
             )
             state.terminal_activations.append(term_rec)
 
-            # 2. Initialize separate RearmController for next generation
+            # Initialize separate RearmController for next generation
             is_outside = (rec.last_observed_position == "OUTSIDE")
             init_state = ActivationState.OUT_OF_ZONE_ARMED if is_outside else ActivationState.CANCELLED_EXTERNAL_ENTRY
             controller = RearmController(

@@ -817,3 +817,44 @@ Last Updated: 2026-11-05 (MSM Dashboard Milestone Accepted — Transition to CHO
   2. *Downstream Invariant*: Strictly zero usage ledger implementation, zero confirmation arbitration, zero trade entry signals.
   3. *Core Ambiguities Preserved*: Upstream $c_1 == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
   4. *Branch Boundary*: Committed and pushed strictly on `feature/activation-engine`. No merging into `main`.
+
+
+### Milestone 22 (Activation Engine): External-Commit Scope Enforcement, Explicit Source-Cancellation Targeting, and Isolated Replay Test Module (HANDOFF-059)
+- **Active Branch**: feature/activation-engine
+- **Parent Commit**: dd2d73f0cd313e927d1834cb618642fe5a965545 (HANDOFF-058)
+- **Root Baseline Commit**: 535af1434ed9a6b93328202039db7f1d4f4be410 (Accepted TJL Dashboard Integration)
+- **Objective**: Address Perplexity's review of HANDOFF-058:
+  1. Enforce external-commit scope: define `SUPPORTED_COMMIT_SCOPES = frozenset({"SAME_SOURCE_TIMEFRAME", "ENGINE_LOCAL"})`, validate scope before sequence/domain consumption, fail closed with `InvalidEvidenceError` on unsupported scopes leaving checkpoint untouched and sequence unconsumed; allow valid retry at unconsumed sequence; preserve external winner exclusion without arbitration.
+  2. Make source-cancellation targeting explicit: reject `target_role is not None` with `InvalidEvidenceError` (partial-role cancellation not supported; cancellations operate at full set/direction level); enforce `target_set_id` for `SOURCE_REPLACEMENT`; enforce `target_set_id` and/or `affected_direction` for `SOURCE_CHOCH`; reject contradictory targeting combinations before mutation; ensure targeted cancellations cannot affect unrelated sets.
+  3. Relocate every-prefix snapshot/checkpoint replay test to standalone retrievable module `tests/test_activation_replay.py` (174 lines) to prevent review truncation.
+- **Completed Deliverables**:
+  1. **External-Commit Scope Contract Enforcement**:
+     - Defined `SUPPORTED_COMMIT_SCOPES` in `src/aladeen/strategy/activation_types.py`.
+     - In `process_external_commit_event()` ([`src/aladeen/strategy/activation_evidence.py`](file:///src/aladeen/strategy/activation_evidence.py)), validate `event.cancelled_competing_scope in SUPPORTED_COMMIT_SCOPES` before sequence and domain validation.
+     - Unsupported scopes fail closed with `InvalidEvidenceError` without recording processed event or advancing sequence.
+     - Valid retry at the unconsumed sequence succeeds cleanly. Winner exclusion preserved.
+  2. **Explicit Source-Cancellation Targeting & Contradiction Rejection**:
+     - In `process_cancellation_event()` ([`src/aladeen/strategy/activation_evidence.py`](file:///src/aladeen/strategy/activation_evidence.py)), reject `target_role is not None` with `InvalidEvidenceError`.
+     - Enforce required targets per reason (`target_set_id` for replacement; `target_set_id` or `affected_direction` for CHOCH).
+     - Cross-validate `target_set_id` against `affected_direction` on existing members; contradictory combinations reject before mutation.
+     - Members to cancel are identified strictly by declared targets; unrelated sets are completely untouched.
+  3. **Standalone, Retrievable Replay Module (`tests/test_activation_replay.py`)**:
+     - Relocated full adversarial delimiter lifecycle and every-prefix snapshot/checkpoint comparison to [`tests/test_activation_replay.py`](file:///tests/test_activation_replay.py) (174 lines).
+     - Completely eliminated review truncation on replay test assertions.
+  4. **Decisive Regressions Added**:
+     - `test_external_commit_unsupported_scope_fails_closed_and_retry_succeeds`
+     - `test_source_cancellation_unsupported_role_and_contradictory_targets_rejected`
+     - `test_targeted_source_cancellation_cannot_affect_unrelated_set`
+     - `test_canonical_unambiguous_identifiers_with_adversarial_delimiters_and_every_prefix_replay`
+- **Verification Summary**:
+  - Activation engine execution suite: 44/44 passed in 0.69s (`pytest tests/test_activation_engine.py -q`).
+  - Activation replay execution suite: 1/1 passed in 0.60s (`pytest tests/test_activation_replay.py -q`).
+  - Activation adapter suite: 14/14 passed in 0.61s (`pytest tests/test_activation_adapter.py -q`).
+  - Activation fixture integrity suite: 28/28 passed in 0.60s (`pytest tests/test_activation_fixture_integrity.py -q`).
+  - Total activation tests: 87/87 passed.
+  - Full offline repository test suite: 507/507 passed in 13.99s (`pytest -q tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py`).
+- **Scope Compliance & Standing Invariants**:
+  1. *Offline Only*: Strictly zero UI order execution, zero MT5 trading calls, zero live account modification.
+  2. *Downstream Invariant*: Strictly zero usage ledger implementation, zero confirmation arbitration, zero trade entry signals.
+  3. *Core Ambiguities Preserved*: Upstream $c_1 == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
+  4. *Branch Boundary*: Committed and pushed strictly on `feature/activation-engine`. No merging into `main`.

@@ -81,6 +81,7 @@ class SequenceDomain:
 
 
 SUPPORTED_SOURCE_ROLES = frozenset({"TJL1", "TJL2_A_PLUS"})
+SUPPORTED_COMMIT_SCOPES = frozenset({"SAME_SOURCE_TIMEFRAME", "ENGINE_LOCAL"})
 
 
 def format_member_key(set_id: str, role: str) -> str:
@@ -223,6 +224,8 @@ class ExternalCommitEvent:
     winning_set_id: str
     winning_role: str
     cancelled_competing_scope: str = "SAME_SOURCE_TIMEFRAME"
+    target_symbol: Optional[str] = None
+    target_source_timeframe: Optional[str] = None
     note: Optional[str] = None
 
     def __post_init__(self) -> None:
@@ -232,6 +235,8 @@ class ExternalCommitEvent:
             raise ValueError("timestamp must be UTC timezone-aware")
         if not isinstance(self.sequence_ref, int) or self.sequence_ref < 0:
             raise ValueError("sequence_ref must be non-negative integer")
+        if not isinstance(self.cancelled_competing_scope, str) or not self.cancelled_competing_scope.strip():
+            raise ValueError("cancelled_competing_scope must be non-empty string")
 
 
 @dataclass(frozen=True)
