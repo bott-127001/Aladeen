@@ -2154,3 +2154,55 @@ Last Updated: 2026-11-06 (Milestone 29 Release-Readiness Audit & Offline Runbook
      - Do **not** rerun full/browser suites solely to restate acceptance.
      - Do **not** create another hardening handoff solely for acceptance wording.
      - Do **not** begin an unspecified strategy or deployment milestone without explicit strategy reconciliation.
+
+
+---
+
+## Milestone 30 — Trade-Signal Business Logic Requirements and Acceptance Contract (HANDOFF-085)
+
+- **Active Branch**: `requirements/trade-signal-acceptance`
+- **Immediate Parent Commit**: `c159c6af10570739ded050e61be1b373fd98f084`
+- **Accepted Milestone 29 Baseline Commit**: `0144ddb8150b4132a7b60d24698105d897514cb2`
+- **Accepted Milestone 28 Controlled Browser Baseline**: `bf737ea41e8bfd554b9386a6e9be86f700824fb3`
+- **Requirements Baseline Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d`
+- **Root Baseline Engine Commit**: `0867c740352297fb43e781fb654706218771d533`
+- **Reviewer Feedback Addressed (Milestone 30 Directive 1–8)**:
+  1. *Source Discovery & Authoritative Rule Mapping*:
+     - Primary source: `docs/strategy/MTF-Analysis.pdf` (§1–§12), transcribing `Entry_and_Confirmation_New_Rules.pdf` with approved user decisions.
+     - Approved clarifications: `docs/requirements/approved-clarifications.md` (`OPEN-03` through `OPEN-12`).
+     - Strategy base documents: `Market Structure Marking.docx`, `Choch.pdf`, `ISS.pdf`, and `TJL.pdf`.
+  2. *Nine-Stage Decision Chain Contract (`docs/requirements/trade-signal-acceptance.md`)*:
+     - Stage 1: Eligible source context (D1, H4, H1; Bullish -> TJL1/TJL2 Buy; Bearish -> TJL1/TJL2 Sell).
+     - Stage 2: Activation prerequisite (Physical price touch inside inclusive zone `[lower, upper]`; unused level only).
+     - Stage 3: Confirmation mapping & direction (D1->H1, H4->M5, H1->M1; fresh Bullish/Bearish CHOCH or ISS; confirming candle close on/after tap; enter immediately without waiting for retest).
+     - Stage 4: Invalidation precedence & triggers (Source invalidation evaluated before entry at shared close; source TJL replacement or source Main CHOCH cancels pending activation; winning entry on any timeframe cancels all pending activations).
+     - Stage 5: Competing candidate arbitration hierarchy (Earliest close timestamp wins; ties broken by lower timeframe M1 < M5 < H1, then same-source TJL2 / A+ over TJL1).
+     - Stage 6: Signal publication & immutability (Signals published at confirmation close; multiple confirmation evidence consolidated into single signal per `OPEN-07`; chronological listing without open-position gating per `OPEN-11`).
+     - Stage 7: Usage accounting & permanent consumption (Each physical level supplies at most one trade in lifetime; winning entry marks level USED; used level permanently dead).
+     - Stage 8: Repeat signals & rearming semantics (Unused level cancelled by other win rearms after departure + fresh retouch; lingering inside zone blocks rearming).
+     - Stage 9: Latest/history presentation & deterministic replay (Deterministic prefix-consistent replay; immutable signal history).
+  3. *Distinction of Events & Safety Boundary*:
+     - Separates candidate setup, confirmed setup, selected winning entry, published dashboard signal, and executed broker trade.
+     - All published signals carry `is_broker_execution: false` and `signal_type: "CONCEPTUAL_ANALYSIS_SIGNAL"`.
+  4. *Consequential Open Strategy Questions Documented (`docs/requirements/trade-signal-open-questions.md`)*:
+     - Question 1: CHOCH $c_1 == p_2$ boundary condition under pending activation (fail-closed freeze policy).
+     - Question 2: ISS multi-candle pullback qualification as LTF confirmation (fail-closed single-candle restriction).
+     - Question 3: Intra-candle event sequencing between tap and confirmation on coarse bars (fail-closed `UNKNOWN_ORDER`).
+  5. *Comprehensive 26-Scenario Fixture Suite & Automated Integrity Test*:
+     - Built [`tests/fixtures/trade_signal_acceptance.json`](file:///tests/fixtures/trade_signal_acceptance.json) covering 26 distinct scenarios across valid paths, pre-activation rejections, arbitration ties, usage consumption, rearming, replacement cancellations, and fail-closed gap handling.
+     - Built [`tests/test_trade_signal_fixture_integrity.py`](file:///tests/test_trade_signal_fixture_integrity.py) with 13 automated integrity checks verifying schema, causality, tie-breakers, rearming, and safety invariants.
+- **Verification Summary**:
+  - Trade-Signal fixture integrity suite: 13/13 passed in 0.88s (`pytest tests/test_trade_signal_fixture_integrity.py -v`).
+  - Full offline repository test suite: 555/555 passed in 10.55s (`pytest -q tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py --ignore=tests/test_activation_browser_controlled.py --ignore=tests/activation_browser_runner.py --ignore=tests/activation_browser_harness.py`).
+- **Completed Deliverables**:
+  1. [`docs/requirements/trade-signal-acceptance.md`](file:///docs/requirements/trade-signal-acceptance.md): Comprehensive requirements contract covering all 9 decision stages, causality, and integration gaps.
+  2. [`tests/fixtures/trade_signal_acceptance.json`](file:///tests/fixtures/trade_signal_acceptance.json): Standardized 26-fixture acceptance test suite.
+  3. [`tests/test_trade_signal_fixture_integrity.py`](file:///tests/test_trade_signal_fixture_integrity.py): 13 automated integrity tests.
+  4. [`docs/requirements/trade-signal-open-questions.md`](file:///docs/requirements/trade-signal-open-questions.md): Consequential open strategy questions and fail-closed policies for Samarth.
+  5. [`docs/development/status.md`](file:///docs/development/status.md): Milestone 30 status update.
+- **Standing Invariants Maintained**:
+  - Pure requirements reconciliation and fixture design only.
+  - Zero runtime signal engine implementation, zero UI order execution, zero MT5 live trading calls, zero live account modification.
+  - Zero confirmation arbitration implementation, zero usage ledger runtime writes, zero automated trading.
+  - Strategy engines 100% untouched (0 diff against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`).
+  - Committed and pushed strictly on `requirements/trade-signal-acceptance`. Never merge into `main`.
