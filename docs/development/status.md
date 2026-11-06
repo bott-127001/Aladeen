@@ -1553,7 +1553,7 @@ Last Updated: 2026-11-06 (Milestone 27 Read-Only Activation Dashboard Accepted â
   - Controlled browser validation suite: **All assertions passed, 0 failures, 9 screenshots captured** (`python tests/test_activation_browser_controlled.py`).
   - Activation dashboard integration suite: **22 / 22 passed** in 1.91s (`pytest tests/test_activation_dashboard_integration.py`).
   - Full offline repository test suite: **542 / 542 passed** in 12.27s (`pytest -q tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py --ignore=tests/test_activation_browser_controlled.py`).
-  - Strategy Engine Purity Audit: Exactly zero modifications to strategy engines (`msm_engine.py`, `choch_engine.py`, `iss_engine.py`, `tjl_coordinator.py`, `activation_engine.py`, `activation_adapter.py`). `git diff 3f6689c194c95ca3761833f8831bb8a3f5b4740d -- src/aladeen/strategy/` is completely clean.
+  - Strategy Engine Purity Audit: Exactly zero modifications to strategy engines (`msm_engine.py`, `choch_engine.py`, `iss_engine.py`, `tjl_coordinator.py`, `activation_engine.py`, `activation_adapter.py`). `git diff 3f6689c194c95ca3761833f8831bb8a3f5b4740d -- src/aladeen/strategy/activation_engine.py src/aladeen/strategy/activation_adapter.py src/aladeen/strategy/engine.py src/aladeen/strategy/choch_detector.py src/aladeen/strategy/iss_engine.py src/aladeen/strategy/tjl_coordinator.py` is completely clean (0 output), strictly distinguished from authorized service coordination layer (`service.py`).
 - **Scope Compliance & Standing Invariants**:
   1. *Pure Read-Only Presentation*: Strictly zero UI order execution, zero MT5 live trading calls, zero live account modification.
   2. *Downstream Invariant*: Strictly zero confirmation arbitration/selection, zero usage ledger writes, zero trade entry signals.
@@ -1681,7 +1681,7 @@ Last Updated: 2026-11-06 (Milestone 27 Read-Only Activation Dashboard Accepted â
   - Activation dashboard integration suite: **22 / 22 passed** in 2.26s (`pytest tests/test_activation_dashboard_integration.py`).
   - App unit suite: **16 / 16 passed** in 2.26s (`pytest tests/test_app.py`).
   - Full offline repository test suite: **542 / 542 passed** in 8.93s (`pytest -q tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py --ignore=tests/test_activation_browser_controlled.py`).
-  - Strategy Engine Purity Audit: Exactly zero modifications to strategy engines (`msm_engine.py`, `choch_engine.py`, `iss_engine.py`, `tjl_coordinator.py`, `activation_engine.py`, `activation_adapter.py`). `git diff 3f6689c194c95ca3761833f8831bb8a3f5b4740d -- src/aladeen/strategy/` is completely clean.
+  - Strategy Engine Purity Audit: Exactly zero modifications to strategy engines (`msm_engine.py`, `choch_engine.py`, `iss_engine.py`, `tjl_coordinator.py`, `activation_engine.py`, `activation_adapter.py`). `git diff 3f6689c194c95ca3761833f8831bb8a3f5b4740d -- src/aladeen/strategy/activation_engine.py src/aladeen/strategy/activation_adapter.py src/aladeen/strategy/engine.py src/aladeen/strategy/choch_detector.py src/aladeen/strategy/iss_engine.py src/aladeen/strategy/tjl_coordinator.py` is completely clean (0 output), strictly distinguished from authorized service coordination layer (`service.py`).
 - **Scope Compliance & Standing Invariants**:
   1. *Pure Read-Only Presentation*: Strictly zero UI order execution, zero MT5 live trading calls, zero live account modification.
   2. *Downstream Invariant*: Strictly zero confirmation arbitration/selection, zero usage ledger writes, zero trade entry signals.
@@ -1738,10 +1738,37 @@ Last Updated: 2026-11-06 (Milestone 27 Read-Only Activation Dashboard Accepted â
   - Activation dashboard integration suite: **22 / 22 passed** in 1.97s (`pytest tests/test_activation_dashboard_integration.py`).
   - App unit suite: **16 / 16 passed** in 1.97s (`pytest tests/test_app.py`).
   - Full offline repository test suite: **542 / 542 passed** in 8.49s (`pytest -q tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py --ignore=tests/test_activation_browser_controlled.py --ignore=tests/activation_browser_runner.py --ignore=tests/activation_browser_harness.py`).
-  - Strategy Engine Purity Audit: Exactly zero modifications to strategy engines (`msm_engine.py`, `choch_engine.py`, `iss_engine.py`, `tjl_coordinator.py`, `activation_engine.py`, `activation_adapter.py`). `git diff 3f6689c194c95ca3761833f8831bb8a3f5b4740d -- src/aladeen/strategy/` is completely clean.
+  - Strategy Engine Purity Audit: Exactly zero modifications to strategy engines (`msm_engine.py`, `choch_engine.py`, `iss_engine.py`, `tjl_coordinator.py`, `activation_engine.py`, `activation_adapter.py`). `git diff 3f6689c194c95ca3761833f8831bb8a3f5b4740d -- src/aladeen/strategy/activation_engine.py src/aladeen/strategy/activation_adapter.py src/aladeen/strategy/engine.py src/aladeen/strategy/choch_detector.py src/aladeen/strategy/iss_engine.py src/aladeen/strategy/tjl_coordinator.py` is completely clean (0 output), strictly distinguished from authorized service coordination layer (`service.py`).
 - **Scope Compliance & Standing Invariants**:
   1. *Pure Read-Only Presentation*: Strictly zero UI order execution, zero MT5 live trading calls, zero live account modification.
   2. *Downstream Invariant*: Strictly zero confirmation arbitration/selection, zero usage ledger writes, zero trade entry signals.
   3. *Engine Integrity*: Strictly zero modification to accepted strategy engines (`msm_engine`, `choch_engine`, `iss_engine`, `tjl_coordinator`, `activation_engine`, `activation_adapter`).
   4. *Core Ambiguities Preserved*: Upstream $c_1 == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
   5. *Branch Boundary*: Committed and pushed strictly on `feature/activation-dashboard`. No merging into `main`.
+
+---
+
+## 28. Milestone Acceptance: Controlled Offline Browser Validation of Activation Dashboard
+
+- **Status**: **ACCEPTED** by Perplexity for the bounded controlled-offline browser-validation baseline.
+- **Accepted Commit Hash**: `bf737ea41e8bfd554b9386a6e9be86f700824fb3`
+- **Active Branch**: `feature/activation-dashboard`
+- **Accepted Implementation Baseline Commit**: `d6587a1200735fe6453ff24f043931699f21f407` (Milestone 27 accepted)
+- **Requirements Baseline Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d` (Milestone 26 / HANDOFF-066 accepted)
+- **Root Baseline Engine Commit**: `0867c740352297fb43e781fb654706218771d533` (Milestone 25 / HANDOFF-061)
+- **Accepted Scope & Verified Evidence Summary**:
+  - *Application Path*: Controlled local Dash execution with an offline mock adapter.
+  - *Session Behavior*: Independent browser contexts, same-tab reload, and programmatic `window.open()` paths with fresh UUID generation for cloned tabs.
+  - *Viewport Behavior*: Tested geometry and horizontal-column access at 1280x800 and 800x600 viewports.
+  - *Lifecycle Views*: Synthetic snapshot projection for 13 catalog fixtures (fixtures 2â€“14) plus two custom cases (history 50-limit bounding, sync error diagnostic) on visual harness; fixtures 1, 15, and 16 retained in separate offline unit/integration evidence.
+  - *Isolation Enforcement*: Browser routed-origin firewall (`ContextSecurityFirewall`) and server-side Python socket guard (`install_server_socket_guard`).
+  - *Cleanup & Lifecycle*: Normal server teardown, startup collision cleanup, and managed-body exception recovery verified.
+- **Recorded Acceptance Boundaries & Standing Limitations**:
+  1. *Implementation-Reported Evidence*: Reported passing test runs and captured screenshots reflect implementation-reported evidence with source-reviewed assertions, not reviewer-executed or independently certified results.
+  2. *Duplicate Tab Scope*: Programmatic `window.open()` is verified; native browser-menu tab duplication remains unverified due to Playwright API boundaries.
+  3. *Synthetic Projection*: Scenario 13 remains synthetic presentation evidence, not a demonstrated candle-derived construction.
+  4. *Environment Scope*: The validated environment is Chromium 153.0.8010.12 with Playwright 1.57.0; acceptance does not imply cross-browser coverage.
+  5. *Strategy Engine Purity*: Strategy engine core files (`activation_engine.py`, `activation_adapter.py`, `engine.py`, `choch_detector.py`, `iss_engine.py`, `tjl_coordinator.py`) remain 100% untouched (0 diff against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`), strictly distinguished from authorized service coordination layer (`service.py`).
+  6. *Core Ambiguities Preserved*: Upstream $c_1 == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
+  7. *Safety Boundary*: Strictly pure read-only dashboard presentation. Zero UI order execution, zero MT5 live trading calls, zero live account modification, zero confirmation arbitration, zero usage ledger writes, zero trade entry signals.
+  8. *Branch Boundary*: Committed and pushed strictly on `feature/activation-dashboard`; never merge into `main`.
