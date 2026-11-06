@@ -41,6 +41,13 @@ class ConfirmationMatchStatus(str, Enum):
     UNCERTAIN = "UNCERTAIN"
 
 
+class EvidenceProvenanceType(str, Enum):
+    """Explicit provenance classification of confirmation evidence."""
+    DETECTOR_CONFIRMED = "DETECTOR_CONFIRMED"
+    SYNTHETIC_TYPED = "SYNTHETIC_TYPED"
+    BLOCKED_INCOMPLETE = "BLOCKED_INCOMPLETE"
+
+
 class ConfirmationRejectionReason(str, Enum):
     """Explicit diagnostic reasons for rejection or blocking of confirmation associations."""
     DIRECTION_MISMATCH = "DIRECTION_MISMATCH"
@@ -63,6 +70,13 @@ class ConfirmationRejectionReason(str, Enum):
     EVIDENCE_NOT_YET_AVAILABLE = "EVIDENCE_NOT_YET_AVAILABLE"
     CROSS_DOMAIN_ORDERING_REJECTED = "CROSS_DOMAIN_ORDERING_REJECTED"
     ASSOCIATION_TARGET_MISMATCH = "ASSOCIATION_TARGET_MISMATCH"
+    TOUCH_BEFORE_ELIGIBILITY = "TOUCH_BEFORE_ELIGIBILITY"
+    UNKNOWN_ELIGIBILITY_AVAILABLE_TIME = "UNKNOWN_ELIGIBILITY_AVAILABLE_TIME"
+    BLOCKED_UNRESOLVED_SOURCE_DEPENDENCY = "BLOCKED_UNRESOLVED_SOURCE_DEPENDENCY"
+    PHYSICAL_LEVEL_METADATA_MISMATCH = "PHYSICAL_LEVEL_METADATA_MISMATCH"
+    MISSING_CONFIRMING_CANDLE_AUTHORITY = "MISSING_CONFIRMING_CANDLE_AUTHORITY"
+    CANDLE_EVENT_DISAGREEMENT = "CANDLE_EVENT_DISAGREEMENT"
+    MISSING_STRUCTURAL_PROVENANCE = "MISSING_STRUCTURAL_PROVENANCE"
 
 
 def format_length_prefixed(val: str) -> str:
@@ -167,6 +181,7 @@ class ConfirmationEvidenceRecord:
     direction: Direction
     close_timestamp: Optional[datetime] = None
     price_provenance: str = "CONFIRMATION_CANDLE_CLOSE"
+    provenance_type: EvidenceProvenanceType = EvidenceProvenanceType.DETECTOR_CONFIRMED
     is_completed: bool = True
     has_unresolved_dependencies: bool = False
     structural_dependency_references: Tuple[str, ...] = field(default_factory=tuple)
@@ -195,6 +210,11 @@ class ConfirmationEvidenceRecord:
             raise ValueError("feed_id must be non-empty string")
         if not isinstance(self.sequence_domain, SequenceDomain):
             raise TypeError("sequence_domain must be SequenceDomain instance")
+        if not isinstance(self.provenance_type, EvidenceProvenanceType):
+            raise TypeError(f"provenance_type must be EvidenceProvenanceType enum, got {type(self.provenance_type).__name__}")
+
+        if self.provenance_type == EvidenceProvenanceType.BLOCKED_INCOMPLETE:
+            object.__setattr__(self, "is_completed", False)
 
         if self.close_timestamp is not None:
             norm_time = validate_and_normalize_timestamp(self.close_timestamp, "close_timestamp")
@@ -211,6 +231,14 @@ class ConfirmationEvidenceRecord:
             raise TypeError(f"direction must be Direction enum, got {type(self.direction).__name__}")
         if not isinstance(self.structural_dependency_references, tuple):
             object.__setattr__(self, "structural_dependency_references", tuple(self.structural_dependency_references))
+
+        # Validate that structural dependency references contain genuine values, not placeholders
+        for ref in self.structural_dependency_references:
+            if not isinstance(ref, str) or not ref.strip():
+                raise ValueError("structural dependency reference must be non-empty string")
+            if ":None" in ref or ":null" in ref or ":undefined" in ref or ref.endswith(":-1"):
+                raise ValueError(f"Invalid structural dependency reference with missing/placeholder value: {ref!r}")
+
         if self.sequence_ref is not None and (not isinstance(self.sequence_ref, int) or self.sequence_ref < 0):
             raise ValueError(f"sequence_ref must be non-negative integer, got {self.sequence_ref}")
 

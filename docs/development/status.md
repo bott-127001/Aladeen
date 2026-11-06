@@ -2547,3 +2547,26 @@ Last Updated: 2026-11-06 (Milestone 29 Release-Readiness Audit & Offline Runbook
   - Strategy engines (msm_engine.py, choch_detector.py, iss_engine.py, 	jl_coordinator.py, ctivation_engine.py, ctivation_adapter.py) remain 100% untouched (0 diff against 3f6689c194c95ca3761833f8831bb8a3f5b4740d).
   - Zero live MT5 trading, zero UI order execution, zero arbitration, zero usage consumption, zero automated trading.
   - Dedicated branch: eature/confirmation-monitor. Never merge into main.
+
+
+---
+
+## 40. Milestone 31 — Offline Confirmation Matcher Authority & Provenance Hardening (HANDOFF-094)
+- **Active Branch**: eature/confirmation-monitor
+- **Parent Commit**: 4ca59914b8bc185fe5174dc1f8efb4fcab8168e6 (HANDOFF-093)
+- **Defects Addressed in HANDOFF-094 (Review Directives 1–8)**:
+  1. *Authoritative Confirming Candle Stream Binding*: Completed detector evidence requires authoritative confirming_candle with verified index, open time, close time, timeframe duration, and close price matching event completion close. Contradictory caller prices or missing candles reject fail-closed.
+  2. *Source Availability & Pre-Availability Touch Enforcement*: Validates that registered member eligibility_available_time is known and that activation irst_touch_time >= eligibility_available_time. Pre-eligibility touches fail closed with TOUCH_BEFORE_ELIGIBILITY.
+  3. *Unresolved Source Calculation Isolation*: MatchingContext carries authoritative source unresolved status (source_unresolved_members, source_unresolved_sets). Affected activations block locally fail-closed with BLOCKED_UNRESOLVED_SOURCE_DEPENDENCY while independent resolved members/activations match cleanly.
+  4. *Physical Level Identity & Geometry Metadata Consistency*: Validates physical level identity (level_id) against member context: source timeframe, feed ID against context domain feed, side, and line geometry (lower_edge == upper_edge if line). Identically inconsistent objects reject fail-closed with PHYSICAL_LEVEL_METADATA_MISMATCH.
+  5. *Genuine Structural Dependencies & Provenance Classification*: Enforces EvidenceProvenanceType (DETECTOR_CONFIRMED, SYNTHETIC_TYPED, BLOCKED_INCOMPLETE). Structural dependency references must be genuine without placeholder strings. Missing structural fields reject at adapter boundary.
+  6. *Modular Retrievable Implementation*: Decomposed matcher into focused, non-truncated modules: confirmation_pair_matcher.py (pair-level matching), confirmation_batch_consolidator.py (batch consolidation and conflict validation), and confirmation_matcher.py (clean facade).
+  7. *Truthful MTF Continuous Demonstrations*: Continuous CHOCH and authoritative ISS tests executed using genuine candle stream fixtures with exact timeframe durations, verified pre-tap formation, post-tap completion, and fail-closed blocking of unresolved multi-candle pullback gaps.
+- **Verification Summary**:
+  - Focused confirmation matcher test suite: **43/43 passed in 0.65s** (pytest tests/test_confirmation_matcher.py -v).
+  - Full offline repository test suite: **618/618 passed in 8.07s** (pytest tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py --ignore=tests/test_activation_browser_controlled.py --ignore=tests/activation_browser_runner.py --ignore=tests/activation_browser_harness.py --ignore=tests/test_browser_race_controlled.py --ignore=tests/test_choch_browser_verification.py --ignore=tests/browser_check.py).
+- **Safety Boundary Maintained**:
+  - Pure offline calculation layer only.
+  - Strategy engines (msm_engine.py, choch_detector.py, iss_engine.py, 	jl_coordinator.py, ctivation_engine.py, ctivation_adapter.py) remain 100% untouched (0 diff against 3f6689c194c95ca3761833f8831bb8a3f5b4740d).
+  - Zero live MT5 trading, zero UI order execution, zero arbitration, zero usage writes, zero automated trading.
+  - Dedicated branch: eature/confirmation-monitor. Never merge into main.

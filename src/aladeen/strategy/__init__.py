@@ -113,6 +113,7 @@ from .confirmation_types import (
     ConfirmationMatchResult,
     ConfirmationMatchStatus,
     ConfirmationRejectionReason,
+    EvidenceProvenanceType,
     TouchSequenceEvidence,
     format_candidate_setup_key,
     parse_candidate_setup_key,
@@ -121,10 +122,12 @@ from .confirmation_adapters import (
     adapt_confirmed_choch_to_evidence,
     adapt_confirmed_iss_to_evidence,
 )
-from .confirmation_matcher import (
-    ConfirmationMatcher,
+from .confirmation_pair_matcher import (
+    ConfirmationPairMatcher,
     MatchingContext,
 )
+from .confirmation_batch_consolidator import ConfirmationBatchConsolidator
+from .confirmation_matcher import ConfirmationMatcher
 
 __all__ = [
     "CandleColor",
@@ -230,5 +233,8 @@ __all__ = [
     "adapt_confirmed_choch_to_evidence",
     "adapt_confirmed_iss_to_evidence",
     "ConfirmationMatcher",
+    "ConfirmationPairMatcher",
+    "ConfirmationBatchConsolidator",
+    "EvidenceProvenanceType",
     "MatchingContext",
 ]
