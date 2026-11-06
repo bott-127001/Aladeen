@@ -5,8 +5,7 @@ Scope & Design Boundary:
 - Pure mathematical, typing, and domain modeling for offline authority inputs (usage, coverage, trust).
 - Zero database writes, zero filesystem ledger operations, zero network/broker interaction.
 - Strictly immutable frozen value objects, defensive freezing, and deterministic diagnostics.
-- Compliant with Milestone 34 specification (docs/requirements/offline-authority-propagation.md)
-  and Milestone 35 directives (HANDOFF-114 review).
+- Bound request metadata in AuthorityBuildResult preventing unverified context reuse.
 """
 
 from __future__ import annotations
@@ -24,7 +23,6 @@ from .activation_types import (
     SourceMemberReference,
     UsageEvidenceStatus,
 )
-from .confirmation_pair_matcher import MatchingContext
 from .tjl_types import StableLevelId
 from .types import validate_and_normalize_timestamp
 
@@ -200,8 +198,17 @@ class AuthorityDiagnosticEntry:
 class AuthorityBuildResult:
     """Immutable outcome of offline authority preprocessing.
 
+    Explicitly bound to the validated evaluation request to prevent unverified context reuse.
     Enforces deep immutability by wrapping mapping fields in MappingProxyType.
     """
+    evaluation_time: datetime
+    target_feed_id: str
+    target_sequence_domain: SequenceDomain
+    target_timeframe: str
+    target_confirmation_config_id: str
+    required_interval_start: datetime
+    required_interval_end: datetime
+    trust_config: TrustConfiguration
     resolved_coverage_status: CoverageStatus
     resolved_usage_statuses: Mapping[StableLevelId, UsageEvidenceStatus]
     diagnostics: Tuple[AuthorityDiagnosticEntry, ...]
@@ -209,6 +216,21 @@ class AuthorityBuildResult:
     authoritative_usage_records: Mapping[StableLevelId, ProposedUsageEvidenceRecord] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "evaluation_time",
+            validate_and_normalize_timestamp(self.evaluation_time, "evaluation_time"),
+        )
+        object.__setattr__(
+            self,
+            "required_interval_start",
+            validate_and_normalize_timestamp(self.required_interval_start, "required_interval_start"),
+        )
+        object.__setattr__(
+            self,
+            "required_interval_end",
+            validate_and_normalize_timestamp(self.required_interval_end, "required_interval_end"),
+        )
         object.__setattr__(
             self,
             "resolved_usage_statuses",

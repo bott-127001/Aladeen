@@ -3144,3 +3144,51 @@ Last Updated: 2026-11-07 (Milestone 33 Interleaved Chronological Schedules & Spl
   - Pure in-memory read-only calculation layer. Zero MT5 live trading calls, zero order execution, zero account modification.
   - Zero candidate arbitration, zero usage ledger writes, zero final signal publication, zero automated trading.
   - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
+
+
+---
+
+## 56. Milestone 35 — Pure In-Memory Offline Authority Validation Implementation & Modularization (HANDOFF-116)
+- **Active Branch**: `feature/confirmation-monitor`
+- **Parent Commit**: `b6a409496518465a89e7855c07212c54fa823d31` (HANDOFF-115)
+- **Accepted Milestone 34 Requirements Baseline**: `7285a1d16a4413c051c4ecd032a53c49683f1600` (HANDOFF-113)
+- **Accepted Milestone 33 Baseline Commit**: `b05a391554c73f80652d4dada5310510ba20fbf5` (HANDOFF-106)
+- **Requirements Baseline Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d`
+- **Scope**: Pure in-memory offline authority domain types, modularized preprocessors (`CoveragePreprocessor`, `UsagePreprocessor`), pipeline orchestrator and context composer (`AuthorityContextBuilder`), and comprehensive synthetic test suite. Zero live MT5 broker calls, zero filesystem ledger writes, zero database operations, zero network ingestion, zero candidate ranking/arbitration, zero final signal publication.
+- **Key Deliverables in HANDOFF-116 (Resolving Findings 1-4)**:
+  1. *Usage Fork Fail-Closed Invariant (Finding 1)*:
+     - When successor branches fork with contradictory statuses (e.g. `A: UNUSED -> B: USED` and `C: UNKNOWN`), predecessor A cannot fall back to `UNUSED`.
+     - Ambiguity on the affected level is explicitly tracked via `levels_with_ambiguous_fork`.
+     - Affected level fails closed as `UsageEvidenceStatus.UNKNOWN` (blocking candidate generation) and emits `AuthorityDiagnosticReason.AMBIGUOUS_FORK`, unless an independent valid terminal `USED` fact was established.
+     - Descendants of both branches also fail closed with `AMBIGUOUS_FORK`.
+     - Order invariance verified across all 24 permutations of forked records.
+  2. *Strict Request Binding in Composition (Finding 2)*:
+     - `AuthorityBuildResult` is explicitly bound to validated request metadata: `evaluation_time`, `target_feed_id`, `target_sequence_domain`, `target_timeframe`, `target_confirmation_config_id`, `required_interval_start`, `required_interval_end`, and `trust_config`.
+     - `build_matching_context()` validates caller context parameters against bound request metadata and raises `ValueError` on cross-config, cross-domain, earlier-time, expanded-interval, or feed mismatches.
+     - Composition blocks (raises `ValueError`) rather than silently repairing any disagreement with immutable activation metadata.
+     - Matcher contract verified: blocks with `CONTEXT_MISMATCH` if activation contradicts member usage status.
+  3. *Admissibility Precedes Duplicate Grouping (Finding 3)*:
+     - Schema version (`v1`), trusted issuer, and exact scope validation precede duplicate grouping.
+     - Inadmissible records (untrusted, wrong-scope) emit specific diagnostics (`ISSUER_NOT_TRUSTED`, `SCOPE_MISMATCH_*`) and are discarded without poisoning valid authority sharing the same ID.
+     - Permutations of valid record, untrusted duplicate, and wrong-scope duplicate preserve valid authority (`COMPLETE` / `UNUSED`).
+     - Two applicable trusted conflicting duplicates under the same `record_id` emit `CONFLICTING_IDENTITY` and fail closed.
+  4. *Canonical Diagnostics and Modularization (Finding 4)*:
+     - Diagnostic string representations canonicalized (sorted collections instead of set representations).
+     - Diagnostics list deterministically sorted by `(entity_key, diagnostic_reason.value, message)`.
+     - Future-record diagnostics coalesce idempotently per record ID.
+     - Complete result equality (`res_perm1 == res_perm2`) verified across all permutations.
+     - Modular architecture delivered across 4 small, retrievable files:
+       * `src/aladeen/strategy/authority_types.py` (248 lines): Enums, dataclasses, defensive freezing, bound request metadata.
+       * `src/aladeen/strategy/coverage_preprocessor.py` (309 lines): Steps 1-5 of feed coverage certification preprocessing.
+       * `src/aladeen/strategy/usage_preprocessor.py` (307 lines): Steps 1-3 of physical-level usage evidence preprocessing, fork fail-closed tracking.
+       * `src/aladeen/strategy/authority_context_builder.py` (227 lines): Pipeline orchestrator and request-bound matching context composer.
+- **Verification Summary**:
+  - Focused authority test suite: **52 / 52 passed** in 0.84s (`tests/test_authority_context_builder.py`).
+  - Full offline repository test suite: **704 / 704 passed** in 13.49s.
+  - Core strategy engine purity: **0 diff** against `3f6689c194c95ca3761833f8831bb8a3f5b4740d` across tracked repository paths (`src/aladeen/strategy/engine.py`, `choch_detector.py`, `iss_engine.py`, `tjl_coordinator.py`, `activation_engine.py`, `activation_adapter.py`, `types.py`, `validator.py`).
+  - Matcher logic purity: **0 diff** against origin/feature/confirmation-monitor on `src/aladeen/strategy/confirmation_pair_matcher.py`.
+- **Safety Boundary Maintained**:
+  - Pure in-memory read-only calculation layer. Zero MT5 live trading calls, zero order execution, zero account modification.
+  - Zero candidate arbitration, zero usage ledger writes, zero final signal publication, zero automated trading.
+  - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
+
