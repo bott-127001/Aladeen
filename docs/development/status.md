@@ -1560,3 +1560,77 @@ Last Updated: 2026-11-06 (Milestone 27 Read-Only Activation Dashboard Accepted �
   3. *Engine Integrity*: Strictly zero modification to accepted strategy engines (`msm_engine`, `choch_engine`, `iss_engine`, `tjl_coordinator`, `activation_engine`, `activation_adapter`).
   4. *Core Ambiguities Preserved*: Upstream $c_1 == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
   5. *Branch Boundary*: Committed and pushed strictly on `feature/activation-dashboard`. No merging into `main`.
+
+---
+
+## Milestone 28 — Controlled Offline Browser Validation of Activation Dashboard (HANDOFF-075)
+
+- **Active Branch**: `feature/activation-dashboard`
+- **Immediate Parent Commit**: `2be86060e5905ec68ceea71fa53da64bae95ad5c` (HANDOFF-074)
+- **Accepted Implementation Baseline Commit**: `d6587a1200735fe6453ff24f043931699f21f407` (Milestone 27 accepted)
+- **Requirements Baseline Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d` (Milestone 26 / HANDOFF-066 accepted)
+- **Root Baseline Engine Commit**: `0867c740352297fb43e781fb654706218771d533` (Milestone 25 / HANDOFF-061)
+- **Objective**: Address all 6 Perplexity review items on HANDOFF-074 to deliver complete, rigorous, and verifiable offline browser validation for Milestone 28:
+  1. *Real Session/Run Domain Advancement & Isolation*:
+     - Verified causal run domain advancement in Context A (`run_id_a_after != run_id_a_initial`: `..._INC1_2` -> `..._INC1_3`).
+     - Verified Context B run domain and active table evidence invariance before and after Context A recalculation (`run_id_b_after == run_id_b_initial`, `table_b_after == table_b_initial`).
+     - Verified steady polling interval retention across both contexts.
+     - Verified timeframe switching in Context A to `D1` (mapping to confirmation timeframe `H1`, with sequence domain reflecting `_D1:`), while Context B remains strictly untouched on `H4` (confirmation `M5`).
+  2. *Bounded Browser-Tab Ownership Protection*:
+     - Solved browser-tab identity for cloned tabs without relying on artificial workarounds.
+     - Implemented `DASHBOARD_INDEX_STRING` in `src/aladeen/app.py`: synchronous `<script>` in `<head>` checks `window.name` against `sessionStorage.getItem('dashboard-session-id-store')`.
+     - Same-tab reload retains `window.name === 'dashboard_tab_' + sid` and preserves identity (`sid_a_after_reload == sid_a`).
+     - Cloned tab (`window.open` / duplicate tab) has an empty or mismatched `window.name`, triggering immediate generation of a fresh unique UUID session ID before Dash mounts.
+     - Verified in browser tests: same-tab reload strictly retains ID, cloned tab claims independent ID, preserves it across its own reload, and recalculates with complete isolation from parent tab.
+  3. *Narrow Viewport Usability with Concrete Geometry Assertions*:
+     - Resized viewport to 800x600 and executed programmatic DOM geometry assertions:
+       * Zero vertical overlap: `banner_box["y"] + banner_box["height"] <= context_box["y"] + 4.0` and `context_box["y"] + context_box["height"] <= active_box["y"] + 4.0`.
+       * Table horizontal accommodation: `table_scroll_w >= table_client_w`.
+       * Rightmost header accessibility: programmatic scroll to rightmost header (`el => el.scrollLeft = el.scrollWidth`) and verified `#activation-active-table th:last-child` is visible.
+       * Long ID code readability: font size verified <= 11.0px (measured 10.0px) with non-empty text.
+  4. *Audit Watchers & Server-Side Security Spy*:
+     - Implemented `BrowserAuditWatcher` attached to all tested pages/contexts (`page_a`, `page_b`, `page_cloned`, `harness_page`).
+     - Monitored console errors (0 errors), uncaught page errors (0 errors), callback HTTP responses (all 200 OK), and external network requests (strictly allowed local endpoints only).
+     - Verified server-side `ControllableActivationMockAdapter` spy: `live_broker_invocations == 0` and `external_network_invocations == 0`.
+  5. *Synthetic Snapshot Projection Notice & Strengthened Cell Assertions*:
+     - Visual harness banner explicitly states: `🔬 LOCAL VISUAL FIXTURE HARNESS — PURE PRESENTATION PROJECTION OF PRE-CONSTRUCTED SYNTHETIC SNAPSHOT FIXTURES (NOT LIVE STRATEGY ENGINE EXECUTION)`.
+     - Dropdown option for Scenario 13 explicitly qualified: `dash_act_13_unresolved_source_snapshot (SYNTHETIC SNAPSHOT PROJECTION)`.
+     - Cell-level assertions strengthened across all scenarios:
+       * Scenario 2: `td:nth-child(9)` = "PENDING ACTIVATION", `td:nth-child(13)` = "1.1370", `td:nth-child(14)` = "OBS_01".
+       * Scenario 3: `td:nth-child(9)` = "PENDING ACTIVATION", `td:nth-child(12)` = "2026-10-02 08:15:00 UTC", `td:nth-child(14)` = "OBS_01".
+       * Scenario 4: `td:nth-child(10)` = "USAGE UNCERTAIN (FAIL-CLOSED)".
+       * Scenario 5: `td:nth-child(10)` = "COVERAGE INCOMPLETE", `#activation-coverage-badge` = "INCOMPLETE".
+       * Scenario 6: `td:nth-child(10)` = "UNKNOWN AVAILABILITY".
+       * Scenario 7: history `td:nth-child(6)` = "CANCELLED_SOURCE_CHOCH", `td:nth-child(9)` = "SOURCE_CHOCH".
+       * Scenario 8: history `td:nth-child(10)` = "Unknown", `td:nth-child(11)` = "#125".
+       * Scenario 9: rearm `td:nth-child(4)` = "CANCELLED (AWAITING DEPARTURE)", `td:nth-child(3)` = "Gen 2", `td:nth-child(6)` = "NO".
+       * Scenario 10: rearm `td:nth-child(4)` = "ARMED FOR RETOUCH", `td:nth-child(6)` = "YES".
+       * Scenario 11: active `td:nth-child(9)` = "REARMED PENDING (GEN 2)", `td:nth-child(15)` = "ACT_G01".
+       * Scenario 12: active `td:nth-child(1)` = "SET_2", history `td:nth-child(2)` = "SET_1", continuous level ID equality (`td:nth-child(5)` == `td:nth-child(4)`).
+       * Scenario 13: canonical unresolved banner visible, Bar #15 and Bar #19 visible.
+       * Scenario 14: history `tr:nth-child(1) td:nth-child(11)` = "#202", `tr:nth-child(2) td:nth-child(11)` = "#201".
+       * Custom Scenario 14b: exactly 50 rendered rows of 75 total records.
+       * Custom Scenario 15: synchronization error banner visible alongside active table.
+  6. *Controllable Server Handles & Port Audit*:
+     - Implemented `ControlledServerHandle` wrapping `werkzeug.serving.make_server`.
+     - Explicit socket binding verification on startup (5.0s timeout).
+     - Clean shutdown via `server.shutdown()`, thread join, and socket polling verifying ports 8068 and 8069 are cleanly released (`OSError` on connection).
+  7. *Honest Strategy Engine Purity Reporting*:
+     - Clearly distinguished untouched strategy engine core algorithms (`activation_engine.py`, `activation_adapter.py`, `engine.py`, `choch_detector.py`, `iss_engine.py`, `tjl_coordinator.py`) with 0 diff against `3f6689c194c95ca3761833f8831bb8a3f5b4740d` from authorized service coordination layer (`service.py`).
+- **Completed Deliverables**:
+  1. [`src/aladeen/app.py`](file:///src/aladeen/app.py): Added `DASHBOARD_INDEX_STRING` with tab ownership script.
+  2. [`tests/test_activation_browser_controlled.py`](file:///tests/test_activation_browser_controlled.py): Hardened controlled Playwright browser test suite with controllable server handles, audit watchers, geometry checks, and strengthened cell assertions.
+  3. `tests/evidence/activation_browser/`: 9 captured visual validation screenshots updated.
+  4. [`docs/development/status.md`](file:///docs/development/status.md): Appended HANDOFF-075 documentation.
+- **Verification Summary**:
+  - Controlled browser validation suite: **All assertions passed, 0 failures, 9 screenshots captured, ports 8068 and 8069 cleanly released** (`python tests/test_activation_browser_controlled.py`).
+  - Activation dashboard integration suite: **22 / 22 passed** in 1.31s (`pytest tests/test_activation_dashboard_integration.py`).
+  - App unit suite: **16 / 16 passed** in 1.49s (`pytest tests/test_app.py`).
+  - Full offline repository test suite: **542 / 542 passed** in 7.95s (`pytest -q tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py --ignore=tests/test_activation_browser_controlled.py`).
+  - Strategy Engine Purity Audit: Exactly zero modifications to strategy engines (`msm_engine.py`, `choch_engine.py`, `iss_engine.py`, `tjl_coordinator.py`, `activation_engine.py`, `activation_adapter.py`). `git diff 3f6689c194c95ca3761833f8831bb8a3f5b4740d -- src/aladeen/strategy/activation_engine.py src/aladeen/strategy/activation_adapter.py src/aladeen/strategy/engine.py src/aladeen/strategy/choch_detector.py src/aladeen/strategy/iss_engine.py src/aladeen/strategy/tjl_coordinator.py` is completely clean.
+- **Scope Compliance & Standing Invariants**:
+  1. *Pure Read-Only Presentation*: Strictly zero UI order execution, zero MT5 live trading calls, zero live account modification.
+  2. *Downstream Invariant*: Strictly zero confirmation arbitration/selection, zero usage ledger writes, zero trade entry signals.
+  3. *Engine Integrity*: Strictly zero modification to accepted strategy engines (`msm_engine`, `choch_engine`, `iss_engine`, `tjl_coordinator`, `activation_engine`, `activation_adapter`).
+  4. *Core Ambiguities Preserved*: Upstream $c_1 == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
+  5. *Branch Boundary*: Committed and pushed strictly on `feature/activation-dashboard`. No merging into `main`.

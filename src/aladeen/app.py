@@ -8,9 +8,72 @@ from __future__ import annotations
 
 import argparse
 import sys
+from typing import Any
 from dash import Dash
 
 from aladeen.ui.layout import build_layout, register_callbacks
+
+DASHBOARD_INDEX_STRING = """<!DOCTYPE html>
+<html>
+    <head>
+        {%metas%}
+        <title>{%title%}</title>
+        {%favicon%}
+        {%css%}
+        <script>
+        (function() {
+            function checkClonedTab() {
+                try {
+                    var raw = sessionStorage.getItem('dashboard-session-id-store');
+                    if (raw) {
+                        var parsed;
+                        try { parsed = JSON.parse(raw); } catch(e) { parsed = raw; }
+                        var sid = (parsed && typeof parsed === 'object') ? parsed.data : parsed;
+                        if (sid && typeof sid === 'string') {
+                            if (window.name === 'dashboard_tab_' + sid) {
+                                return; // Same-tab reload: retain identity
+                            }
+                            // Cloned tab via window.open() or browser tab duplication:
+                            // Generate fresh unique session ID to enforce independent-tab isolation
+                            var freshId = 'session_' + (window.crypto && crypto.randomUUID ? crypto.randomUUID().replace(/-/g, '').slice(0, 16) : Math.random().toString(16).slice(2, 18));
+                            window.name = 'dashboard_tab_' + freshId;
+                            var newPayload = (parsed && typeof parsed === 'object') ? Object.assign({}, parsed, {data: freshId}) : freshId;
+                            sessionStorage.setItem('dashboard-session-id-store', JSON.stringify(newPayload));
+                        }
+                    }
+                } catch(e) {}
+            }
+            checkClonedTab();
+            var claimAttempts = 0;
+            var claimTimer = setInterval(function() {
+                claimAttempts++;
+                try {
+                    var raw = sessionStorage.getItem('dashboard-session-id-store');
+                    if (raw) {
+                        var parsed;
+                        try { parsed = JSON.parse(raw); } catch(e) { parsed = raw; }
+                        var sid = (parsed && typeof parsed === 'object') ? parsed.data : parsed;
+                        if (sid && typeof sid === 'string' && !window.name) {
+                            window.name = 'dashboard_tab_' + sid;
+                            clearInterval(claimTimer);
+                        }
+                    }
+                } catch(e) {}
+                if (claimAttempts > 30) clearInterval(claimTimer);
+            }, 100);
+        })();
+        </script>
+    </head>
+    <body>
+        {%app_entry%}
+        <footer>
+            {%config%}
+            {%scripts%}
+            {%renderer%}
+        </footer>
+    </body>
+</html>
+"""
 
 
 def create_app(adapter: Any = None) -> Dash:
@@ -24,6 +87,7 @@ def create_app(adapter: Any = None) -> Dash:
         title="Aladeen / TopG",
         update_title="Loading…",
     )
+    app.index_string = DASHBOARD_INDEX_STRING
     app.layout = build_layout
     register_callbacks(app, adapter=adapter)
     return app
