@@ -2319,3 +2319,59 @@ Last Updated: 2026-11-06 (Milestone 29 Release-Readiness Audit & Offline Runbook
   - Zero confirmation arbitration implementation, zero usage ledger runtime writes, zero automated trading.
   - Strategy engines 100% untouched (0 diff against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`).
   - Dedicated branch boundary: committed and pushed strictly on `requirements/trade-signal-acceptance`. Never merge into `main`.
+
+
+---
+
+## Milestone 30 — Trade-Signal Business Logic Requirements and Acceptance Contract (HANDOFF-088)
+
+- **Active Branch**: `requirements/trade-signal-acceptance`
+- **Immediate Parent Commit**: `d64cbb15959a0aa5f63ec50d97e91a5598060ebe` (HANDOFF-087)
+- **Accepted Milestone 29 Baseline Commit**: `0144ddb8150b4132a7b60d24698105d897514cb2`
+- **Accepted Milestone 28 Controlled Browser Baseline**: `bf737ea41e8bfd554b9386a6e9be86f700824fb3`
+- **Requirements Baseline Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d`
+- **Root Baseline Engine Commit**: `0867c740352297fb43e781fb654706218771d533`
+- **Reviewer Feedback Addressed (HANDOFF-087 Review Directives 1–8 & HANDOFF-088 Directives)**:
+  1. *Removed Contradictory Same-Candle Question*:
+     - In `docs/requirements/trade-signal-acceptance.md` §3 and `docs/requirements/trade-signal-open-questions.md`, removed the contradictory question suggesting missing sub-bar timestamps suppress same-candle signals.
+     - Formalized as a technical evidence limitation: Missing authoritative touch or ordering evidence blocks the affected transition (`UNKNOWN_ORDER`). Timestamp precision alone does not determine eligibility; where monotonic sequence indices are available ($seq_{tap} < seq_{conf}$), order is established authoritatively (Case B, verified via `sig_30`). This is a technical evidence limitation, not an unresolved strategy choice.
+  2. *Separated Late Duplicates from Finalization/Coverage Violations*:
+     - In `docs/requirements/trade-signal-acceptance.md` §2 (Stage 6), distinguished:
+       * **Identical already-accounted evidence**: Idempotent duplicate; returns existing record without duplicate signal or double consumption (`sig_33`).
+       * **Evidence arriving before finalization**: Evaluated into the pending batch before commit (`sig_31`).
+       * **New, relevant evidence arriving after declared finalization**: Genuinely new confirmation due at or before $T$ arriving late triggers a completeness/coverage violation (`COMPLETENESS_COVERAGE_VIOLATION` / `LATE_DUE_EVIDENCE_ARRIVED`). Retained as diagnostic; published signal at $T$ remains immutable; subsequent dependent decisions on affected timeline are blocked fail-closed pending versioned reconciliation (`sig_37`).
+  3. *Explicit Candidate/Setup Identity and Record Schemas*:
+     - Defined canonical length-prefixed key `CandidateSetupKey`:
+       `[len:domain_session_id][len:revision_id][len:activation_id][len:source_set_id][len:source_member_key][len:confirmation_engine_id][len:confirmation_candle_id][len:confirmation_close_iso]`.
+     - Explicitly specified complete field schemas for `CandidateSignalRecord` (17 fields) and `PublishedTradeSignal` (19 fields).
+     - Multiple confirmations consolidate (`OPEN-07`) if and only if they share the exact same `CandidateSetupKey`, aggregating individual event IDs and patterns while preserving individual provenance (`sig_18`).
+     - Distinct set IDs (`sig_38`) or confirmation engine configurations (`sig_39`) produce distinct setup keys and cannot be conflated.
+  4. *Continuous Pre-Tap Detection and Passive Matcher Implementation Boundary*:
+     - In Stage 3 and Section 4.3, decoupled the proposed Milestone 31 Multi-Timeframe Confirmation Monitor into two strict responsibilities:
+       1. **Continuous Confirmation Engine Processing**: Accepted confirmation engines run continuously over independently configured candle history from start candle without pausing/resetting at touch, preserving patterns that begin before activation touch and complete afterward (`sig_06`).
+       2. **Passive Event-to-Activation Matcher**: Ingests newly completed authoritative confirmation events, matches against `PENDING_ACTIVATION` and `REARMED_PENDING`, and emits typed `CandidateSignalRecord`s.
+       * Strictly forbidden: The matcher does NOT restart detection at touch, inherit start candles silently, arbitrate winners, consume levels, or publish final signals.
+  5. *Concrete Fixtures Expanded to 39 Scenarios*:
+     - Updated [`tests/fixtures/trade_signal_acceptance.json`](file:///tests/fixtures/trade_signal_acceptance.json) covering:
+       * `sig_30`: Coarse bar with absent fine timestamps resolved by monotonic sequence.
+       * `sig_37`: Genuinely new late due evidence triggers coverage violation.
+       * `sig_38`: Same physical level across distinct set and activation identities.
+       * `sig_39`: Different confirmation configurations produce distinct setup keys.
+  6. *Integrity & Regression Verification*:
+     - Expanded [`tests/test_trade_signal_fixture_integrity.py`](file:///tests/test_trade_signal_fixture_integrity.py) with 25 automated integrity tests (all passing in 0.32s).
+     - Full offline test suite passed 567/567 tests in 20.38s.
+- **Verification Summary**:
+  - Trade-Signal fixture integrity suite: 25/25 passed in 0.32s (`pytest tests/test_trade_signal_fixture_integrity.py -v`).
+  - Full offline repository test suite: 567/567 passed in 20.38s (`pytest -q tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py --ignore=tests/test_activation_browser_controlled.py --ignore=tests/activation_browser_runner.py --ignore=tests/activation_browser_harness.py`).
+- **Completed Deliverables**:
+  1. [`docs/requirements/trade-signal-acceptance.md`](file:///docs/requirements/trade-signal-acceptance.md): Updated requirements contract with canonical `CandidateSetupKey`, explicit record schemas, late evidence coverage violation, continuous pre-tap detection, and decoupled matcher boundary.
+  2. [`tests/fixtures/trade_signal_acceptance.json`](file:///tests/fixtures/trade_signal_acceptance.json): Standardized 39-fixture acceptance test suite (`sig_01` through `sig_39`).
+  3. [`tests/test_trade_signal_fixture_integrity.py`](file:///tests/test_trade_signal_fixture_integrity.py): 25 automated integrity test methods.
+  4. [`docs/requirements/trade-signal-open-questions.md`](file:///docs/requirements/trade-signal-open-questions.md): Grounded open strategy questions with intra-candle limitation reframed as technical evidence invariant.
+  5. [`docs/development/status.md`](file:///docs/development/status.md): Milestone 30 HANDOFF-088 status update.
+- **Standing Invariants Maintained**:
+  - Pure requirements reconciliation, fixture design, and test specification.
+  - Strictly zero runtime signal engine implementation, zero UI order execution, zero MT5 live trading calls, zero live account modification.
+  - Zero confirmation arbitration implementation, zero usage ledger runtime writes, zero automated trading.
+  - Strategy engines 100% untouched (0 diff against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`).
+  - Dedicated branch boundary: committed and pushed strictly on `requirements/trade-signal-acceptance`. Never merge into `main`.

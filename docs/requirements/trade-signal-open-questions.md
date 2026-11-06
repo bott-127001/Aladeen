@@ -1,4 +1,4 @@
-# Trade-Signal Open Strategy Questions & Reconciliation Baseline — Milestone 30
+# Trade-Signal Open Strategy Questions & Technical Evidence Baseline — Milestone 30
 
 **Milestone**: Milestone 30 — Trade-Signal Business Logic Requirements and Acceptance Contract  
 **Target Decision-Maker**: Samarth  
@@ -43,22 +43,25 @@
 
 ---
 
-### Question 3: Intra-Candle Ordering Limitation on Coarse Feeds
-- **Source Evidence Contract (`OPEN-04`, `OPEN-06`)**:
-  - `MTF-Analysis.pdf` §7 (Q&A 12) allows the tap candle to confirm entry if it completes a valid pattern.
-  - `OPEN-04` requires that events on half-open candle intervals `[open_time, close_time)` establish their intra-bar order authoritatively; if order cannot be determined from available data, it must mark `UNKNOWN_ORDER` and suppress signals.
-  - `OPEN-06` requires actual physical price print observations and forbids geometric path interpolation.
-  - On coarse data feeds where sub-bar sequence timestamps are unavailable, a coarse bar containing both a price print inside the zone and a confirmation pattern completion cannot authoritatively prove whether the tap preceded pattern completion.
-- **Affected Signal Behavior**:
-  - This is documented strictly as a **data feed evidence limitation**, not an invented strategy rule. When sub-bar print timestamps are absent and monotonic sequence indexing cannot establish order, coarse same-candle tap and confirmation fail closed as `UNKNOWN_ORDER`.
-- **Minimal Decision for Samarth**:
-  - *Acknowledge that coarse data feeds lacking sub-bar sequence evidence suppress same-candle tap/confirmation signals fail-closed (`UNKNOWN_ORDER`).*
+## 2. Technical Evidence Limitations (Non-Strategy Invariants)
+
+The following item is documented strictly as a **data feed and observation evidence limitation**, not an unresolved strategy choice:
+
+### Missing Authoritative Touch or Ordering Evidence
+- **Evidence Contract (`OPEN-04`, `OPEN-06`, `MTF-Analysis.pdf` §7)**:
+  - `MTF-Analysis.pdf` §7 (Q&A 12) permits the tap candle to confirm entry if it completes a valid pattern.
+  - Where sub-bar tick/print timestamps are available, causal ordering is established directly ($t_{tap} < t_{close}$, Case A).
+  - Where sub-bar timestamps are absent but discrete monotonic sequence indexing is available, causal order is established authoritatively ($seq_{tap} < seq_{conf}$, Case B).
+  - Where neither sub-bar timestamps nor sequence ordering evidence are present on a shared coarse candle interval, the transition fails closed as `UNKNOWN_ORDER` (Case C).
+- **Resolution**:
+  - Missing authoritative touch or ordering evidence blocks the affected transition. Timestamp precision alone does not determine eligibility.
+  - This is an **evidence/data stream limitation governed by causal physics**, not an unresolved strategy choice requiring Samarth's approval.
 
 ---
 
-## 2. Summary of Fail-Closed Policies Maintained
+## 3. Summary of Fail-Closed Policies Maintained
 
-Until Samarth provides explicit, approved resolutions to the questions above, the trade-signal requirements contract strictly enforces:
+Until Samarth provides explicit, approved resolutions to Questions 1 and 2, the trade-signal requirements contract strictly enforces:
 1. **Zero Guessing**: No defaults or speculative rules are assumed.
 2. **Fail-Closed Gate**: Unresolved conditions suppress signal emission (`NO_SIGNAL`).
 3. **Audit Trail**: Every suppressed candidate records an explicit diagnostic flag (`BLOCKED_SOURCE_UNRESOLVED`, `BLOCKED_UNRESOLVED_CONFIRMATION_GAP`, or `UNKNOWN_ORDER`).

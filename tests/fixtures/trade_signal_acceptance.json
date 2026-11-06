@@ -2,7 +2,7 @@
   "description": "Standardized Acceptance Fixtures for Trade-Signal Business Logic Module",
   "version": "1.2",
   "authorities": [
-    "docs/strategy/MTF-Analysis.pdf (§1, §2, §3, §4, §5, §6, §7, §8, §9, §10, §12)",
+    "docs/strategy/MTF-Analysis.pdf (\u00a71, \u00a72, \u00a73, \u00a74, \u00a75, \u00a76, \u00a77, \u00a78, \u00a79, \u00a710, \u00a712)",
     "docs/requirements/approved-clarifications.md (OPEN-03, OPEN-04, OPEN-05, OPEN-06, OPEN-07, OPEN-08, OPEN-09, OPEN-10, OPEN-11, OPEN-12)",
     "docs/requirements/trade-signal-acceptance.md"
   ],
@@ -13,9 +13,11 @@
   ],
   "fixtures": {
     "sig_01_bullish_h4_m5_valid_choch_signal": {
-      "category": ["source_settled"],
+      "category": [
+        "source_settled"
+      ],
       "description": "Valid Bullish H4 TJL1 setup confirmed by M5 Bullish CHOCH after tap candle. Produces BUY trade signal at M5 confirmation close.",
-      "authority": "MTF-Analysis.pdf §3, §6, §7",
+      "authority": "MTF-Analysis.pdf \u00a73, \u00a76, \u00a77",
       "source_context": {
         "source_timeframe": "H4",
         "symbol": "EURUSD",
@@ -27,8 +29,8 @@
           "source_open_time": "2026-10-01T04:00:00+00:00",
           "side": "HIGH"
         },
-        "lower_edge": 1.1350,
-        "upper_edge": 1.1380,
+        "lower_edge": 1.135,
+        "upper_edge": 1.138,
         "used_status": false
       },
       "activation_event": {
@@ -52,15 +54,19 @@
         "source_timeframe": "H4",
         "confirmation_timeframe": "M5",
         "rejection_reason": null,
-        "consumed_level_keys": ["FEED_EURUSD_H4:H4:2026-10-01T04:00:00+00:00:HIGH"],
+        "consumed_level_keys": [
+          "FEED_EURUSD_H4:H4:2026-10-01T04:00:00+00:00:HIGH"
+        ],
         "is_broker_execution": false,
         "signal_type": "CONCEPTUAL_ANALYSIS_SIGNAL"
       }
     },
     "sig_02_bearish_d1_h1_valid_iss_signal": {
-      "category": ["source_settled"],
+      "category": [
+        "source_settled"
+      ],
       "description": "Valid Bearish D1 TJL2/A+ setup confirmed by H1 Bearish Authoritative Confirmed ISS after tap candle. Produces SELL trade signal at H1 confirmation close.",
-      "authority": "MTF-Analysis.pdf §3, §6, §7",
+      "authority": "MTF-Analysis.pdf \u00a73, \u00a76, \u00a77",
       "source_context": {
         "source_timeframe": "D1",
         "symbol": "EURUSD",
@@ -72,13 +78,13 @@
           "source_open_time": "2026-09-25T00:00:00+00:00",
           "side": "HIGH"
         },
-        "lower_edge": 1.1500,
-        "upper_edge": 1.1550,
+        "lower_edge": 1.15,
+        "upper_edge": 1.155,
         "used_status": false
       },
       "activation_event": {
         "tap_timestamp": "2026-10-02T04:30:00+00:00",
-        "tap_price": 1.1520,
+        "tap_price": 1.152,
         "state": "PENDING_ACTIVATION"
       },
       "confirmation_event": {
@@ -97,15 +103,19 @@
         "source_timeframe": "D1",
         "confirmation_timeframe": "H1",
         "rejection_reason": null,
-        "consumed_level_keys": ["FEED_EURUSD_D1:D1:2026-09-25T00:00:00+00:00:HIGH"],
+        "consumed_level_keys": [
+          "FEED_EURUSD_D1:D1:2026-09-25T00:00:00+00:00:HIGH"
+        ],
         "is_broker_execution": false,
         "signal_type": "CONCEPTUAL_ANALYSIS_SIGNAL"
       }
     },
     "sig_03_bullish_h1_m1_valid_tap_candle_confirmation": {
-      "category": ["source_settled"],
+      "category": [
+        "source_settled"
+      ],
       "description": "Valid Bullish H1 TJL2 confirmed on the tap candle's exact close time. Produces BUY signal immediately at tap candle close.",
-      "authority": "MTF-Analysis.pdf §7 (Q&A 12)",
+      "authority": "MTF-Analysis.pdf \u00a77 (Q&A 12)",
       "source_context": {
         "source_timeframe": "H1",
         "symbol": "GBPUSD",
@@ -117,13 +127,13 @@
           "source_open_time": "2026-10-01T10:00:00+00:00",
           "side": "LOW"
         },
-        "lower_edge": 1.2800,
+        "lower_edge": 1.28,
         "upper_edge": 1.2825,
         "used_status": false
       },
       "activation_event": {
         "tap_timestamp": "2026-10-02T11:00:00+00:00",
-        "tap_price": 1.2810,
+        "tap_price": 1.281,
         "state": "PENDING_ACTIVATION"
       },
       "confirmation_event": {
@@ -142,15 +152,19 @@
         "source_timeframe": "H1",
         "confirmation_timeframe": "M1",
         "rejection_reason": null,
-        "consumed_level_keys": ["FEED_GBPUSD_H1:H1:2026-10-01T10:00:00+00:00:LOW"],
+        "consumed_level_keys": [
+          "FEED_GBPUSD_H1:H1:2026-10-01T10:00:00+00:00:LOW"
+        ],
         "is_broker_execution": false,
         "signal_type": "CONCEPTUAL_ANALYSIS_SIGNAL"
       }
     },
     "sig_04_activation_without_confirmation_no_signal": {
-      "category": ["source_settled"],
+      "category": [
+        "source_settled"
+      ],
       "description": "Tapped H4 zone in PENDING_ACTIVATION, but no CHOCH or ISS confirms. Signal status remains NO_SIGNAL.",
-      "authority": "MTF-Analysis.pdf §5, §7",
+      "authority": "MTF-Analysis.pdf \u00a75, \u00a77",
       "source_context": {
         "source_timeframe": "H4",
         "symbol": "EURUSD",
@@ -162,8 +176,8 @@
           "source_open_time": "2026-10-01T04:00:00+00:00",
           "side": "HIGH"
         },
-        "lower_edge": 1.1350,
-        "upper_edge": 1.1380,
+        "lower_edge": 1.135,
+        "upper_edge": 1.138,
         "used_status": false
       },
       "activation_event": {
@@ -186,9 +200,11 @@
       }
     },
     "sig_05_pre_activation_confirmation_cannot_be_reused": {
-      "category": ["source_settled"],
+      "category": [
+        "source_settled"
+      ],
       "description": "M5 CHOCH confirms at 08:00; H4 zone is tapped later at 08:15. Completed pre-activation confirmation cannot be reused; NO_SIGNAL.",
-      "authority": "MTF-Analysis.pdf §7",
+      "authority": "MTF-Analysis.pdf \u00a77",
       "source_context": {
         "source_timeframe": "H4",
         "symbol": "EURUSD",
@@ -200,8 +216,8 @@
           "source_open_time": "2026-10-01T04:00:00+00:00",
           "side": "HIGH"
         },
-        "lower_edge": 1.1350,
-        "upper_edge": 1.1380,
+        "lower_edge": 1.135,
+        "upper_edge": 1.138,
         "used_status": false
       },
       "activation_event": {
@@ -214,7 +230,7 @@
         "pattern_type": "CHOCH",
         "direction": "UPWARD",
         "close_timestamp": "2026-10-02T08:00:00+00:00",
-        "close_price": 1.1390,
+        "close_price": 1.139,
         "event_id": "EVT_CHOCH_M5_PRE"
       },
       "expected": {
@@ -231,9 +247,11 @@
       }
     },
     "sig_06_pattern_starts_before_tap_confirms_after_tap": {
-      "category": ["source_settled"],
+      "category": [
+        "source_settled"
+      ],
       "description": "M5 CHOCH begins forming before tap (waves 1-2); tap occurs at 08:15; CHOCH completes at 08:30. Valid BUY signal emitted.",
-      "authority": "MTF-Analysis.pdf §7 (Q&A 14)",
+      "authority": "MTF-Analysis.pdf \u00a77 (Q&A 14)",
       "source_context": {
         "source_timeframe": "H4",
         "symbol": "EURUSD",
@@ -245,8 +263,8 @@
           "source_open_time": "2026-10-01T04:00:00+00:00",
           "side": "HIGH"
         },
-        "lower_edge": 1.1350,
-        "upper_edge": 1.1380,
+        "lower_edge": 1.135,
+        "upper_edge": 1.138,
         "used_status": false
       },
       "activation_event": {
@@ -271,15 +289,19 @@
         "source_timeframe": "H4",
         "confirmation_timeframe": "M5",
         "rejection_reason": null,
-        "consumed_level_keys": ["FEED_EURUSD_H4:H4:2026-10-01T04:00:00+00:00:HIGH"],
+        "consumed_level_keys": [
+          "FEED_EURUSD_H4:H4:2026-10-01T04:00:00+00:00:HIGH"
+        ],
         "is_broker_execution": false,
         "signal_type": "CONCEPTUAL_ANALYSIS_SIGNAL"
       }
     },
     "sig_07_opposite_direction_confirmation_rejected": {
-      "category": ["source_settled"],
+      "category": [
+        "source_settled"
+      ],
       "description": "Bullish H4 TJL zone tapped (Buy intended); Bearish M5 CHOCH completes. Direction mismatch -> REJECTED_DIRECTION_MISMATCH, no signal emitted.",
-      "authority": "MTF-Analysis.pdf §6 (Q&A 4)",
+      "authority": "MTF-Analysis.pdf \u00a76 (Q&A 4)",
       "source_context": {
         "source_timeframe": "H4",
         "symbol": "EURUSD",
@@ -291,8 +313,8 @@
           "source_open_time": "2026-10-01T04:00:00+00:00",
           "side": "HIGH"
         },
-        "lower_edge": 1.1350,
-        "upper_edge": 1.1380,
+        "lower_edge": 1.135,
+        "upper_edge": 1.138,
         "used_status": false
       },
       "activation_event": {
@@ -305,7 +327,7 @@
         "pattern_type": "CHOCH",
         "direction": "DOWNWARD",
         "close_timestamp": "2026-10-02T08:45:00+00:00",
-        "close_price": 1.1330,
+        "close_price": 1.133,
         "event_id": "EVT_CHOCH_M5_BEAR"
       },
       "expected": {
@@ -322,9 +344,11 @@
       }
     },
     "sig_08_already_aligned_trend_without_fresh_transition_rejected": {
-      "category": ["source_settled"],
+      "category": [
+        "source_settled"
+      ],
       "description": "Confirmation timeframe is in existing aligned trend, but lacks fresh CHOCH or ISS transition event on or after tap. REJECTED_NO_FRESH_TRANSITION.",
-      "authority": "MTF-Analysis.pdf §6 (Q&A 19)",
+      "authority": "MTF-Analysis.pdf \u00a76 (Q&A 19)",
       "source_context": {
         "source_timeframe": "H4",
         "symbol": "EURUSD",
@@ -336,8 +360,8 @@
           "source_open_time": "2026-10-01T04:00:00+00:00",
           "side": "HIGH"
         },
-        "lower_edge": 1.1350,
-        "upper_edge": 1.1380,
+        "lower_edge": 1.135,
+        "upper_edge": 1.138,
         "used_status": false
       },
       "activation_event": {
@@ -350,7 +374,7 @@
         "pattern_type": "EXISTING_TREND_ONLY",
         "direction": "UPWARD",
         "close_timestamp": "2026-10-02T08:45:00+00:00",
-        "close_price": 1.1390,
+        "close_price": 1.139,
         "event_id": "EVT_TREND_ALIGNED_NO_TRANSITION"
       },
       "expected": {
@@ -367,9 +391,12 @@
       }
     },
     "sig_09_competing_activations_earlier_timestamp_wins": {
-      "category": ["source_settled", "synthetic_event_sequence"],
+      "category": [
+        "source_settled",
+        "synthetic_event_sequence"
+      ],
       "description": "H4 tapped at 08:00, confirmed on M5 at 08:35. D1 tapped at 06:00, confirmed on H1 at 09:00. Earliest close timestamp (08:35) wins; D1 activation cancelled.",
-      "authority": "MTF-Analysis.pdf §8 (Q&A 15)",
+      "authority": "MTF-Analysis.pdf \u00a78 (Q&A 15)",
       "candidates": [
         {
           "candidate_id": "CAND_H4_M5",
@@ -391,7 +418,7 @@
           "level_key": "FEED_EURUSD_D1:D1:2026-09-25T00:00:00+00:00:LOW",
           "tap_timestamp": "2026-10-02T06:00:00+00:00",
           "close_timestamp": "2026-10-02T09:00:00+00:00",
-          "close_price": 1.1410
+          "close_price": 1.141
         }
       ],
       "expected": {
@@ -400,16 +427,23 @@
         "signal_side": "BUY",
         "signal_timestamp": "2026-10-02T08:35:00+00:00",
         "entry_price": 1.1395,
-        "cancelled_activation_ids": ["CAND_D1_H1"],
-        "consumed_level_keys": ["FEED_EURUSD_H4:H4:2026-10-01T04:00:00+00:00:HIGH"],
+        "cancelled_activation_ids": [
+          "CAND_D1_H1"
+        ],
+        "consumed_level_keys": [
+          "FEED_EURUSD_H4:H4:2026-10-01T04:00:00+00:00:HIGH"
+        ],
         "is_broker_execution": false,
         "signal_type": "CONCEPTUAL_ANALYSIS_SIGNAL"
       }
     },
     "sig_10_competing_simultaneous_timestamp_lower_timeframe_wins": {
-      "category": ["source_settled", "synthetic_event_sequence"],
+      "category": [
+        "source_settled",
+        "synthetic_event_sequence"
+      ],
       "description": "H4 confirmed on M5 at 09:00:00; D1 confirmed on H1 at 09:00:00. Lower confirmation timeframe (M5) wins; D1 activation cancelled.",
-      "authority": "MTF-Analysis.pdf §8 (Q&A 18)",
+      "authority": "MTF-Analysis.pdf \u00a78 (Q&A 18)",
       "candidates": [
         {
           "candidate_id": "CAND_D1_H1",
@@ -429,7 +463,7 @@
           "direction": "UPWARD",
           "level_key": "FEED_EURUSD_H4:H4:2026-10-01T04:00:00+00:00:HIGH",
           "close_timestamp": "2026-10-02T09:00:00+00:00",
-          "close_price": 1.1400
+          "close_price": 1.14
         }
       ],
       "expected": {
@@ -437,17 +471,24 @@
         "signal_published": true,
         "signal_side": "BUY",
         "signal_timestamp": "2026-10-02T09:00:00+00:00",
-        "entry_price": 1.1400,
-        "cancelled_activation_ids": ["CAND_D1_H1"],
-        "consumed_level_keys": ["FEED_EURUSD_H4:H4:2026-10-01T04:00:00+00:00:HIGH"],
+        "entry_price": 1.14,
+        "cancelled_activation_ids": [
+          "CAND_D1_H1"
+        ],
+        "consumed_level_keys": [
+          "FEED_EURUSD_H4:H4:2026-10-01T04:00:00+00:00:HIGH"
+        ],
         "is_broker_execution": false,
         "signal_type": "CONCEPTUAL_ANALYSIS_SIGNAL"
       }
     },
     "sig_11_competing_simultaneous_same_source_tjl2_wins": {
-      "category": ["source_settled", "synthetic_event_sequence"],
+      "category": [
+        "source_settled",
+        "synthetic_event_sequence"
+      ],
       "description": "On same H4 source, TJL1 and TJL2 both confirm at identical timestamp. TJL2 (A+) wins; TJL1 activation cancelled without being marked used.",
-      "authority": "MTF-Analysis.pdf §8 (Q&A 22)",
+      "authority": "MTF-Analysis.pdf \u00a78 (Q&A 22)",
       "candidates": [
         {
           "candidate_id": "CAND_H4_TJL1",
@@ -457,7 +498,7 @@
           "direction": "UPWARD",
           "level_key": "FEED_EURUSD_H4:H4:2026-10-01T04:00:00+00:00:HIGH",
           "close_timestamp": "2026-10-02T09:00:00+00:00",
-          "close_price": 1.1400
+          "close_price": 1.14
         },
         {
           "candidate_id": "CAND_H4_TJL2",
@@ -467,7 +508,7 @@
           "direction": "UPWARD",
           "level_key": "FEED_EURUSD_H4:H4:2026-10-01T04:00:00+00:00:LOW",
           "close_timestamp": "2026-10-02T09:00:00+00:00",
-          "close_price": 1.1400
+          "close_price": 1.14
         }
       ],
       "expected": {
@@ -475,17 +516,23 @@
         "signal_published": true,
         "signal_side": "BUY",
         "signal_timestamp": "2026-10-02T09:00:00+00:00",
-        "entry_price": 1.1400,
-        "cancelled_activation_ids": ["CAND_H4_TJL1"],
-        "consumed_level_keys": ["FEED_EURUSD_H4:H4:2026-10-01T04:00:00+00:00:LOW"],
+        "entry_price": 1.14,
+        "cancelled_activation_ids": [
+          "CAND_H4_TJL1"
+        ],
+        "consumed_level_keys": [
+          "FEED_EURUSD_H4:H4:2026-10-01T04:00:00+00:00:LOW"
+        ],
         "is_broker_execution": false,
         "signal_type": "CONCEPTUAL_ANALYSIS_SIGNAL"
       }
     },
     "sig_12_winning_entry_marks_level_used_and_cancels_all_others": {
-      "category": ["source_settled"],
+      "category": [
+        "source_settled"
+      ],
       "description": "Winning entry on H4 marks H4 level as USED; D1 and H1 pending activations are cancelled. D1/H1 levels remain UNUSED.",
-      "authority": "MTF-Analysis.pdf §8, §10 (Q&A 16)",
+      "authority": "MTF-Analysis.pdf \u00a78, \u00a710 (Q&A 16)",
       "candidates": [
         {
           "candidate_id": "CAND_H4",
@@ -508,15 +555,25 @@
       ],
       "expected": {
         "winning_candidate_id": "CAND_H4",
-        "consumed_level_keys": ["FEED_EURUSD_H4:H4:LVL_01"],
-        "cancelled_activation_ids": ["CAND_D1", "CAND_H1"],
-        "remaining_unused_level_keys": ["FEED_EURUSD_D1:D1:LVL_01", "FEED_EURUSD_H1:H1:LVL_01"]
+        "consumed_level_keys": [
+          "FEED_EURUSD_H4:H4:LVL_01"
+        ],
+        "cancelled_activation_ids": [
+          "CAND_D1",
+          "CAND_H1"
+        ],
+        "remaining_unused_level_keys": [
+          "FEED_EURUSD_D1:D1:LVL_01",
+          "FEED_EURUSD_H1:H1:LVL_01"
+        ]
       }
     },
     "sig_13_used_level_cannot_rearm_or_trade_again": {
-      "category": ["source_settled"],
+      "category": [
+        "source_settled"
+      ],
       "description": "Level previously marked USED in usage ledger receives a new price tap. Level is permanently dead; rearming and activation rejected.",
-      "authority": "MTF-Analysis.pdf §10",
+      "authority": "MTF-Analysis.pdf \u00a710",
       "source_context": {
         "source_timeframe": "H4",
         "symbol": "EURUSD",
@@ -540,9 +597,12 @@
       }
     },
     "sig_14_cancelled_unused_level_reactivates_after_departure_and_retouch": {
-      "category": ["source_settled", "synthetic_event_sequence"],
+      "category": [
+        "source_settled",
+        "synthetic_event_sequence"
+      ],
       "description": "D1 level cancelled by prior H4 win remains UNUSED. Price leaves D1 zone, retouches it into REARMED_PENDING, and fresh H1 CHOCH confirms. Valid BUY signal emitted.",
-      "authority": "MTF-Analysis.pdf §9, §10 (Q&A 17, 25), OPEN-05",
+      "authority": "MTF-Analysis.pdf \u00a79, \u00a710 (Q&A 17, 25), OPEN-05",
       "source_context": {
         "source_timeframe": "D1",
         "symbol": "EURUSD",
@@ -553,16 +613,35 @@
           "source_open_time": "2026-09-25T00:00:00+00:00",
           "side": "LOW"
         },
-        "lower_edge": 1.1200,
-        "upper_edge": 1.1250,
+        "lower_edge": 1.12,
+        "upper_edge": 1.125,
         "used_status": false,
         "current_eligible": true
       },
       "lifecycle_events": [
-        {"type": "PRIOR_CANCEL", "timestamp": "2026-10-02T08:35:00+00:00", "reason": "OTHER_TIMEFRAME_ENTRY_WON"},
-        {"type": "ZONE_DEPARTURE", "timestamp": "2026-10-02T10:00:00+00:00", "price": 1.1280},
-        {"type": "FRESH_TAP", "timestamp": "2026-10-02T14:00:00+00:00", "price": 1.1230, "resulting_state": "REARMED_PENDING"},
-        {"type": "FRESH_CONFIRMATION", "timeframe": "H1", "pattern": "CHOCH", "timestamp": "2026-10-02T16:00:00+00:00", "price": 1.1290}
+        {
+          "type": "PRIOR_CANCEL",
+          "timestamp": "2026-10-02T08:35:00+00:00",
+          "reason": "OTHER_TIMEFRAME_ENTRY_WON"
+        },
+        {
+          "type": "ZONE_DEPARTURE",
+          "timestamp": "2026-10-02T10:00:00+00:00",
+          "price": 1.128
+        },
+        {
+          "type": "FRESH_TAP",
+          "timestamp": "2026-10-02T14:00:00+00:00",
+          "price": 1.123,
+          "resulting_state": "REARMED_PENDING"
+        },
+        {
+          "type": "FRESH_CONFIRMATION",
+          "timeframe": "H1",
+          "pattern": "CHOCH",
+          "timestamp": "2026-10-02T16:00:00+00:00",
+          "price": 1.129
+        }
       ],
       "expected": {
         "reactivation_granted": true,
@@ -570,13 +649,18 @@
         "signal_published": true,
         "signal_side": "BUY",
         "signal_timestamp": "2026-10-02T16:00:00+00:00",
-        "consumed_level_keys": ["FEED_EURUSD_D1:D1:2026-09-25T00:00:00+00:00:LOW"]
+        "consumed_level_keys": [
+          "FEED_EURUSD_D1:D1:2026-09-25T00:00:00+00:00:LOW"
+        ]
       }
     },
     "sig_15_cancelled_level_lingering_inside_cannot_rearm": {
-      "category": ["source_settled", "edge_boundary_specification"],
+      "category": [
+        "source_settled",
+        "edge_boundary_specification"
+      ],
       "description": "Cancelled level where price remains lingering inside zone without departure cannot rearm; retouch without departure is rejected.",
-      "authority": "MTF-Analysis.pdf §9 (Q&A 25)",
+      "authority": "MTF-Analysis.pdf \u00a79 (Q&A 25)",
       "source_context": {
         "source_timeframe": "D1",
         "symbol": "EURUSD",
@@ -587,13 +671,21 @@
           "source_open_time": "2026-09-25T00:00:00+00:00",
           "side": "LOW"
         },
-        "lower_edge": 1.1200,
-        "upper_edge": 1.1250,
+        "lower_edge": 1.12,
+        "upper_edge": 1.125,
         "used_status": false
       },
       "lifecycle_events": [
-        {"type": "PRIOR_CANCEL", "timestamp": "2026-10-02T08:35:00+00:00", "price": 1.1220},
-        {"type": "LINGERING_PRINT", "timestamp": "2026-10-02T09:00:00+00:00", "price": 1.1230}
+        {
+          "type": "PRIOR_CANCEL",
+          "timestamp": "2026-10-02T08:35:00+00:00",
+          "price": 1.122
+        },
+        {
+          "type": "LINGERING_PRINT",
+          "timestamp": "2026-10-02T09:00:00+00:00",
+          "price": 1.123
+        }
       ],
       "expected": {
         "reactivation_granted": false,
@@ -602,9 +694,11 @@
       }
     },
     "sig_16_source_replacement_cancels_pending_activation": {
-      "category": ["source_settled"],
+      "category": [
+        "source_settled"
+      ],
       "description": "H4 SET_1 is active and pending confirmation; H4 forms new SET_2 replacement. SET_1 activation is immediately cancelled.",
-      "authority": "MTF-Analysis.pdf §9, OPEN-03",
+      "authority": "MTF-Analysis.pdf \u00a79, OPEN-03",
       "source_context": {
         "source_timeframe": "H4",
         "set_id": "SET_1",
@@ -622,9 +716,11 @@
       }
     },
     "sig_17_source_main_choch_cancels_old_direction_activation": {
-      "category": ["source_settled"],
+      "category": [
+        "source_settled"
+      ],
       "description": "H4 Bullish TJL is pending confirmation; H4 produces Main CHOCH to Downward. Bullish activation is immediately cancelled before replacement forms.",
-      "authority": "MTF-Analysis.pdf §9 (Q&A 24)",
+      "authority": "MTF-Analysis.pdf \u00a79 (Q&A 24)",
       "source_context": {
         "source_timeframe": "H4",
         "direction": "UPWARD",
@@ -642,7 +738,10 @@
       }
     },
     "sig_18_consolidated_choch_and_iss_confirmation_single_signal": {
-      "category": ["source_settled", "edge_boundary_specification"],
+      "category": [
+        "source_settled",
+        "edge_boundary_specification"
+      ],
       "description": "Setup receives both CHOCH and ISS confirmation at exact same close. Emits exactly one consolidated BUY signal with both references (OPEN-07).",
       "authority": "approved-clarifications.md (OPEN-07)",
       "source_context": {
@@ -651,34 +750,62 @@
         "direction": "UPWARD"
       },
       "confirmations": [
-        {"pattern_type": "CHOCH", "event_id": "EVT_CHOCH_01", "close_timestamp": "2026-10-02T09:00:00+00:00"},
-        {"pattern_type": "AUTHORITATIVE_CONFIRMED_ISS", "event_id": "EVT_ISS_01", "close_timestamp": "2026-10-02T09:00:00+00:00"}
+        {
+          "pattern_type": "CHOCH",
+          "event_id": "EVT_CHOCH_01",
+          "close_timestamp": "2026-10-02T09:00:00+00:00"
+        },
+        {
+          "pattern_type": "AUTHORITATIVE_CONFIRMED_ISS",
+          "event_id": "EVT_ISS_01",
+          "close_timestamp": "2026-10-02T09:00:00+00:00"
+        }
       ],
       "expected": {
         "signal_published": true,
         "signal_count": 1,
-        "confirmation_event_ids": ["EVT_CHOCH_01", "EVT_ISS_01"],
+        "confirmation_event_ids": [
+          "EVT_CHOCH_01",
+          "EVT_ISS_01"
+        ],
         "is_broker_execution": false
       }
     },
     "sig_19_chronological_listing_without_position_gating": {
-      "category": ["source_settled"],
+      "category": [
+        "source_settled"
+      ],
       "description": "Sequential BUY signal followed by valid SELL signal on different timeframe are both published chronologically without hypothetical position suppression.",
       "authority": "approved-clarifications.md (OPEN-11)",
       "signals": [
-        {"signal_id": "SIG_01", "side": "BUY", "timestamp": "2026-10-02T09:00:00+00:00", "source_tf": "H4"},
-        {"signal_id": "SIG_02", "side": "SELL", "timestamp": "2026-10-02T13:00:00+00:00", "source_tf": "D1"}
+        {
+          "signal_id": "SIG_01",
+          "side": "BUY",
+          "timestamp": "2026-10-02T09:00:00+00:00",
+          "source_tf": "H4"
+        },
+        {
+          "signal_id": "SIG_02",
+          "side": "SELL",
+          "timestamp": "2026-10-02T13:00:00+00:00",
+          "source_tf": "D1"
+        }
       ],
       "expected": {
         "published_signals_count": 2,
         "is_position_gated": false,
-        "signal_sequence": ["SIG_01", "SIG_02"]
+        "signal_sequence": [
+          "SIG_01",
+          "SIG_02"
+        ]
       }
     },
     "sig_20_unresolved_source_structure_blocks_signal_fail_closed": {
-      "category": ["edge_boundary_specification"],
+      "category": [
+        "edge_boundary_specification"
+      ],
       "description": "Source structure encounters c1 == p2 boundary equality and enters unresolved state. Signal evaluation is frozen fail-closed.",
-      "authority": "trade-signal-acceptance.md §3, Choch.pdf §1",
+      "authority": "trade-signal-acceptance.md \u00a73, Choch.pdf \u00a71",
       "source_context": {
         "source_timeframe": "H4",
         "level_key": "FEED_EURUSD_H4:H4:LVL_01",
@@ -696,9 +823,11 @@
       }
     },
     "sig_21_unresolved_iss_multi_candle_pullback_blocks_signal": {
-      "category": ["edge_boundary_specification"],
+      "category": [
+        "edge_boundary_specification"
+      ],
       "description": "Candidate LTF confirmation is an unresolved multi-candle pullback ISS. Fails closed with BLOCKED_UNRESOLVED_CONFIRMATION_GAP.",
-      "authority": "trade-signal-acceptance.md §3, ISS.pdf",
+      "authority": "trade-signal-acceptance.md \u00a73, ISS.pdf",
       "source_context": {
         "source_timeframe": "H4",
         "level_key": "FEED_EURUSD_H4:H4:LVL_01"
@@ -715,7 +844,9 @@
       }
     },
     "sig_22_unknown_intra_candle_order_blocks_signal": {
-      "category": ["edge_boundary_specification"],
+      "category": [
+        "edge_boundary_specification"
+      ],
       "description": "Tap and confirmation occur on same coarse bar with unverifiable intra-bar order -> UNKNOWN_ORDER -> no signal emitted.",
       "authority": "approved-clarifications.md (OPEN-04)",
       "coarse_bar": {
@@ -730,9 +861,11 @@
       }
     },
     "sig_23_forming_incomplete_candle_cannot_confirm_signal": {
-      "category": ["edge_boundary_specification"],
+      "category": [
+        "edge_boundary_specification"
+      ],
       "description": "Incomplete / forming confirmation candle crosses level; candle close has not occurred. Confirmation is incomplete; no signal published.",
-      "authority": "MTF-Analysis.pdf §7",
+      "authority": "MTF-Analysis.pdf \u00a77",
       "confirmation_event": {
         "is_completed": false,
         "close_timestamp": null
@@ -744,39 +877,51 @@
       }
     },
     "sig_24_zero_width_single_price_line_boundary_equality": {
-      "category": ["edge_boundary_specification"],
+      "category": [
+        "edge_boundary_specification"
+      ],
       "description": "Low-side TJL zone with missing wick renders as single price line (lower_edge == upper_edge). Exact price match activates; subsequent LTF CHOCH confirms signal.",
-      "authority": "MTF-Analysis.pdf §4, trade-signal-acceptance.md §2",
+      "authority": "MTF-Analysis.pdf \u00a74, trade-signal-acceptance.md \u00a72",
       "source_context": {
         "source_timeframe": "H4",
-        "lower_edge": 1.1350,
-        "upper_edge": 1.1350,
+        "lower_edge": 1.135,
+        "upper_edge": 1.135,
         "is_line": true,
         "level_key": "FEED_EURUSD_H4:H4:LINE_LVL"
       },
       "market_event": {
         "timestamp": "2026-10-02T08:15:00+00:00",
-        "price": 1.1350
+        "price": 1.135
       },
       "confirmation_event": {
         "confirmation_timeframe": "M5",
         "pattern_type": "CHOCH",
         "close_timestamp": "2026-10-02T08:45:00+00:00",
-        "close_price": 1.1380
+        "close_price": 1.138
       },
       "expected": {
         "activation_granted": true,
         "signal_published": true,
         "signal_side": "BUY",
-        "consumed_level_keys": ["FEED_EURUSD_H4:H4:LINE_LVL"]
+        "consumed_level_keys": [
+          "FEED_EURUSD_H4:H4:LINE_LVL"
+        ]
       }
     },
     "sig_25_prefix_replay_and_immutable_publication": {
-      "category": ["source_settled"],
+      "category": [
+        "source_settled"
+      ],
       "description": "Replaying historical event stream produces strictly prefix-consistent, deterministic signal publications without mutating prior records.",
       "authority": "approved-clarifications.md (OPEN-09)",
-      "replay_pass_1": ["SIG_01", "SIG_02"],
-      "replay_pass_2": ["SIG_01", "SIG_02"],
+      "replay_pass_1": [
+        "SIG_01",
+        "SIG_02"
+      ],
+      "replay_pass_2": [
+        "SIG_01",
+        "SIG_02"
+      ],
       "expected": {
         "is_deterministic": true,
         "is_prefix_consistent": true,
@@ -784,9 +929,12 @@
       }
     },
     "sig_26_published_signal_distinct_from_broker_execution": {
-      "category": ["source_settled", "edge_boundary_specification"],
+      "category": [
+        "source_settled",
+        "edge_boundary_specification"
+      ],
       "description": "Signal emitted on dashboard carries metadata is_broker_execution: false and signal_type: CONCEPTUAL_ANALYSIS_SIGNAL, enforcing safety boundary.",
-      "authority": "trade-signal-acceptance.md §1",
+      "authority": "trade-signal-acceptance.md \u00a71",
       "published_signal": {
         "signal_id": "SIG_EURUSD_01",
         "is_broker_execution": false,
@@ -799,16 +947,38 @@
       }
     },
     "sig_27_order_independent_candidate_arrival": {
-      "category": ["synthetic_event_sequence"],
+      "category": [
+        "synthetic_event_sequence"
+      ],
       "description": "Two competing candidates delivered in reverse arrival order produce identical winning candidate (CAND_H4_M5) and identical cancellations.",
-      "authority": "trade-signal-acceptance.md §2 (Stage 5)",
+      "authority": "trade-signal-acceptance.md \u00a72 (Stage 5)",
       "order_a": [
-        {"candidate_id": "CAND_D1_H1", "close_timestamp": "2026-10-02T09:00:00+00:00", "timeframe": "H1", "role": "TJL2"},
-        {"candidate_id": "CAND_H4_M5", "close_timestamp": "2026-10-02T08:35:00+00:00", "timeframe": "M5", "role": "TJL1"}
+        {
+          "candidate_id": "CAND_D1_H1",
+          "close_timestamp": "2026-10-02T09:00:00+00:00",
+          "timeframe": "H1",
+          "role": "TJL2"
+        },
+        {
+          "candidate_id": "CAND_H4_M5",
+          "close_timestamp": "2026-10-02T08:35:00+00:00",
+          "timeframe": "M5",
+          "role": "TJL1"
+        }
       ],
       "order_b": [
-        {"candidate_id": "CAND_H4_M5", "close_timestamp": "2026-10-02T08:35:00+00:00", "timeframe": "M5", "role": "TJL1"},
-        {"candidate_id": "CAND_D1_H1", "close_timestamp": "2026-10-02T09:00:00+00:00", "timeframe": "H1", "role": "TJL2"}
+        {
+          "candidate_id": "CAND_H4_M5",
+          "close_timestamp": "2026-10-02T08:35:00+00:00",
+          "timeframe": "M5",
+          "role": "TJL1"
+        },
+        {
+          "candidate_id": "CAND_D1_H1",
+          "close_timestamp": "2026-10-02T09:00:00+00:00",
+          "timeframe": "H1",
+          "role": "TJL2"
+        }
       ],
       "expected": {
         "order_a_winner": "CAND_H4_M5",
@@ -817,9 +987,12 @@
       }
     },
     "sig_28_m1_confirmation_between_htf_closes_eligible": {
-      "category": ["source_settled", "edge_boundary_specification"],
+      "category": [
+        "source_settled",
+        "edge_boundary_specification"
+      ],
       "description": "M1 confirmation at 08:05:00 is fully complete and eligible while H1 bar [08:00, 09:00) is normally forming, because all evidence due at 08:05:00 is present.",
-      "authority": "trade-signal-acceptance.md §2 (Stage 5)",
+      "authority": "trade-signal-acceptance.md \u00a72 (Stage 5)",
       "evaluated_timestamp": "2026-10-02T08:05:00+00:00",
       "due_events_received": true,
       "htf_bar_forming": {
@@ -839,9 +1012,11 @@
       }
     },
     "sig_29_missing_due_event_blocks_arbitration": {
-      "category": ["edge_boundary_specification"],
+      "category": [
+        "edge_boundary_specification"
+      ],
       "description": "Candidate arrives at 08:05:00, but an event due at 08:05:00 (e.g. M5 close) is missing from the data stream. Fails closed with BLOCKED_INCOMPLETE_EVIDENCE_COVERAGE.",
-      "authority": "trade-signal-acceptance.md §2 (Stage 5)",
+      "authority": "trade-signal-acceptance.md \u00a72 (Stage 5)",
       "evaluated_timestamp": "2026-10-02T08:05:00+00:00",
       "missing_due_event": {
         "timeframe": "M5",
@@ -855,36 +1030,54 @@
       }
     },
     "sig_30_known_ordered_same_coarse_candle": {
-      "category": ["source_settled", "edge_boundary_specification"],
-      "description": "Tap and confirmation share coarse H4 bar [08:00, 12:00), but monotonic sequence indices prove tap (seq 101) occurred before confirmation completion (seq 105). Eligible timing.",
-      "authority": "trade-signal-acceptance.md §2 (Stage 3 Case B), OPEN-04",
+      "category": [
+        "source_settled",
+        "edge_boundary_specification"
+      ],
+      "description": "Tap and confirmation share coarse H4 bar [08:00, 12:00) with absent fine sub-bar timestamps, but discrete monotonic sequence indices prove tap (seq 101) occurred before confirmation completion (seq 105). Eligible timing.",
+      "authority": "trade-signal-acceptance.md \u00a72 (Stage 3 Case B), OPEN-04",
       "coarse_bar": {
         "open_time": "2026-10-02T08:00:00+00:00",
         "close_time": "2026-10-02T12:00:00+00:00"
       },
       "tap_event": {
         "price": 1.1365,
-        "sequence_index": 101
+        "sequence_index": 101,
+        "sub_bar_timestamp_available": false
       },
       "confirmation_event": {
         "pattern": "CHOCH",
         "sequence_index": 105,
-        "close_timestamp": "2026-10-02T12:00:00+00:00"
+        "close_timestamp": "2026-10-02T12:00:00+00:00",
+        "sub_bar_timestamp_available": false
       },
       "expected": {
         "causality_valid": true,
         "signal_published": true,
-        "order_established_by_sequence": true
+        "order_established_by_sequence": true,
+        "fine_timestamp_required": false
       }
     },
     "sig_31_late_candidate_before_batch_finalization": {
-      "category": ["synthetic_event_sequence"],
+      "category": [
+        "synthetic_event_sequence"
+      ],
       "description": "Candidate CAND_M5 arrives slightly late before batch finalization at timestamp T. Evaluator defers final commit until all due events arrive, correctly evaluating both candidates.",
-      "authority": "trade-signal-acceptance.md §2 (Stage 6)",
+      "authority": "trade-signal-acceptance.md \u00a72 (Stage 6)",
       "batch_timestamp": "2026-10-02T09:00:00+00:00",
       "events": [
-        {"candidate_id": "CAND_H1", "received_at": "2026-10-02T09:00:01+00:00", "close_timestamp": "2026-10-02T09:00:00+00:00", "timeframe": "H1"},
-        {"candidate_id": "CAND_M5", "received_at": "2026-10-02T09:00:02+00:00", "close_timestamp": "2026-10-02T09:00:00+00:00", "timeframe": "M5"}
+        {
+          "candidate_id": "CAND_H1",
+          "received_at": "2026-10-02T09:00:01+00:00",
+          "close_timestamp": "2026-10-02T09:00:00+00:00",
+          "timeframe": "H1"
+        },
+        {
+          "candidate_id": "CAND_M5",
+          "received_at": "2026-10-02T09:00:02+00:00",
+          "close_timestamp": "2026-10-02T09:00:00+00:00",
+          "timeframe": "M5"
+        }
       ],
       "expected": {
         "deferred_until_complete": true,
@@ -893,13 +1086,18 @@
       }
     },
     "sig_32_late_confirmation_after_finalization_ignored": {
-      "category": ["source_settled", "edge_boundary_specification"],
+      "category": [
+        "source_settled",
+        "edge_boundary_specification"
+      ],
       "description": "CHOCH confirms at 08:35, immediately publishing BUY signal. Second confirmation completes on later candle at 08:45 after 08:35 batch was finalized. Late confirmation cannot mutate published signal.",
-      "authority": "approved-clarifications.md (OPEN-07, OPEN-09), trade-signal-acceptance.md §2 (Stage 6)",
+      "authority": "approved-clarifications.md (OPEN-07, OPEN-09), trade-signal-acceptance.md \u00a72 (Stage 6)",
       "finalized_signal": {
         "signal_id": "SIG_0835",
         "published_at": "2026-10-02T08:35:00+00:00",
-        "confirmation_ids": ["EVT_CHOCH_0835"]
+        "confirmation_ids": [
+          "EVT_CHOCH_0835"
+        ]
       },
       "late_event": {
         "received_at": "2026-10-02T08:45:00+00:00",
@@ -912,9 +1110,11 @@
       }
     },
     "sig_33_idempotent_duplicate_commit": {
-      "category": ["synthetic_event_sequence"],
+      "category": [
+        "synthetic_event_sequence"
+      ],
       "description": "Retrying an identical conceptual commit (same commit_id, winner, level, and signal) succeeds idempotently and returns the existing commit record.",
-      "authority": "trade-signal-acceptance.md §2 (Stage 6)",
+      "authority": "trade-signal-acceptance.md \u00a72 (Stage 6)",
       "commit_request_1": {
         "commit_id": "COMMIT_20261002_0835",
         "winner_id": "CAND_H4_M5",
@@ -932,9 +1132,11 @@
       }
     },
     "sig_34_conflicting_commit_retry_rejected": {
-      "category": ["edge_boundary_specification"],
+      "category": [
+        "edge_boundary_specification"
+      ],
       "description": "Retrying the same commit_id with conflicting content (different winner candidate) is strictly rejected with COMMIT_CONFLICT_REJECTED.",
-      "authority": "trade-signal-acceptance.md §2 (Stage 6)",
+      "authority": "trade-signal-acceptance.md \u00a72 (Stage 6)",
       "commit_initial": {
         "commit_id": "COMMIT_20261002_0835",
         "winner_id": "CAND_H4_M5"
@@ -950,9 +1152,12 @@
       }
     },
     "sig_35_scoped_ledger_namespace_prevents_cross_session_consumption": {
-      "category": ["source_settled", "edge_boundary_specification"],
+      "category": [
+        "source_settled",
+        "edge_boundary_specification"
+      ],
       "description": "Level consumed in SESSION_A (start candle Oct 1) remains available and unconsumed in independent SESSION_B (start candle Oct 5) with identical settings.",
-      "authority": "approved-clarifications.md (OPEN-08), trade-signal-acceptance.md §2 (Stage 5 & 7)",
+      "authority": "approved-clarifications.md (OPEN-08), trade-signal-acceptance.md \u00a72 (Stage 5 & 7)",
       "level_key": "FEED_EURUSD_H4:H4:2026-10-01T04:00:00+00:00:HIGH",
       "session_a_identity": {
         "server": "DEMO_SERVER",
@@ -973,9 +1178,12 @@
       }
     },
     "sig_36_isolated_tracking_record_cannot_confirm_signal": {
-      "category": ["source_settled", "edge_boundary_specification"],
+      "category": [
+        "source_settled",
+        "edge_boundary_specification"
+      ],
       "description": "An isolated tracking record (ISOLATED_TRACKING_ONLY) is not an authoritative confirmed directional ISS event and cannot confirm a trade signal.",
-      "authority": "trade-signal-acceptance.md §2 (Stage 3), MTF-Analysis.pdf §6",
+      "authority": "trade-signal-acceptance.md \u00a72 (Stage 3), MTF-Analysis.pdf \u00a76",
       "source_context": {
         "source_timeframe": "H4",
         "level_key": "FEED_EURUSD_H4:H4:LVL_01"
@@ -989,6 +1197,57 @@
         "signal_published": false,
         "rejection_reason": "REJECTED_ISOLATED_TRACKING_NOT_CONFIRMATION",
         "consumed_level_keys": []
+      }
+    },
+    "sig_37_genuinely_new_late_due_evidence_triggers_coverage_violation": {
+      "category": [
+        "edge_boundary_specification"
+      ],
+      "description": "New confirmation candidate CAND_M5 due at 09:00:00 arrives late at 09:02:00 after the 09:00:00 batch was mistakenly declared finalized. Because this evidence was due before the completeness boundary, it triggers a completeness/coverage violation. The late evidence is recorded as a diagnostic, the published signal at 09:00 remains immutable, but subsequent decisions on this timeline are blocked fail-closed pending versioned reconciliation.",
+      "authority": "trade-signal-acceptance.md \u00a72 (Stage 6)",
+      "batch_finalized_at": "2026-10-02T09:00:00+00:00",
+      "late_due_candidate": {
+        "candidate_id": "CAND_M5",
+        "due_at": "2026-10-02T09:00:00+00:00",
+        "received_at": "2026-10-02T09:02:00+00:00",
+        "is_identical_duplicate": false
+      },
+      "expected": {
+        "completeness_violation_triggered": true,
+        "violation_code": "COMPLETENESS_COVERAGE_VIOLATION",
+        "published_signal_mutated": false,
+        "subsequent_decisions_blocked": true,
+        "is_immutable": true,
+        "retained_as_diagnostic": true
+      }
+    },
+    "sig_38_same_physical_level_distinct_set_and_activation_identities": {
+      "category": [
+        "source_settled",
+        "edge_boundary_specification"
+      ],
+      "description": "A persistent physical level (StableLevelId) retained into a subsequent week appears in SET_1 with activation ACT_01, and later in successor SET_2 with activation ACT_02. The CandidateSetupKey embeds full activation_id and source_set_id, preventing collision or conflation across sets.",
+      "authority": "trade-signal-acceptance.md \u00a72 (Stage 6), MTF-Analysis.pdf \u00a74",
+      "physical_level": "FEED_EURUSD_H4:H4:2026-10-01T04:00:00+00:00:HIGH",
+      "setup_key_set_1": "[15:SESSION_DEFAULT][7:REV_001][24:EURUSD:H4:LVL_01:GEN_1][15:SET_20261001_H4][4:TJL1][17:CONF_M5_CHOCH_v1][26:EURUSD:M5:20261002T083500Z][25:2026-10-02T08:35:00+00:00]",
+      "setup_key_set_2": "[15:SESSION_DEFAULT][7:REV_001][24:EURUSD:H4:LVL_01:GEN_2][15:SET_20261008_H4][4:TJL1][17:CONF_M5_CHOCH_v1][26:EURUSD:M5:20261009T083500Z][25:2026-10-09T08:35:00+00:00]",
+      "expected": {
+        "setup_keys_distinct": true,
+        "collision_detected": false,
+        "separate_activation_lifecycles": true
+      }
+    },
+    "sig_39_different_confirmation_configurations_distinct_setup_keys": {
+      "category": [
+        "edge_boundary_specification"
+      ],
+      "description": "Two confirmation engines running distinct configurations (CONF_M5_CHOCH_v1 vs CONF_M5_CHOCH_v2) on the same timeframe evaluate the same candle. Distinct confirmation_engine_id in CandidateSetupKey ensures candidates are not conflated.",
+      "authority": "trade-signal-acceptance.md \u00a72 (Stage 6), approved-clarifications.md (OPEN-08)",
+      "setup_key_config_a": "[15:SESSION_DEFAULT][7:REV_001][24:EURUSD:H4:LVL_01:GEN_1][15:SET_20261001_H4][4:TJL1][17:CONF_M5_CHOCH_v1][26:EURUSD:M5:20261002T083500Z][25:2026-10-02T08:35:00+00:00]",
+      "setup_key_config_b": "[15:SESSION_DEFAULT][7:REV_001][24:EURUSD:H4:LVL_01:GEN_1][15:SET_20261001_H4][4:TJL1][17:CONF_M5_CHOCH_v2][26:EURUSD:M5:20261002T083500Z][25:2026-10-02T08:35:00+00:00]",
+      "expected": {
+        "setup_keys_distinct": true,
+        "cross_engine_conflation": false
       }
     }
   }

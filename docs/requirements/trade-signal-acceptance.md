@@ -3,7 +3,7 @@
 **Milestone**: Milestone 30 — Trade-Signal Business Logic Requirements and Acceptance Contract  
 **Active Branch**: `requirements/trade-signal-acceptance`  
 **Accepted Baseline Commit**: `0144ddb8150b4132a7b60d24698105d897514cb2` (Milestone 29 accepted)  
-**Parent Documentation Commit**: `c159c6af10570739ded050e61be1b373fd98f084`  
+**Parent Documentation Commit**: `d64cbb15959a0aa5f63ec50d97e91a5598060ebe` (HANDOFF-087)  
 
 > [!IMPORTANT]
 > **Specification Authority & Provenance Boundary**:
@@ -34,7 +34,7 @@
 > - **Verification Provenance & Authority Distinctions**:
 >   - Strategy text cited above is verified from the markdown transcription `docs/strategy/extracted/mtf-analysis.md` and repository documentation.
 >   - Transcribed PDF page numbers are recorded as preserved from the transcription metadata; direct underlying PDF page validation remains uninspected in this phase.
->   - Operational engineering proposals (e.g. same-candle consolidation boundary, transaction commit boundary) are explicitly labeled as implementation contracts requiring acceptance, distinguished from verbatim source strategy rules.
+>   - Operational engineering proposals (e.g. candidate setup grouping key, transaction commit boundary, completeness violation handling) are explicitly labeled as implementation contracts requiring acceptance, distinguished from verbatim source strategy rules.
 > - **Strict Safety & Scope Boundary**: Requirements reconciliation, fixture design, and acceptance contract specification only. Strictly **zero runtime signal engine implementation, zero UI order execution, zero MT5 live trading calls, zero live account modification, zero automated trading, and zero merging to `main`**.
 
 ---
@@ -63,6 +63,7 @@ The trade-signal business logic defines five distinct conceptual entities across
 ┌────────────────────────────────────────────────────────────────────────────────────────┐
 │ 3. Confirmed Setup Candidate (Signal Engine Evaluation)                                │
 │    - Lower-timeframe directional pattern (Bullish/Bearish Normal CHOCH or ISS)        │
+│    - Explicit CandidateSetupKey tracking full activation, set, and confirmation engine │
 │    - Valid provenance: completed pattern, resolved dependencies, unbroken causality   │
 │    - Invalidation pre-checks: source replacement, source main CHOCH                    │
 └──────────────────────────────────────┬─────────────────────────────────────────────────┘
@@ -120,11 +121,15 @@ The trade-signal business logic defines five distinct conceptual entities across
   | **D1** | **H1** | Authoritative Normal CHOCH or Authoritative Confirmed ISS |
   | **H4** | **M5** | Authoritative Normal CHOCH or Authoritative Confirmed ISS |
   | **H1** | **M1** | Authoritative Normal CHOCH or Authoritative Confirmed ISS |
+- **Continuous Confirmation Detection**:
+  - Confirmation engines run continuous pattern recognition over their own independently configured candle history from their established start candles.
+  - They do **NOT** pause, reset, or restart pattern recognition when a physical tap occurs.
+  - A confirmation pattern that begins forming before activation touch and completes on the tap candle or afterward is fully valid and permitted (`MTF-Analysis.pdf` §7, Q&A 12, `sig_06`).
 - **Directional Concordance**:
   - Intended BUY signal $\rightarrow$ Requires **Bullish Normal CHOCH** or **Bullish Confirmed ISS** (`MTF-Analysis.pdf` §6, Q&A 4).
   - Intended SELL signal $\rightarrow$ Requires **Bearish Normal CHOCH** or **Bearish Confirmed ISS** (`MTF-Analysis.pdf` §6, Q&A 4).
   - An opposite-direction confirmation is strictly rejected (`REJECTED_DIRECTION_MISMATCH`).
-- **Authoritative Confirmation Provenance (Addressing Review Directive 1 & 6)**:
+- **Authoritative Confirmation Provenance**:
   - Merely being an event emitted by an engine module is insufficient. A valid confirmation requires:
     1. Valid structural provenance: derived from real underlying candle sequence meeting all strategy definitions (`Choch.pdf`, `ISS.pdf`, `Market Structure Marking.docx`).
     2. Valid completion status: `is_completed: true` on the confirmation candle close.
@@ -133,13 +138,13 @@ The trade-signal business logic defines five distinct conceptual entities across
   - **Unresolved detection paths** (including multi-candle pullback ambiguity where strategy rules remain unreconciled) fail closed as `BLOCKED_UNRESOLVED_CONFIRMATION_GAP` and emit no trade signals. No candle-count heuristic is invented.
 - **Fresh Transition Required**:
   - An already-aligned trend is NOT sufficient; a fresh CHOCH or ISS transition event is mandatory (`MTF-Analysis.pdf` §6, Q&A 19).
-- **Same-Candle Causality & Evidence Contract (Addressing Review Directive 3)**:
+- **Same-Candle Causality & Evidence Contract**:
   - `MTF-Analysis.pdf` §7 (Q&A 12) provides that the tap candle may also confirm entry if it confirms a valid pattern.
   - Three distinct causal timing cases apply:
-    * **Case A (Exact Observed Print Preceding Close)**: Exact observed touch timestamp is strictly prior to confirmation close timestamp ($t_{tap} < t_{close}$) $\rightarrow$ Eligible timing.
-    * **Case B (Shared Coarse Timestamp with Authoritative Ordering Evidence)**: Tap and confirmation share a coarse candle timestamp, but monotonic sequence indexing proves touch preceded pattern completion (e.g. sequence index $seq_{tap} < seq_{conf}$) $\rightarrow$ Eligible timing.
-    * **Case C (OHLC Overlap without Sequence Evidence)**: Tap and confirmation share a coarse bar, but the feed provides only OHLC bounds without intra-bar sequence ordering $\rightarrow$ Fail closed as `UNKNOWN_ORDER`. No signal emitted.
-  - A confirmation completed strictly before activation cannot be reused (`PRE_ACTIVATION_CONFIRMATION_REJECTED`).
+    * **Case A (Exact Observed Print Preceding Close)**: Exact observed touch timestamp is strictly prior to confirmation close timestamp ($t_{tap} < t_{close}$) $\rightarrow$ Eligible timing (`sig_03`).
+    * **Case B (Shared Coarse Timestamp with Monotonic Sequence Evidence)**: Tap and confirmation share a coarse candle timestamp interval, but authoritative monotonic sequence indexing proves touch preceded pattern completion ($seq_{tap} < seq_{conf}$) $\rightarrow$ Eligible timing (`sig_30`). Missing sub-bar timestamps do NOT suppress signals when sequence evidence establishes order.
+    * **Case C (OHLC Overlap without Sequence Evidence)**: Tap and confirmation share a coarse bar, but the feed provides only OHLC bounds without intra-bar sequence ordering or sub-bar print timestamps $\rightarrow$ Fails closed as `UNKNOWN_ORDER` (`sig_22`). Missing authoritative touch or ordering evidence blocks the transition. Timestamp precision alone does not determine eligibility. This is an evidence limitation, not an unresolved strategy choice.
+  - A confirmation completed strictly before activation cannot be reused (`PRE_ACTIVATION_CONFIRMATION_REJECTED`, `sig_05`).
   - Do NOT wait for a retest of zones created by CHOCH or ISS (`MTF-Analysis.pdf` §7, Q&A 6).
 - **Location Independence**:
   - The confirming candle does NOT need to close inside the tapped source TJL zone; confirmation remains valid after price has moved away, provided activation has not been cancelled (`MTF-Analysis.pdf` §7, Q&A 5).
@@ -153,60 +158,128 @@ The trade-signal business logic defines five distinct conceptual entities across
   3. *Cross-Timeframe Non-Interference*: A new TJL update on another source timeframe does NOT cancel pending activations on other timeframes (`MTF-Analysis.pdf` §9, Q&A 10).
   4. *Winning Entry on Any Timeframe*: A winning entry selection immediately cancels all other pending activations across D1, H4, and H1 within the active domain session (`MTF-Analysis.pdf` §8, §9, Q&A 16).
 
-### Stage 5: Declared Arbitration Domain, Completeness & Tie-Breaking (Addressing Review Directives 2 & 4)
-- **Three-Tier Calculation Namespace Separation (Addressing Review Directive 1)**:
+### Stage 5: Declared Arbitration Domain, Completeness & Tie-Breaking
+- **Three-Tier Calculation Namespace Separation**:
   To prevent cross-run pollution and clarify replay semantics, three distinct identities are maintained:
   1. **Strategy / Configuration Identity**: The strategy parameters tuple:  
      `(server, symbol, price_basis, timeframe_configuration, manual_start_time, rule_version)`.
   2. **Calculation Namespace / Domain Session**: The concrete runtime execution instance:  
      `DomainSession = (calculation_identity, session_id, sequence_domain_run_id)`.  
-     Usage consumption, level states, and pending activations are strictly scoped to this `DomainSession`. Independent research sessions or different manual start times do NOT cross-consume levels.
+     Usage consumption, level states, and pending activations are strictly scoped to this `DomainSession`. Independent research sessions or different manual start times do NOT cross-consume levels (`sig_35`).
   3. **Replay Version**: A versioned calculation run (`revision_id` / `run_version`). A fresh recalculation from historical event sequence rebuilds its own clean usage ledger from scratch; it does NOT mutate prior versioned ledgers or leak consumption.
-- **Evidence Completeness Defined by Due Events (Addressing Review Directive 2)**:
+- **Evidence Completeness Defined by Due Events**:
   - Completeness at timestamp $T$ does NOT require every higher timeframe to close simultaneously. An ordinary H1, H4, or D1 bar normally forming across $T$ is NOT missing evidence.
   - Completeness requires: **All events, bars, and invalidations due at or before $T$ across all participating timelines in the declared domain are accounted for**.
-  - An M1 confirmation at 08:05:00 is fully complete and eligible to arbitrate, even while H1 `[08:00, 09:00)` is forming, provided that all M1, M5, H1, H4, and D1 data *due* at or before 08:05:00 has been received.
-  - If a due event is missing (e.g. feed gap, unclosed bar due at $T$, or unreceived source replacement), arbitration is blocked fail-closed (`BLOCKED_INCOMPLETE_EVIDENCE_COVERAGE`).
+  - An M1 confirmation at 08:05:00 is fully complete and eligible to arbitrate, even while H1 `[08:00, 09:00)` is forming, provided that all M1, M5, H1, H4, and D1 data *due* at or before 08:05:00 has been received (`sig_28`).
+  - If a due event is missing (e.g. feed gap, unclosed bar due at $T$, or unreceived source replacement), arbitration is blocked fail-closed (`BLOCKED_INCOMPLETE_EVIDENCE_COVERAGE`, `sig_29`).
 - **Order-Independent Deterministic Tie-Breaking**:
   - Competing candidates evaluated at timestamp $T$ are deterministically sorted by:
     1. **Primary**: Earliest completed confirmation `close_timestamp` (ascending) (`MTF-Analysis.pdf` §8, Q&A 15).
     2. **Secondary (Simultaneous Timestamps)**: Lower confirmation timeframe (`M1` before `M5` before `H1`) (`MTF-Analysis.pdf` §8, Q&A 18).
     3. **Tertiary (Simultaneous Same-Source TJL1 vs TJL2)**: Prefer **TJL2 / A+** over TJL1 (`MTF-Analysis.pdf` §8, Q&A 22).
-  - The winner is selected strictly by this hierarchy. Event delivery arrival order has zero strategy priority.
+  - The winner is selected strictly by this hierarchy (`sig_09`, `sig_10`, `sig_11`). Event delivery arrival order has zero strategy priority (`sig_27`).
 
-### Stage 6: Atomic Conceptual Commit, Finalization & Late Evidence (Addressing Review Directives 4 & 5)
-- **Atomic Conceptual Commit Transaction**:
-  - The winning entry commit is an atomic, idempotent operation within the active `DomainSession`:
-    1. Designates the winning candidate setup.
-    2. Consumes the winning physical level: permanently marks `StableLevelId` as `USED` in the scoped usage ledger.
-    3. Records and publishes the immutable `PublishedTradeSignal`.
-    4. Routes cancellation events across all other pending activations (`PENDING_ACTIVATION` and `REARMED_PENDING`) across D1, H4, and H1 within the active domain session.
-  - Failure at any step rolls back completely (zero partial commits).
-- **Finalization & Idempotent Retry**:
-  - Retrying an identical commit (same `commit_id` and content) succeeds idempotently and returns the existing commit record.
-  - Retrying a commit with conflicting content for the same `commit_id` is strictly rejected (`COMMIT_CONFLICT_REJECTED`).
-- **Late Evidence Policy**:
-  - *Candidate arriving before batch finalization*: Evaluated into the pending batch before commit.
-  - *Confirmation arriving after batch was finalized*: The winning commit at $T$ is already finalized; the late confirmation cannot retrospectively mutate the winner or cancel it. It is logged as diagnostic (`LATE_CONFIRMATION_IGNORED`).
-  - *Correction of historical feed data*: Published signals are strictly immutable (`OPEN-09`). Corrections trigger a versioned replay run with a new `run_version`, never in-place signal mutation.
-- **Confirmation Consolidation Engineering Policy (Addressing Review Directive 5)**:
-  - *Operational Policy*: In accordance with `OPEN-07`, when a single entry setup possesses both CHOCH and ISS confirmation evidence, both confirmation identifiers are recorded on a single signal record.
-  - To prevent delaying valid entries while preserving immutability, the operational grouping policy specifies that two confirmation events consolidate into a single signal when they share the same physical level, same activation generation, same confirmation timeframe, and complete on the **exact same confirmation candle close**.
-  - A second confirmation completing on a later candle does NOT delay entry and does NOT retrospectively mutate the published signal (`OPEN-09`).
+### Stage 6: Candidate Identity, Setup Grouping, Schemas, and Atomic Commit
+
+#### 6.1 Explicit Candidate / Setup Identity (`CandidateSetupKey`)
+To eliminate ambiguous grouping and prevent conflation across distinct sets, engines, or sessions, candidate setups are identified by a canonical length-prefixed key:
+```
+CandidateSetupKey = [len:domain_session_id][len:revision_id][len:activation_id][len:source_set_id][len:source_member_key][len:confirmation_engine_id][len:confirmation_candle_id][len:confirmation_close_iso]
+```
+Where:
+- `domain_session_id`: Runtime calculation namespace `(calculation_identity, session_id, sequence_domain_run_id)`.
+- `revision_id`: Replay version / run version.
+- `activation_id`: Canonical activation identifier (`format_activation_id`) embedding symbol, source timeframe, level ID, and generation.
+- `source_set_id`: Source TJL set identifier (e.g. `SET_20261001_H4`).
+- `source_member_key`: Source member role key (e.g. `TJL1`, `TJL2_A_PLUS`).
+- `confirmation_engine_id`: Configuration identity of the confirmation engine (e.g. `CONF_M5_CHOCH_v1`).
+- `confirmation_candle_id`: Canonical confirmation bar identifier (e.g. `EURUSD:M5:2026-10-02T08:35:00Z`).
+- `confirmation_close_iso`: UTC ISO 8601 close timestamp of the confirming candle.
+
+#### 6.2 Proposed Setup Grouping Policy (`OPEN-07` Operational Proposal)
+- *Engineering Proposal Label*: In accordance with `OPEN-07`, when a single entry setup possesses both CHOCH and ISS confirmation evidence, both confirmation identifiers are recorded on a single signal record to avoid duplicate entries.
+- *Grouping Rule*: Multiple qualifying confirmation events consolidate into a single candidate setup if and only if they share the exact same `CandidateSetupKey`.
+- The setup aggregates individual confirmation event IDs (`confirmation_event_ids: Tuple[str, ...]`) and their pattern types (`confirmation_patterns: Tuple[str, ...]`), retaining complete individual event provenance.
+- Different confirmation engine configurations, distinct activation IDs, or distinct source sets produce different `CandidateSetupKey`s and CANNOT be conflated (`sig_38`, `sig_39`).
+- A second confirmation completing on a later candle does NOT delay entry and does NOT retrospectively mutate the published signal (`OPEN-09`).
+
+#### 6.3 Required Candidate Record Schema (`CandidateSignalRecord`)
+Every candidate evaluated in arbitration must supply the following explicit typed fields:
+1. `candidate_id`: str (canonical length-prefixed unique candidate identifier).
+2. `setup_key`: str (serialized canonical `CandidateSetupKey`).
+3. `domain_session_id`: str.
+4. `revision_id`: str.
+5. `activation_id`: str (canonical activation identifier).
+6. `source_level_id`: `StableLevelId` (full 4-tuple physical identity).
+7. `source_timeframe`: str (`"D1"` | `"H4"` | `"H1"`).
+8. `source_set_id`: str (TJL set identifier).
+9. `source_role`: str (`"TJL1"` | `"TJL2_A_PLUS"`).
+10. `signal_side`: str (`"BUY"` | `"SELL"`).
+11. `confirmation_timeframe`: str (`"H1"` | `"M5"` | `"M1"`).
+12. `confirmation_close_timestamp`: str (UTC ISO 8601).
+13. `confirmation_event_ids`: Tuple[str, ...] (individual confirmation event IDs).
+14. `confirmation_patterns`: Tuple[str, ...] (`"CHOCH"`, `"ISS"`).
+15. `is_consolidated`: bool (True if both CHOCH and ISS present).
+16. `timeframe_rank`: int (M1=1, M5=2, H1=3).
+17. `role_rank`: int (TJL2_A_PLUS=1, TJL1=2).
+
+#### 6.4 Required Published Signal Record Schema (`PublishedTradeSignal`)
+Every signal committed and published on the dashboard must supply the following explicit typed fields:
+1. `signal_id`: str (canonical length-prefixed unique signal identifier).
+2. `commit_id`: str (atomic transaction commit identifier).
+3. `domain_session_id`: str.
+4. `revision_id`: str.
+5. `winning_candidate_id`: str.
+6. `consumed_level_id`: `StableLevelId` (physical level consumed by this signal).
+7. `activation_id`: str.
+8. `source_timeframe`: str.
+9. `source_set_id`: str.
+10. `source_role`: str.
+11. `signal_side`: str (`"BUY"` | `"SELL"`).
+12. `confirmation_timeframe`: str.
+13. `signal_timestamp`: str (UTC ISO 8601, equals confirmation candle close).
+14. `confirmation_event_ids`: Tuple[str, ...].
+15. `confirmation_patterns`: Tuple[str, ...].
+16. `cancelled_activation_ids`: Tuple[str, ...] (all other pending activations cancelled by this commit across D1/H4/H1).
+17. `is_broker_execution`: bool = False (Mandatory safety invariant).
+18. `signal_type`: str = `"CONCEPTUAL_ANALYSIS_SIGNAL"` (Mandatory safety invariant).
+19. `publication_status`: str = `"FINALIZED_IMMUTABLE"`.
+
+#### 6.5 Atomic Conceptual Commit Transaction
+- The winning entry commit is an atomic, idempotent operation within the active `DomainSession`:
+  1. Designates the winning candidate setup.
+  2. Consumes the winning physical level: permanently marks `StableLevelId` as `USED` in the scoped usage ledger.
+  3. Records and publishes the immutable `PublishedTradeSignal`.
+  4. Routes cancellation events across all other pending activations (`PENDING_ACTIVATION` and `REARMED_PENDING`) across D1, H4, and H1 within the active domain session.
+- Failure at any step rolls back completely (zero partial commits).
+
+#### 6.6 Finalization, Retries, and Late Evidence Policy
+- **Identical Already-Accounted Evidence**: Retrying an identical commit request or receiving an already-accounted confirmation event succeeds idempotently, returning the existing record without duplicate signal emission or double consumption (`sig_33`).
+- **Conflicting Retry Rejection**: Retrying a commit with conflicting content for the same `commit_id` is strictly rejected fail-closed (`COMMIT_CONFLICT_REJECTED`, `sig_34`).
+- **Evidence Arriving Before Finalization**: Any candidate arriving before batch finalization at timestamp $T$ is included in the candidate evaluation pool for timestamp $T$ (`sig_31`).
+- **New Due Evidence Arriving After Finalization (Coverage Violation)**:
+  - If *new*, relevant confirmation evidence arrives whose due timestamp was $\le T$ (i.e. it was due at or before the batch's declared completeness boundary, but arrived late):
+    * This constitutes a **completeness/coverage violation** (`COMPLETENESS_COVERAGE_VIOLATION` / `LATE_DUE_EVIDENCE_ARRIVED`). The earlier completeness determination at $T$ was incomplete/erroneous.
+    * The late evidence is **retained as a diagnostic** on the session ledger.
+    * **Published records are never mutated in place**; the published signal at $T$ remains immutable.
+    * **Subsequent dependent decisions** on the affected symbol/domain timeline are **blocked fail-closed** until versioned reconciliation is performed (e.g. recalculation/replay under a new `revision_id` / `run_version`), without freezing unrelated symbols or independent domains.
+    * Such evidence is **never silently discarded**, because it could have changed the approved earliest-confirmation winner or level consumption (`sig_37`).
+- **Late Evidence for Future Timestamps ($> T$)**:
+  - Confirmations with close timestamp $> T$ are simply evaluated in their own subsequent candle batch at timestamp $T_{next}$.
 
 ### Stage 7: Scoped Usage Accounting & Namespace Isolation
 - **One Trade Per Level Contract (`MTF-Analysis.pdf` §10)**:
   - Each physical level (`StableLevelId`) can supply **at most one trade** in its entire lifetime (`MTF-Analysis.pdf` §10).
   - Taps, cancellations, repeated touches, and weekly roll-overs do NOT consume a level; only an accepted atomic conceptual commit consumes it (`MTF-Analysis.pdf` §10).
-  - A used level is permanently dead and can never reactivate or produce another signal, even if price touches it again or it is retained into subsequent weeks (`MTF-Analysis.pdf` §4, §10).
+  - A used level is permanently dead and can never reactivate or produce another signal, even if price touches it again or it is retained into subsequent weeks (`MTF-Analysis.pdf` §4, §10, `sig_13`).
 - **Session Namespace Isolation**:
-  - Usage ledger is strictly scoped to `DomainSession`. Independent sessions or distinct start candles maintain isolated ledgers and do NOT cross-consume levels (`OPEN-08`).
+  - Usage ledger is strictly scoped to `DomainSession`. Independent sessions or distinct start candles maintain isolated ledgers and do NOT cross-consume levels (`OPEN-08`, `sig_35`).
 
 ### Stage 8: Repeat Signals & Rearming Semantics
 - **Rearming Unused Cancelled Levels (`MTF-Analysis.pdf` §9, `OPEN-05`)**:
   - An unused level cancelled because another timeframe's entry won may reactivate if it is still a member of the current eligible set (`MTF-Analysis.pdf` §9, Q&A 17).
-  - **Path B (Already Outside)**: If price was already outside the zone boundaries at the moment of cancellation, the very next observed price touch transitions the level to `REARMED_PENDING` (`OPEN-05`).
-  - **Path A (Inside Zone at Cancellation)**: If price was inside the zone at cancellation, price must first leave the zone; remaining or lingering inside does NOT count (`MTF-Analysis.pdf` §9, Q&A 25). The next touch after departure transitions the level to `REARMED_PENDING`.
+  - **Path B (Already Outside)**: If price was already outside the zone boundaries at the moment of cancellation, the very next observed price touch transitions the level to `REARMED_PENDING` (`OPEN-05`, `sig_14`).
+  - **Path A (Inside Zone at Cancellation)**: If price was inside the zone at cancellation, price must first leave the zone; remaining or lingering inside does NOT count (`MTF-Analysis.pdf` §9, Q&A 25). The next touch after departure transitions the level to `REARMED_PENDING` (`sig_15`).
 - **Fresh Confirmation Required**:
   - A rearmed level requires a fresh qualifying confirmation on its new tap candle or afterward. Prior confirmations cannot be recycled (`MTF-Analysis.pdf` §9).
 - **Coarse Timestamp T Event Ordering (`OPEN-12`)**:
@@ -215,9 +288,9 @@ The trade-signal business logic defines five distinct conceptual entities across
 ### Stage 9: Latest/History Presentation & Deterministic Replay
 - **Signal History Retention**:
   - All published signals are retained in an immutable chronological ledger.
-  - The dashboard displays the latest active signal status alongside historical signals.
+  - The dashboard displays the latest active signal status alongside historical signals (`OPEN-11`, `sig_19`).
 - **Deterministic Replay (`OPEN-09`)**:
-  - Replaying market data from the configured start candle must produce identical signals with identical timestamps, identifiers, and sequences.
+  - Replaying market data from the configured start candle must produce identical signals with identical timestamps, identifiers, and sequences (`sig_25`).
 
 ---
 
@@ -229,7 +302,12 @@ The following unresolved strategy questions are handled with explicit fail-close
 |---|---|---|---|
 | **CHOCH $c_1 == p_2$ Close Equality** | Source MSM/CHOCH engine state freezing | If source structure freezes in unresolved ambiguity, signal evaluation for that source timeframe is immediately frozen (`BLOCKED_SOURCE_UNRESOLVED`). No signal emitted. | Formally reconcile whether $c_1 == p_2$ constitutes an upward continuation, downward reversal, or containment freeze. |
 | **ISS Multi-Candle Pullback Qualification** | Lower-timeframe ISS confirmation setups | Candidate ISS confirmations involving multi-candle pullbacks where strategy rules remain unclarified fail closed as `BLOCKED_UNRESOLVED_CONFIRMATION_GAP`. No signal emitted. | Formally reconcile whether multi-candle pullback ISS patterns qualify as valid entry confirmation. |
-| **Intra-Candle Ordering Limitation (`OPEN-04`)** | Coarse bars where tap and confirmation occur on the same candle without sub-bar tick ordering | If sub-bar order cannot be established with certainty from the data feed, mark `UNKNOWN_ORDER` and suppress signal publication. Recorded as a feed/data limitation. | Acknowledge that coarse data feeds without sub-bar timestamps suppress same-candle tap/confirmation signals fail-closed. |
+
+### Technical Evidence Limitations (Non-Strategy Invariants):
+- **Missing Authoritative Touch or Ordering Evidence**:
+  - On shared candle intervals where tap and confirmation occur on the same coarse bar without sub-bar print timestamps or sequence evidence, the transition is blocked fail-closed as `UNKNOWN_ORDER` (`sig_22`).
+  - Missing authoritative touch or ordering evidence blocks the affected transition. Timestamp precision alone does not determine eligibility; where discrete monotonic sequence index is available, order is established authoritatively (Case B, `sig_30`).
+  - This is an **evidence / data feed limitation**, not an unresolved strategy choice requiring Samarth's approval.
 
 ---
 
@@ -253,5 +331,18 @@ The following unresolved strategy questions are handled with explicit fail-close
    - Visual signal markers on Plotly candlestick charts (arrows/banners) and chronological Signal Inspection Table in Dash layout.
 
 ### 4.3 Proposed First Implementable Subset (Milestone 31):
-- Implement the **Multi-Timeframe Confirmation Monitor** (offline LTF CHOCH/ISS pattern detection strictly scoped to existing `PENDING_ACTIVATION` and `REARMED_PENDING` states emitted by `ActivationSessionCoordinator`).
-- Emits candidate confirmation events without performing premature arbitration or state mutation. Candidate arbitration and scoped usage ledger follow in Milestone 32.
+- Implement the **Multi-Timeframe Confirmation Monitor** split strictly into two decoupled responsibilities:
+  1. **Continuous Confirmation Engine Processing**:
+     - Accepted lower-timeframe confirmation engines (`ChochDetector`, `ISSEngine`) process their independently configured candle history continuously from their established start candles.
+     - They do **NOT** pause, reset, or restart detection when a physical tap occurs, preserving patterns that begin before activation touch and complete afterward (`sig_06`).
+  2. **Passive Event-to-Activation Matcher**:
+     - Ingests newly completed, authoritative confirmation events emitted by the continuous confirmation engines.
+     - Associates completed events with currently eligible activation generations (`PENDING_ACTIVATION` and `REARMED_PENDING` from `ActivationSessionCoordinator`).
+     - Emits typed `CandidateSignalRecord`s with explicit `CandidateSetupKey`s.
+  - **Strict Implementation Boundaries**:
+     * The matcher must **NOT** restart pattern detection at the touch.
+     * The matcher must **NOT** inherit start candles silently.
+     * The matcher must **NOT** arbitrate competing winners.
+     * The matcher must **NOT** consume physical levels in the usage ledger.
+     * The matcher must **NOT** publish final signals.
+- Candidate arbitration, atomic transaction commits, and scoped usage ledger follow in Milestone 32.
