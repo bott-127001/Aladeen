@@ -3109,36 +3109,35 @@ Last Updated: 2026-11-07 (Milestone 33 Interleaved Chronological Schedules & Spl
 
 ---
 
-## 55. Milestone 35 — Pure In-Memory Offline Authority Validation Implementation (HANDOFF-114)
+## 55. Milestone 35 — Pure In-Memory Offline Authority Validation Implementation (HANDOFF-115)
 - **Active Branch**: `feature/confirmation-monitor`
-- **Parent Commit**: `7285a1d16a4413c051c4ecd032a53c49683f1600` (HANDOFF-113)
+- **Parent Commit**: `4631945024d8860c56cd194ecf2b0bc4a98b2506` (HANDOFF-114)
 - **Accepted Milestone 34 Requirements Baseline**: `7285a1d16a4413c051c4ecd032a53c49683f1600` (HANDOFF-113)
 - **Accepted Milestone 33 Baseline Commit**: `b05a391554c73f80652d4dada5310510ba20fbf5` (HANDOFF-106)
-- **Documentation Closeout Commit**: `b18810127f830eff7807e86e0786e881e68a90e9` (HANDOFF-108)
 - **Requirements Baseline Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d`
 - **Scope**: Pure in-memory offline authority domain types, 6-step preprocessing pipeline (`AuthorityContextBuilder`), and comprehensive synthetic test suite. Zero live MT5 broker calls, zero filesystem ledger writes, zero database operations, zero network ingestion, zero candidate ranking/arbitration, zero final signal publication.
-- **Key Deliverables in HANDOFF-114**:
-  1. *Immutable Authority Types (`src/aladeen/strategy/authority_types.py`)*:
-     - Implemented frozen value objects: `ProposedUsageEvidenceRecord`, `ProposedFeedCoverageRecord`, `TrustConfiguration`, `AuthorityDiagnosticReason`, `AuthorityDiagnosticEntry`, and `AuthorityBuildResult`.
-     - Strictly immutable dataclasses with ISO timestamp validation and normalization via `validate_and_normalize_timestamp`.
-  2. *Pure In-Memory Preprocessing Pipeline (`src/aladeen/strategy/authority_context_builder.py`)*:
-     - Implemented `AuthorityContextBuilder` strictly adhering to the 6-step sequence:
-       * Step 1 Point-in-time visibility filtering: Records available after evaluation time ($T_{\text{available}} > T_{\text{eval}}$) are filtered out without side effects.
-       * Step 2 Schema, Issuer & Scope Validation: Schema version checked for 'v1'; issuers validated against declared `TrustConfiguration`; exact scope matching (feed, sequence domain, timeframe, config ID); identical duplicate coalescence; conflicting identities rejected under `CONFLICTING_IDENTITY`.
-       * Step 3 Predecessor Validation & Supersession: Validates predecessor existence, boundary visibility, scope equality, monotonic revision/established sequence, acyclic graph structure, and fork rejection. Validated successors replace prior records; invalid successors fail closed without retiring prior valid authority.
-       * Step 4 Conflict Resolution: Overlapping records with conflicting status intersecting $[T_{\text{req\_start}}, T_{\text{req\_end}}]$ degrade to `CoverageStatus.UNCERTAIN` or `UsageEvidenceStatus.UNKNOWN`. Conflicts outside the interval do not impair valid certificates.
-       * Step 5 Independent Interval Coverage Evaluation: Tests each active certificate independently; compatible overlapping certificates do not shrink valid coverage.
-       * Step 6 Context Mapping (`build_matching_context()`): Maps resolved authority into accepted `MatchingContext` (`coverage_status`, `source_resolution_status`) and `SourceMemberReference` (`usage_evidence_status`) without altering accepted matcher semantics.
-  3. *Comprehensive Test Suite (`tests/test_authority_context_builder.py`)*:
-     - 30 focused tests covering all synthetic cases from Milestone 34 inventory (`AUT-SYN-01` through `AUT-SYN-23`, including subcases `AUT-SYN-16a/b`, `AUT-SYN-17a/b`, `AUT-SYN-23a/b`).
-     - Point-in-time checks before and after successor availability.
-     - Explicit input immutability and permutation-invariance verification.
-     - Composition into accepted `ConfirmationPairMatcher` verifying end-to-end gating and candidate emission.
-  4. *Repository Hygiene & Line-Ending Normalization*:
-     - Investigated and documented line-ending churn reported on commit `7285a1d`: Git `core.autocrlf = true` on Windows had recorded CRLF line endings, causing GitHub diff comparison to report full-file churn (~3,100 lines). The underlying semantic change in `7285a1d` was exactly Section 54 (40 lines).
+- **Key Deliverables in HANDOFF-115 (Addressing Findings 1-6)**:
+  1. *Temporal Invariants Enforced (Finding 1)*:
+     - Usage records enforce both $T_{\text{available}} \le T_{\text{eval}}$ AND $T_{\text{established}} \le T_{\text{eval}}$ before participating in evaluation.
+     - Coverage records validate $T_{\text{issued}} \le T_{\text{available}}$ in `ProposedFeedCoverageRecord.__post_init__` (raises `ValueError` on violation).
+     - Required intervals validate $T_{\text{req\_start}} \le T_{\text{req\_end}}$ and $T_{\text{req\_end}} \le T_{\text{eval}}$ in `validate_and_build` (raises `ValueError` on violation).
+  2. *Complete Ancestor Chain Validation & Fork Rejection (Finding 2)*:
+     - Implemented recursive ancestor chain validation across all predecessors back to root. A descendant cannot govern if any ancestor in its chain is unknown, wrong-scope, cyclic, forked, or non-monotonic.
+     - Ambiguous forks propagate invalidity down the tree without retiring valid ancestors.
+  3. *Multi-Hop Terminal Usage Preservation (Finding 3)*:
+     - Once any valid record in a physical level's history reaches `USED`, that consumption fact is permanent and terminal on `StableLevelId`.
+     - Multi-hop resets (`USED` $\rightarrow$ `UNKNOWN` $\rightarrow$ `UNUSED`) are rejected (`USAGE_USED_TERMINAL`); level remains permanently `USED`.
+  4. *Order-Insensitive Duplicate Validation (Finding 4)*:
+     - Grouping by `record_id` precedes schema/scope checks: conflicting payloads under identical `record_id` immediately emit `CONFLICTING_IDENTITY`, guaranteeing complete permutation invariance.
+  5. *Deep Immutability & Explicit Trust Configuration (Finding 5)*:
+     - `TrustConfiguration` defaults to empty tuples `()`, requiring explicit trust configuration. Defensively freezes collections to tuples.
+     - `AuthorityBuildResult` wraps mapping fields in `MappingProxyType`, preventing runtime mutation.
+     - Comprehensive type and value validation across all dataclass fields.
+  6. *Irrelevant Uncertainty Isolation (Finding 6)*:
+     - Active `UNCERTAIN` certificates only degrade evaluation if their interval intersects $[T_{\text{req\_start}}, T_{\text{req\_end}}]$. Uncertainty outside the required interval does not contaminate valid coverage.
 - **Verification Summary**:
-  - Focused authority test suite: **30 / 30 passed** in 0.61s (`tests/test_authority_context_builder.py`).
-  - Full offline repository test suite: **682 / 682 passed** in 8.23s.
+  - Focused authority test suite: **36 / 36 passed** in 0.63s (`tests/test_authority_context_builder.py`).
+  - Full offline repository test suite: **688 / 688 passed** in 12.54s.
   - Core strategy engine purity: **0 diff** against `3f6689c194c95ca3761833f8831bb8a3f5b4740d` across tracked repository paths (`src/aladeen/strategy/engine.py`, `choch_detector.py`, `iss_engine.py`, `tjl_coordinator.py`, `activation_engine.py`, `activation_adapter.py`, `types.py`, `validator.py`).
   - Matcher logic purity: **0 diff** against HEAD on `src/aladeen/strategy/confirmation_pair_matcher.py`.
 - **Safety Boundary Maintained**:
