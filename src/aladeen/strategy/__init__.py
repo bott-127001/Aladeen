@@ -71,6 +71,35 @@ from .tjl_types import (
 )
 from .tjl_reducer import TJLReducer
 from .tjl_coordinator import TJLCoordinator
+from .activation_types import (
+    ActivationError,
+    ActivationRecord,
+    ActivationSnapshot,
+    ActivationState,
+    CancellationReason,
+    ConflictingEventError,
+    CoverageEvidence,
+    CoverageStatus,
+    DomainMismatchError,
+    ExactPricePrint,
+    ExternalCommitEvent,
+    IntervalBoundedCandleEvidence,
+    InvalidEvidenceError,
+    PriceBasis,
+    SequenceDomain,
+    SequenceOrderError,
+    SourceCancellationEvent,
+    SourceMemberReference,
+    TIMEFRAME_CONFIRMATION_MAP,
+    UsageEvidenceStatus,
+    format_activation_id,
+)
+from .activation_engine import ActivationEngine, ActivationEngineConfig
+from .activation_adapter import (
+    adapt_tjl_cancellation_record,
+    adapt_tjl_current_set,
+    sync_tjl_snapshot_to_activation_engine,
+)
 
 __all__ = [
     "CandleColor",
@@ -129,4 +158,30 @@ __all__ = [
     "TJLZone",
     "TJLReducer",
     "TJLCoordinator",
+    "ActivationError",
+    "ActivationRecord",
+    "ActivationSnapshot",
+    "ActivationState",
+    "CancellationReason",
+    "ConflictingEventError",
+    "CoverageEvidence",
+    "CoverageStatus",
+    "DomainMismatchError",
+    "ExactPricePrint",
+    "ExternalCommitEvent",
+    "IntervalBoundedCandleEvidence",
+    "InvalidEvidenceError",
+    "PriceBasis",
+    "SequenceDomain",
+    "SequenceOrderError",
+    "SourceCancellationEvent",
+    "SourceMemberReference",
+    "TIMEFRAME_CONFIRMATION_MAP",
+    "UsageEvidenceStatus",
+    "format_activation_id",
+    "ActivationEngine",
+    "ActivationEngineConfig",
+    "adapt_tjl_cancellation_record",
+    "adapt_tjl_current_set",
+    "sync_tjl_snapshot_to_activation_engine",
 ]

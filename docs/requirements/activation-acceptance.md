@@ -1,6 +1,7 @@
 # Tap and Zone Activation — Acceptance Specification
 
-Last Updated: 2026-11-06
+Last Updated: 2026-11-06 (Accepted Baseline by Perplexity at commit `447242983fc3e8589bd9d0575676de92d2d61493`)
+Downstream Implementation Branch: `feature/activation-engine`
 
 > [!IMPORTANT]
 > **Specification Authority & Provenance**:
@@ -294,7 +295,7 @@ class IntervalBoundedCandleEvidence:
 
 ## 5. Acceptance Fixture Categories
 
-The machine-readable acceptance suite in `tests/fixtures/activation_acceptance.json` contains **20 deterministic test categories** covering all approved rules:
+The machine-readable acceptance suite in `tests/fixtures/activation_acceptance.json` contains **26 deterministic test categories** covering all approved rules:
 
 | Fixture ID | Category & Scenario Name | Primary Authority | Key Assertions & Invariants |
 |---|---|---|---|
