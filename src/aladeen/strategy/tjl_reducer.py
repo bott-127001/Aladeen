@@ -69,6 +69,7 @@ class TJLReducer:
         self._received_indices: Set[int] = set()
         self._set_counter: int = 0
         self._structural_epoch: int = 0
+        self._epoch_choch_event_pos: Optional[int] = None
         self._last_choch_time: Optional[datetime] = None
         self._last_choch_c2_index: Optional[int] = None
         self._last_choch_event_time: Optional[datetime] = None
@@ -172,21 +173,44 @@ class TJLReducer:
                 f"Direction changed spontaneously from {self._current_direction} to {observation.direction} without is_choch_event=True"
             )
 
-        # Post-CHOCH current-epoch provenance check
-        if self._structural_epoch > 0 and not observation.is_choch_event:
-            for pt_name, pt in (("ch_point", observation.ch_point), ("cl_point", observation.cl_point)):
-                if pt is not None:
-                    # 1. Reject point confirmed on or before the CHOCH confirmation bar
-                    if self._last_choch_c2_index is not None and pt.confirmed_bar_index == self._last_choch_c2_index:
-                        raise ValueError(
-                            f"Point {pt_name} confirmed on CHOCH bar {pt.confirmed_bar_index} cannot be reused as new-epoch point"
-                        )
-                    # 2. Reject point confirmed prior to CHOCH event time
-                    if pt.confirmed_time is not None and self._last_choch_event_time is not None:
-                        if pt.confirmed_time <= self._last_choch_event_time:
-                            raise ValueError(
-                                f"Pre-CHOCH point {pt_name} (confirmed at {pt.confirmed_time}) cannot be reused in new structural epoch (CHOCH at {self._last_choch_event_time})"
-                            )
+        # Authoritative Event-Position Provenance Checks
+        if observation.ch_point is not None or observation.cl_point is not None:
+            if observation.pair_confirmation_event_pos is None:
+                raise ValueError("Observation with confirmed point requires explicit pair_confirmation_event_pos")
+            if observation.pair_confirmation_event_pos > observation.observation_event_pos:
+                raise ValueError(
+                    f"pair_confirmation_event_pos ({observation.pair_confirmation_event_pos}) lies beyond observation_event_pos ({observation.observation_event_pos})"
+                )
+            if self._structural_epoch > 0 and not observation.is_choch_event:
+                if observation.epoch_choch_event_pos is None:
+                    raise ValueError(f"Post-CHOCH epoch {self._structural_epoch} requires explicit epoch_choch_event_pos")
+                if observation.epoch_choch_event_pos != self._epoch_choch_event_pos:
+                    raise ValueError(
+                        f"Observation epoch_choch_event_pos ({observation.epoch_choch_event_pos}) does not match reducer epoch CHOCH pos ({self._epoch_choch_event_pos})"
+                    )
+                if observation.pair_confirmation_event_pos <= self._epoch_choch_event_pos:
+                    raise ValueError(
+                        f"Pre-CHOCH point (confirmed at pos {observation.pair_confirmation_event_pos}) cannot be used in structural epoch {self._structural_epoch} (CHOCH at pos {self._epoch_choch_event_pos})"
+                    )
+
+        if observation.tentative_p3 is not None:
+            if observation.p3_identification_event_pos is None:
+                raise ValueError("Observation with tentative_p3 requires explicit p3_identification_event_pos")
+            if observation.p3_identification_event_pos > observation.observation_event_pos:
+                raise ValueError(
+                    f"p3_identification_event_pos ({observation.p3_identification_event_pos}) lies beyond observation_event_pos ({observation.observation_event_pos})"
+                )
+            if self._structural_epoch > 0 and not observation.is_choch_event:
+                if observation.epoch_choch_event_pos is None:
+                    raise ValueError(f"Post-CHOCH epoch {self._structural_epoch} requires explicit epoch_choch_event_pos")
+                if observation.epoch_choch_event_pos != self._epoch_choch_event_pos:
+                    raise ValueError(
+                        f"Observation epoch_choch_event_pos ({observation.epoch_choch_event_pos}) does not match reducer epoch CHOCH pos ({self._epoch_choch_event_pos})"
+                    )
+                if observation.p3_identification_event_pos <= self._epoch_choch_event_pos:
+                    raise ValueError(
+                        f"Pre-CHOCH P3 (identified at pos {observation.p3_identification_event_pos}) cannot be used in structural epoch {self._structural_epoch} (CHOCH at pos {self._epoch_choch_event_pos})"
+                    )
 
         # -----------------------------------------------------------------
         # Stage mutation in local working variables to ensure full atomicity
@@ -206,6 +230,7 @@ class TJLReducer:
         staged_last_processed = self._last_processed_index
         staged_set_counter = self._set_counter
         staged_epoch = self._structural_epoch
+        staged_epoch_choch_event_pos = self._epoch_choch_event_pos
         staged_choch_time = self._last_choch_time
         staged_last_choch_c2_index = self._last_choch_c2_index
         staged_last_choch_event_time = self._last_choch_event_time
@@ -251,13 +276,10 @@ class TJLReducer:
             assert observation.new_choch_direction is not None
             staged_direction = observation.new_choch_direction
             staged_epoch += 1
+            staged_epoch_choch_event_pos = observation.observation_event_pos
             staged_choch_time = observation.candle_open_time
             staged_last_choch_c2_index = observation.candle_index
-            staged_last_choch_event_time = (
-                observation.availability_time
-                if observation.availability_time is not None
-                else observation.candle_open_time
-            )
+            staged_last_choch_event_time = observation.availability_time
 
             record = TJLTransitionRecord(
                 transition_type=TJLTransitionType.CHOCH_INVALIDATION,
@@ -282,6 +304,7 @@ class TJLReducer:
             self._last_received_open_time = observation.candle_open_time
             self._received_indices.add(observation.candle_index)
             self._structural_epoch = staged_epoch
+            self._epoch_choch_event_pos = staged_epoch_choch_event_pos
             self._last_choch_time = staged_choch_time
             self._last_choch_c2_index = staged_last_choch_c2_index
             self._last_choch_event_time = staged_last_choch_event_time

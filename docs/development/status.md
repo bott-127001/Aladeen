@@ -323,3 +323,46 @@ Last Updated: 2026-11-05 (MSM Dashboard Milestone Accepted — Transition to CHO
   - Full repository offline suite: 374/374 tests passing in 5.77s (0 failures, 1 deselected).
 - **Scope Compliance**: Strictly offline calculations. Zero UI, zero tap tracking, zero activation engine, zero usage ledger, zero order execution, and zero merging to `main`.
 
+---
+
+## 11. Reducer Event-Provenance Contract & Targeted Regressions (HANDOFF-042)
+- **Repository Provenance**:
+  - **Branch**: `feature/tjl-engine`
+  - **Immediate Git Parent**: `fb8db8382365ab159ceed8f7a42f013ef9056015` (HANDOFF-041)
+  - **Accepted Requirements Baseline**: `859cf12ae11b2198a6306a183364860e84b82724` (`HANDOFF-037`)
+- **Core Hardening Implementation**:
+  1. **Public Reducer Event-Provenance Contract (Directive 1)**:
+     - Extended `TJLStructuralObservation` with explicit monotonic event positions:
+       - `observation_event_pos: int = 0`
+       - `epoch_choch_event_pos: Optional[int] = None`
+       - `pair_confirmation_event_pos: Optional[int] = None`
+       - `p3_identification_event_pos: Optional[int] = None`
+     - Validated fail-closed in `TJLReducer.reduce()`:
+       - Confirmed points require explicit `pair_confirmation_event_pos <= observation_event_pos`.
+       - Tentative P3 requires explicit `p3_identification_event_pos <= observation_event_pos`.
+       - In post-CHOCH epochs (`structural_epoch > 0`), requires explicit `epoch_choch_event_pos == self._epoch_choch_event_pos`.
+       - Rejects stale points (`pair_confirmation_event_pos <= epoch_choch_event_pos`) and stale P3 (`p3_identification_event_pos <= epoch_choch_event_pos`) fail-closed without mutating state, regardless of timestamp presence.
+     - Preserved separation between event ordering and close availability (unknown availability preserved as `None`).
+     - Removed `availability_time -> candle_open_time` fallback from CHOCH event timestamp recording.
+  2. **Coordinator Integration (Directive 2)**:
+     - `TJLCoordinator` populates all 4 event positions directly from accepted completed candle indexes and confirmed CHOCH / MSM event history.
+     - Preserves legitimate pre-CHOCH source candles (e.g. restart reference candle 5) when their confirmation event postdates CHOCH.
+  3. **Targeted Reducer Regressions (Directive 3 — 6/6 passing)**:
+     - `test_current_epoch_envelope_stale_points_confirmed_time_none_rejected`: Stale points with `confirmed_time=None` rejected without mutation.
+     - `test_current_epoch_envelope_stale_p3_identification_rejected`: Stale P3 identification rejected without mutation.
+     - `test_event_positions_beyond_observation_rejected`: Event positions in future relative to observation rejected without mutation.
+     - `test_valid_new_epoch_confirmation_of_pre_choch_source_candle_accepted`: Accepted cleanly with correct geometry and zone roles.
+     - `test_valid_event_ordering_with_all_close_availability_unknown_accepted`: Accepted cleanly; preserves `eligibility_available_time=None`.
+     - `test_decreasing_unique_source_ids_with_unknown_availability_and_pre_choch_source`: Decreasing source IDs (`900, 800... 100`) verified with unknown availability.
+  4. **Scope & Model Hierarchy Corrections (Directive 4)**:
+     - Removed unauthorized unconditional `ch_point.price > cl_point.price` check from `TJLStructuralObservation.__post_init__`.
+     - Clarified docstrings that `SwingPoint` carries no internal point-kind enum; CH/CL slots are validated against exact candle body edges and confirmation status.
+  5. **Evidence Categorization & Limitations (Directive 6)**:
+     - *Batch/Sequential/Replay Consistency*: Validated for continuation replacement (`tjl_06`) and CHOCH recovery (`tjl_09`) under known and unknown availability across all prefixes.
+     - *Monday / Weekly Fixtures*: Marked as specification-level assertions; external usage ledger is not claimed as implemented in this phase.
+     - *Rollback Coverage*: Complete internal state rollback verified for post-coordinator-advance failure injection.
+- **Verification Summary**:
+  - Full TJL suite: 50/50 tests passing in 0.80s.
+  - Full repository offline suite: 380/380 tests passing in 5.84s (0 failures, 1 deselected).
+- **Scope Compliance**: Pure offline TJL calculation. Strictly zero UI, zero chart overlays, zero taps, zero activation engine, zero usage ledger, zero signals, zero order execution, and zero merging to `main`.
+

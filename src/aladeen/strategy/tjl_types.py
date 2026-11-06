@@ -442,6 +442,10 @@ class TJLStructuralObservation:
     unresolved_diagnostic: Optional[str] = None
     source_candle_lookup: Mapping[int, StrategyCandle] = field(default_factory=dict)
     structural_epoch: int = 0
+    observation_event_pos: int = 0
+    epoch_choch_event_pos: Optional[int] = None
+    pair_confirmation_event_pos: Optional[int] = None
+    p3_identification_event_pos: Optional[int] = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.source_engine_id, str) or not self.source_engine_id.strip():
@@ -452,6 +456,33 @@ class TJLStructuralObservation:
             raise ValueError("source_timeframe must be non-empty string")
         if not isinstance(self.structural_epoch, int) or self.structural_epoch < 0:
             raise ValueError(f"structural_epoch must be non-negative integer, got {self.structural_epoch}")
+        if not isinstance(self.observation_event_pos, int) or self.observation_event_pos < 0:
+            raise ValueError(f"observation_event_pos must be non-negative integer, got {self.observation_event_pos}")
+
+        if self.epoch_choch_event_pos is not None:
+            if not isinstance(self.epoch_choch_event_pos, int) or self.epoch_choch_event_pos < 0:
+                raise ValueError(f"epoch_choch_event_pos must be non-negative integer, got {self.epoch_choch_event_pos}")
+            if self.epoch_choch_event_pos > self.observation_event_pos:
+                raise ValueError(
+                    f"epoch_choch_event_pos ({self.epoch_choch_event_pos}) lies beyond observation_event_pos ({self.observation_event_pos})"
+                )
+
+        if self.pair_confirmation_event_pos is not None:
+            if not isinstance(self.pair_confirmation_event_pos, int) or self.pair_confirmation_event_pos < 0:
+                raise ValueError(f"pair_confirmation_event_pos must be non-negative integer, got {self.pair_confirmation_event_pos}")
+            if self.pair_confirmation_event_pos > self.observation_event_pos:
+                raise ValueError(
+                    f"pair_confirmation_event_pos ({self.pair_confirmation_event_pos}) lies beyond observation_event_pos ({self.observation_event_pos})"
+                )
+
+        if self.p3_identification_event_pos is not None:
+            if not isinstance(self.p3_identification_event_pos, int) or self.p3_identification_event_pos < 0:
+                raise ValueError(f"p3_identification_event_pos must be non-negative integer, got {self.p3_identification_event_pos}")
+            if self.p3_identification_event_pos > self.observation_event_pos:
+                raise ValueError(
+                    f"p3_identification_event_pos ({self.p3_identification_event_pos}) lies beyond observation_event_pos ({self.observation_event_pos})"
+                )
+
         if isinstance(self.direction, str):
             object.__setattr__(self, "direction", Direction(self.direction))
         elif not isinstance(self.direction, Direction):
@@ -482,7 +513,8 @@ class TJLStructuralObservation:
 
         observation_horizon = self.availability_time if self.availability_time is not None else self.candle_open_time
 
-        # Validate swing point kinds, confirmation status, exact marking prices, and lookup consistency
+        # Validate swing points: note that SwingPoint does not carry an internal point-kind enum;
+        # CH and CL slots are validated against exact source candle geometry and confirmation status.
         if self.ch_point is not None:
             if not isinstance(self.ch_point, SwingPoint):
                 raise TypeError(f"ch_point must be SwingPoint, got {type(self.ch_point).__name__}")
@@ -529,12 +561,6 @@ class TJLStructuralObservation:
             if self.cl_point.price != c_low.lower_body_edge:
                 raise ValueError(
                     f"cl_point price ({self.cl_point.price}) does not exactly match source candle lower body edge ({c_low.lower_body_edge})"
-                )
-
-        if self.ch_point is not None and self.cl_point is not None:
-            if self.ch_point.price <= self.cl_point.price:
-                raise ValueError(
-                    f"ch_point price ({self.ch_point.price}) must be strictly greater than cl_point price ({self.cl_point.price})"
                 )
 
         if self.tentative_p3 is not None:

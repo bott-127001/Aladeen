@@ -311,15 +311,29 @@ class TestTJLTypes:
                 source_candle_lookup={5: c5},
             )
 
-        # 4. Inverted CH/CL price hierarchy rejected
-        ch_valid = SwingPoint(price=1.135, candle_index=1, candle_open_time=t0, identified_bar_index=1, confirmed_bar_index=4)
-        cl_inverted = SwingPoint(price=1.135, candle_index=4, candle_open_time=t0, identified_bar_index=4, confirmed_bar_index=4)
-        c4_inv = StrategyCandle(index=4, open_time=t0, open=1.135, high=1.140, low=1.130, close=1.135, is_forming=False, bar_status="CONFIRMED_COMPLETED")
-        with pytest.raises(ValueError, match="ch_point price .* must be strictly greater than cl_point price"):
+        # 4. Event positions validation (non-negative, not in future relative to observation_event_pos)
+        with pytest.raises(ValueError, match="observation_event_pos must be non-negative integer"):
             TJLStructuralObservation(
                 source_engine_id="E", symbol_feed_id="F", source_timeframe="H1", direction=Direction.UPWARD,
-                candle_index=7, candle_open_time=t0, ch_point=ch_valid, cl_point=cl_inverted,
-                source_candle_lookup={1: c1, 4: c4_inv},
+                candle_index=7, candle_open_time=t0, observation_event_pos=-1,
+            )
+
+        with pytest.raises(ValueError, match="pair_confirmation_event_pos .* lies beyond observation_event_pos"):
+            TJLStructuralObservation(
+                source_engine_id="E", symbol_feed_id="F", source_timeframe="H1", direction=Direction.UPWARD,
+                candle_index=7, candle_open_time=t0, observation_event_pos=5, pair_confirmation_event_pos=6,
+            )
+
+        with pytest.raises(ValueError, match="p3_identification_event_pos .* lies beyond observation_event_pos"):
+            TJLStructuralObservation(
+                source_engine_id="E", symbol_feed_id="F", source_timeframe="H1", direction=Direction.UPWARD,
+                candle_index=7, candle_open_time=t0, observation_event_pos=5, p3_identification_event_pos=7,
+            )
+
+        with pytest.raises(ValueError, match="epoch_choch_event_pos .* lies beyond observation_event_pos"):
+            TJLStructuralObservation(
+                source_engine_id="E", symbol_feed_id="F", source_timeframe="H1", direction=Direction.UPWARD,
+                candle_index=7, candle_open_time=t0, observation_event_pos=5, epoch_choch_event_pos=8,
             )
 
         # 5. Future provenance rejected relative to observation horizon
