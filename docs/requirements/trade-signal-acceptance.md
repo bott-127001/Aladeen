@@ -3,7 +3,7 @@
 **Milestone**: Milestone 30 — Trade-Signal Business Logic Requirements and Acceptance Contract  
 **Active Branch**: `requirements/trade-signal-acceptance`  
 **Accepted Baseline Commit**: `0144ddb8150b4132a7b60d24698105d897514cb2` (Milestone 29 accepted)  
-**Parent Documentation Commit**: `2b356489ddefc1deb168e4b8b83c9febb3ed9d07` (HANDOFF-088)  
+**Parent Documentation Commit**: `b0a44bf8ec0a6777b76df345373ae90176e37328` (HANDOFF-089)  
 
 > [!IMPORTANT]
 > **Specification Authority & Provenance Boundary**:
@@ -31,10 +31,11 @@
 >   - `OPEN-10`: Native MT5 Boundaries & Persisted Source Calendar (Native MT5 bar times; weekly boundary within broker source calendar).
 >   - `OPEN-11`: Chronological Signal Listing Without Position Gating (List every conceptual trade signal chronologically as it occurs, including subsequent opposite-side signals; analysis engine must not filter, suppress, or gate signals based on hypothetical open positions).
 >   - `OPEN-12`: Event Ordering at Coarse Timestamp T (Later event rearms only after winning entry commit finalizes).
-> - **Verification Provenance & Authority Distinctions**:
+> - **Evidence & Verification Provenance Claims**:
 >   - Strategy text cited above is verified from the markdown transcription `docs/strategy/extracted/mtf-analysis.md` and repository documentation.
 >   - Transcribed PDF page numbers are recorded as preserved from the transcription metadata; direct underlying PDF page validation remains uninspected in this phase.
 >   - Operational engineering proposals (e.g. candidate setup grouping key, transaction commit boundary, completeness violation handling) are explicitly labeled as implementation contracts requiring acceptance, distinguished from verbatim source strategy rules.
+>   - **Test Scope Precision**: Integrity tests in this phase validate requirements-fixture consistency, schema definitions, and mathematical identity relationships against recorded fixtures. They do **NOT** execute runtime candidate consolidation, arbitration, usage ledger consumption, or signal publication (which remain strictly unimplemented pending runtime milestones).
 > - **Strict Safety & Scope Boundary**: Requirements reconciliation, fixture design, and acceptance contract specification only. Strictly **zero runtime signal engine implementation, zero UI order execution, zero MT5 live trading calls, zero live account modification, zero automated trading, and zero merging to `main`**.
 
 ---
@@ -135,13 +136,15 @@ The trade-signal business logic defines five distinct conceptual entities across
   - Intended BUY signal $\rightarrow$ Requires **Bullish Normal CHOCH** or **Bullish Confirmed ISS** (`MTF-Analysis.pdf` §6, Q&A 4).
   - Intended SELL signal $\rightarrow$ Requires **Bearish Normal CHOCH** or **Bearish Confirmed ISS** (`MTF-Analysis.pdf` §6, Q&A 4).
   - An opposite-direction confirmation is strictly rejected (`REJECTED_DIRECTION_MISMATCH`).
-- **Authoritative Confirmation Provenance**:
-  - Merely being an event emitted by an engine module is insufficient. A valid confirmation requires:
+- **Authoritative Confirmation Provenance & Evidence Record Contract**:
+  - Merely being an event ID emitted by an engine module is insufficient. An event ID alone does not prove completion.
+  - Every valid confirmation must point authoritatively to an immutable `ConfirmationEvidenceRecord` with complete verified provenance:
     1. Valid structural provenance: derived from real underlying candle sequence meeting all strategy definitions (`Choch.pdf`, `ISS.pdf`, `Market Structure Marking.docx`).
     2. Valid completion status: `is_completed: true` on the confirmation candle close.
-    3. Resolved dependencies: zero unresolved structural ambiguity in source or confirmation calculations.
-  - **Isolated tracking records** (`ISOLATED_TRACKING_ONLY`) or synthetic completion evidence do NOT constitute entry confirmation (`REJECTED_ISOLATED_TRACKING_NOT_CONFIRMATION`).
-  - **Unresolved detection paths** (including multi-candle pullback ambiguity where strategy rules remain unreconciled) fail closed as `BLOCKED_UNRESOLVED_CONFIRMATION_GAP` and emit no trade signals. No candle-count heuristic is invented.
+    3. Resolved dependencies: `has_unresolved_dependencies: false` (zero unresolved structural ambiguity in source or confirmation calculations).
+    4. Reference entry price and pricing basis: explicit `close_price` and `price_basis` (`"BID"`, `"ASK"`, `"MID"`).
+  - **Isolated tracking records** (`ISOLATED_TRACKING_ONLY`) or synthetic completion evidence do NOT constitute entry confirmation (`REJECTED_ISOLATED_TRACKING_NOT_CONFIRMATION`, `sig_36`).
+  - **Unresolved detection paths** (including multi-candle pullback ambiguity where strategy rules remain unreconciled) fail closed as `BLOCKED_UNRESOLVED_CONFIRMATION_GAP` and emit no trade signals (`sig_21`). No candle-count heuristic is invented.
 - **Fresh Transition Required**:
   - An already-aligned trend is NOT sufficient; a fresh CHOCH or ISS transition event is mandatory (`MTF-Analysis.pdf` §6, Q&A 19).
 - **Same-Candle Causality & Evidence Contract**:
@@ -163,7 +166,7 @@ The trade-signal business logic defines five distinct conceptual entities across
   2. *Source Main CHOCH*: A Main CHOCH on the activated level's source timeframe immediately cancels old-direction activation (`MTF-Analysis.pdf` §9, Q&A 24).
   3. *Cross-Timeframe Non-Interference*: A new TJL update on another source timeframe does NOT cancel pending activations on other timeframes (`MTF-Analysis.pdf` §9, Q&A 10).
   4. *Winning Entry on Any Timeframe*: A winning entry selection immediately cancels all other pending activations across D1, H4, and H1 within the active domain session (`MTF-Analysis.pdf` §8, §9, Q&A 16).
-  *Note*: Cancellation targets are strictly **activation IDs** (identifying active or pending activations that were open at that moment, including those that produced zero confirmation candidates). Cancellation targets are never candidate IDs (`sig_09`, `sig_10`, `sig_11`, `sig_12`).
+  *Note*: Cancellation targets are strictly **activation IDs** (identifying active or pending activations that were open in the domain session, including those that produced zero confirmation candidates). Cancellation targets are never candidate IDs (`sig_09`, `sig_10`, `sig_11`, `sig_12`).
 
 ### Stage 5: Declared Arbitration Domain, Completeness & Tie-Breaking
 - **Three-Tier Calculation Namespace Separation**:
@@ -206,13 +209,30 @@ Where:
 - *Engineering Proposal Label*: In accordance with `OPEN-07`, when a single entry setup possesses both CHOCH and ISS confirmation evidence, both confirmation identifiers are recorded on a single signal record to avoid duplicate entries.
 - *Separation of Shared Stream vs Detector Identity*:
   * **Shared Configuration Context**: The confirmation stream/configuration identity (`confirmation_config_id`) represents the shared candle timeline, data resolution, start candle, and parameter set. Both CHOCH and ISS detectors evaluating that timeline share this configuration ID.
-  * **Individual Evidence Provenance**: Each individual confirmation event retains its detector/producer identity (`producer_id="CHOCH_DETECTOR_v1"`, `pattern_type="CHOCH"` vs `producer_id="ISS_ENGINE_v1"`, `pattern_type="ISS"`), its unique `event_id`, and its confirmation close price.
+  * **Individual Evidence Provenance**: Each individual confirmation event retains its detector/producer identity (`producer_id="CHOCH_DETECTOR_v1"`, `pattern_type="CHOCH"` vs `producer_id="ISS_ENGINE_v1"`, `pattern_type="ISS"`), its unique `event_id`, its reference close price, and its price basis.
 - *Grouping Rule*: Multiple qualifying confirmation events consolidate into a single candidate setup if and only if they share the exact same `CandidateSetupKey`.
 - Because `CandidateSetupKey` uses the shared `confirmation_config_id` (rather than a pattern-specific detector ID), CHOCH and ISS events completing on the same stream at the same close consolidate cleanly into one setup (`sig_18`).
 - Different confirmation stream configurations (e.g. different parameters or start candles) produce distinct `confirmation_config_id`s, generating distinct setup keys and preventing conflation (`sig_39`).
 - Persistent physical levels across different sets receive distinct `activation_id`s, producing distinct setup keys without cross-set collision (`sig_38`).
 
-#### 6.3 Required Candidate Record Schema (`CandidateSignalRecord`)
+#### 6.3 Authoritative Confirmation Evidence Record Schema (`ConfirmationEvidenceRecord`)
+Every confirmation event evaluated by the matcher must supply an authoritative immutable record:
+1. `event_id`: str (unique confirmation event identifier).
+2. `producer_id`: str (e.g. `"CHOCH_DETECTOR_v1"` or `"ISS_ENGINE_v1"`).
+3. `pattern_type`: str (`"CHOCH"` | `"ISS"`).
+4. `confirmation_config_id`: str (shared confirmation stream configuration identifier).
+5. `confirmation_timeframe`: str (`"H1"` | `"M5"` | `"M1"`).
+6. `confirmation_candle_id`: str (canonical candle bar identifier).
+7. `close_timestamp`: str (UTC ISO 8601).
+8. `close_price`: float (confirmation-close reference entry price).
+9. `price_basis`: str (`"BID"` | `"ASK"` | `"MID"`).
+10. `price_provenance`: str (`"CONFIRMATION_CANDLE_CLOSE"`).
+11. `is_completed`: bool = True.
+12. `has_unresolved_dependencies`: bool = False.
+13. `activation_id`: str (associated activation ID).
+14. `source_member_key`: str (associated source member key).
+
+#### 6.4 Required Candidate Record Schema (`CandidateSignalRecord`)
 Every candidate evaluated in arbitration must supply the following explicit typed fields:
 1. `candidate_id`: str (canonical length-prefixed unique candidate identifier).
 2. `setup_key`: str (serialized canonical `CandidateSetupKey`).
@@ -235,7 +255,7 @@ Every candidate evaluated in arbitration must supply the following explicit type
 19. `timeframe_rank`: int (M1=1, M5=2, H1=3).
 20. `role_rank`: int (TJL2_A_PLUS=1, TJL1=2).
 
-#### 6.4 Required Published Signal Record Schema (`PublishedTradeSignal`)
+#### 6.5 Required Published Signal Record Schema (`PublishedTradeSignal`)
 Every signal committed and published on the dashboard must supply the following explicit typed fields:
 1. `signal_id`: str (canonical length-prefixed unique signal identifier).
 2. `commit_id`: str (atomic transaction commit identifier).
@@ -260,7 +280,7 @@ Every signal committed and published on the dashboard must supply the following 
 21. `signal_type`: str = `"CONCEPTUAL_ANALYSIS_SIGNAL"` (Mandatory safety invariant).
 22. `publication_status`: str = `"FINALIZED_IMMUTABLE"`.
 
-#### 6.5 Atomic Conceptual Commit Transaction
+#### 6.6 Atomic Conceptual Commit Transaction
 - The winning entry commit is an atomic, idempotent operation within the active `DomainSession`:
   1. Designates the winning candidate setup.
   2. Consumes the winning physical level: permanently marks `StableLevelId` as `USED` in the scoped usage ledger.
@@ -268,7 +288,7 @@ Every signal committed and published on the dashboard must supply the following 
   4. Routes cancellation events across all other pending activations (`PENDING_ACTIVATION` and `REARMED_PENDING`) across D1, H4, and H1 within the active domain session.
 - Failure at any step rolls back completely (zero partial commits).
 
-#### 6.6 Finalization, Retries, and Late Evidence Policy
+#### 6.7 Finalization, Retries, and Late Evidence Policy
 - **Identical Already-Accounted Evidence**: Retrying an identical commit request or receiving an already-accounted confirmation event succeeds idempotently, returning the existing record without duplicate signal emission or double consumption (`sig_33`).
 - **Conflicting Retry Rejection**: Retrying a commit with conflicting content for the same `commit_id` is strictly rejected fail-closed (`COMMIT_CONFLICT_REJECTED`, `sig_34`).
 - **Evidence Arriving Before Finalization**: Any candidate arriving before batch finalization at timestamp $T$ is included in the candidate evaluation pool for timestamp $T$ (`sig_31`).

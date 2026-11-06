@@ -27,25 +27,32 @@ Validates:
    - Round-trip parsing and length prefix validation (sig_38, sig_39).
    - Setup key embeds activation ID, source set, and shared confirmation config without conflation.
    - Scoped ledger namespace prevents cross-session level consumption (OPEN-08, sig_35).
-10. Confirmation consolidation:
+10. Confirmation consolidation & provenance:
+   - Authoritative ConfirmationEvidenceRecord contract.
    - Different detectors (CHOCH vs ISS) consolidate under shared confirmation config (OPEN-07, sig_18).
-11. One-trade-per-level usage accounting:
+   - Computed setup keys and consolidated outputs match between events and expected signal.
+11. Cancellation target binding:
+   - Cancellation targets are derived strictly from input activations (sig_09, sig_10, sig_11, sig_12).
+   - Winning activation is excluded; non-winning pending activations are included; zero candidate IDs substituted.
+12. Negative integrity verification:
+   - Detects and rejects mismatched closes, missing evidence, invalid cancellation targets, winner in cancellations, and conflicting price bases.
+13. One-trade-per-level usage accounting:
    - Winning entry consumes its level (marks USED); cancelled competing levels remain UNUSED.
    - Used level cannot reactivate or produce repeat signals (MTF-Analysis.pdf §10).
-12. Rearming semantics:
+14. Rearming semantics:
    - Departure followed by fresh touch transitions to REARMED_PENDING and allows signal (MTF-Analysis.pdf §9, OPEN-05).
    - Lingering inside zone without departure blocks rearming (MTF-Analysis.pdf §9 Q&A 25).
-13. Source invalidation triggers:
+15. Source invalidation triggers:
    - Source TJL replacement cancels pending activation (MTF-Analysis.pdf §9, OPEN-03).
    - Source Main CHOCH reverses direction and immediately cancels old-direction activation (MTF-Analysis.pdf §9 Q&A 24).
-14. Chronological signal listing without hypothetical open position gating (OPEN-11).
-15. Fail-closed handling of unresolved strategy ambiguities:
+16. Chronological signal listing without hypothetical open position gating (OPEN-11).
+17. Fail-closed handling of unresolved strategy ambiguities:
    - Source c1 == p2 unresolved structure blocks signal (Choch.pdf §1, sig_20).
    - Unresolved ISS multi-candle pullback blocks signal with BLOCKED_UNRESOLVED_CONFIRMATION_GAP (sig_21).
    - Isolated tracking record rejected as confirmation (sig_36).
    - Forming / incomplete candle cannot confirm signal (sig_23).
-16. Zero-width line boundary equality and deterministic replay (OPEN-09).
-17. Safety boundary enforcement: all signals carry is_broker_execution == false and signal_type == "CONCEPTUAL_ANALYSIS_SIGNAL".
+18. Zero-width line boundary equality and deterministic replay (OPEN-09).
+19. Safety boundary enforcement: all signals carry is_broker_execution == false and signal_type == "CONCEPTUAL_ANALYSIS_SIGNAL".
 """
 
 from __future__ import annotations
@@ -55,7 +62,7 @@ import json
 import math
 from pathlib import Path
 import re
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Set
 
 import pytest
 from aladeen.strategy.activation_types import format_activation_id, format_member_key
@@ -123,6 +130,84 @@ def parse_candidate_setup_key(key: str) -> Dict[str, str]:
     }
 
 
+def validate_consolidation_evidence_integrity(
+    events: List[Dict[str, Any]],
+    declared_setup_key: str,
+    expected_event_ids: List[str],
+) -> None:
+    """Rigorous integrity validation for consolidated confirmation evidence."""
+    assert len(events) >= 2, "Consolidation requires at least 2 confirmation events"
+    parsed_csk = parse_candidate_setup_key(declared_setup_key)
+
+    event_ids_seen = []
+    first_price = events[0]["close_price"]
+    first_basis = events[0]["price_basis"]
+
+    for ev in events:
+        # Check event close matches setup key close
+        if ev["close_timestamp"] != parsed_csk["confirmation_close_iso"]:
+            raise ValueError(
+                f"Event close {ev['close_timestamp']} does not match setup key close {parsed_csk['confirmation_close_iso']}"
+            )
+        # Check candle ID matches
+        if ev["confirmation_candle_id"] != parsed_csk["confirmation_candle_id"]:
+            raise ValueError(
+                f"Event candle {ev['confirmation_candle_id']} does not match setup key candle {parsed_csk['confirmation_candle_id']}"
+            )
+        # Check shared confirmation config matches
+        if ev["confirmation_config_id"] != parsed_csk["confirmation_config_id"]:
+            raise ValueError(
+                f"Event config {ev['confirmation_config_id']} does not match setup key config {parsed_csk['confirmation_config_id']}"
+            )
+        # Check prices and price bases agree across supposedly shared candle evidence
+        if ev["close_price"] != first_price:
+            raise ValueError(
+                f"Conflicting close price {ev['close_price']} != {first_price} for shared candle evidence"
+            )
+        if ev["price_basis"] != first_basis:
+            raise ValueError(
+                f"Conflicting price basis {ev['price_basis']} != {first_basis} for shared candle evidence"
+            )
+
+        event_ids_seen.append(ev["event_id"])
+
+    # Check all expected event IDs are present in input evidence
+    for exp_id in expected_event_ids:
+        if exp_id not in event_ids_seen:
+            raise ValueError(f"Expected event ID {exp_id} absent from input evidence {event_ids_seen}")
+
+
+def validate_cancellation_targets_integrity(
+    input_activations: List[Dict[str, Any]],
+    winning_activation_id: str,
+    declared_cancellations: List[str],
+) -> None:
+    """Rigorous integrity validation of cancellation targets against input activations."""
+    input_act_ids = {a["activation_id"] for a in input_activations}
+
+    # 1. Winning activation must exist in inputs
+    if winning_activation_id not in input_act_ids:
+        raise ValueError(f"Winning activation {winning_activation_id} not found in input activations")
+
+    # 2. Winning activation cannot be included in cancellations
+    if winning_activation_id in declared_cancellations:
+        raise ValueError(f"Winning activation {winning_activation_id} incorrectly included in cancellations")
+
+    # 3. Every cancellation target must exist in input activations
+    for target in declared_cancellations:
+        if target.startswith("CAND_"):
+            raise ValueError(f"Cancellation target {target} is a candidate ID, not an activation ID")
+        if target not in input_act_ids:
+            raise ValueError(f"Cancellation target {target} absent from input activations")
+
+    # 4. Computed non-winning pending activations must exactly equal declared cancellations
+    expected_cancellations = {a_id for a_id in input_act_ids if a_id != winning_activation_id}
+    if set(declared_cancellations) != expected_cancellations:
+        raise ValueError(
+            f"Declared cancellations {declared_cancellations} != expected non-winning activations {expected_cancellations}"
+        )
+
+
 @pytest.fixture(scope="module")
 def trade_signal_fixtures() -> Dict[str, Any]:
     with open(FIXTURE_PATH, "r", encoding="utf-8") as f:
@@ -155,7 +240,6 @@ class TestTradeSignalFixtureIntegrity:
 
     def test_candidate_setup_key_canonical_encoding_and_round_trip(self) -> None:
         """Verifies mathematical round-trip and collision resistance for canonical setup keys."""
-        # 1. Standard round-trip
         act_id = format_activation_id("ACT_ENG", "H4", "EURUSD", "SET_1", "TJL1", 1)
         mk_key = format_member_key("SET_1", "TJL1")
         key = format_candidate_setup_key(
@@ -176,7 +260,7 @@ class TestTradeSignalFixtureIntegrity:
         assert parsed["confirmation_candle_id"] == "EURUSD:M5:20261002T083500Z"
         assert parsed["confirmation_close_iso"] == "2026-10-02T08:35:00+00:00"
 
-        # 2. Adversarial delimiter round-trip (brackets, colons, newlines)
+        # Adversarial delimiter round-trip (brackets, colons, newlines)
         adv_session = "SES[SION]:01\nADVERSARIAL"
         adv_key = format_candidate_setup_key(
             domain_session_id=adv_session,
@@ -261,38 +345,144 @@ class TestTradeSignalFixtureIntegrity:
                     parsed = parse_candidate_setup_key(csk_str)
                     assert len(parsed) == 7, f"Fixture {fix_id}: incomplete CSK components!"
 
-    def test_activation_ids_and_cancellation_targets_are_valid_activation_ids(self, trade_signal_fixtures: Dict[str, Any]) -> None:
-        """Verifies that all cancelled_activation_ids contain valid activation IDs (ACT_G...), never candidate IDs (CAND_...)."""
-        act_pattern = re.compile(r"^ACT_G\d{2}\[\d+:.*\]\[\d+:.*\]\[\d+:.*\]\[\d+:.*\]\[\d+:.*\]$")
-
-        for fix_id, fix in trade_signal_fixtures.items():
-            expected = fix.get("expected", {})
-            if "cancelled_activation_ids" in expected:
-                cancelled = expected["cancelled_activation_ids"]
-                assert isinstance(cancelled, list)
-                for target_id in cancelled:
-                    assert not target_id.startswith("CAND_"), f"Fixture {fix_id}: cancelled target {target_id} is a candidate ID, not an activation ID!"
-                    assert act_pattern.match(target_id), f"Fixture {fix_id}: cancelled target {target_id} does not match accepted activation_id format!"
-
     def test_consolidated_choch_and_iss_confirmation_single_signal(self, trade_signal_fixtures: Dict[str, Any]) -> None:
-        """Verifies OPEN-07: different detectors (CHOCH vs ISS) consolidate under shared confirmation config (sig_18)."""
+        """Verifies OPEN-07: reconciled single evidence history with computed setup keys and event IDs (sig_18)."""
         sig18 = trade_signal_fixtures["sig_18_consolidated_choch_and_iss_confirmation_single_signal"]
-        assert sig18["expected"]["signal_published"] is True
-        assert sig18["expected"]["signal_count"] == 1
-        assert sig18["expected"]["different_producers_consolidated"] is True
-        assert len(sig18["confirmation_events"]) == 2
+        events = sig18["confirmation_events"]
+        csk_declared = sig18["candidate_setup_key"]
+        exp_ids = sig18["expected"]["confirmation_event_ids"]
 
-        # Producers must be distinct (CHOCH detector vs ISS engine)
-        producers = [e["producer_id"] for e in sig18["confirmation_events"]]
-        assert len(set(producers)) == 2, "Consolidation requires different producer identities!"
+        # 1. Run rigorous validator
+        validate_consolidation_evidence_integrity(events, csk_declared, exp_ids)
 
-        # CandidateSetupKey must parse and use shared confirmation config
-        csk = parse_candidate_setup_key(sig18["candidate_setup_key"])
-        assert csk["confirmation_config_id"] == sig18["shared_confirmation_config_id"]
+        # 2. Compute CandidateSetupKey for each event from structured fields
+        session_id = "SESSION_EURUSD_01"
+        rev_id = "REV_001"
+        computed_keys = [
+            format_candidate_setup_key(
+                domain_session_id=session_id,
+                revision_id=rev_id,
+                activation_id=ev["activation_id"],
+                source_member_key=ev["source_member_key"],
+                confirmation_config_id=ev["confirmation_config_id"],
+                confirmation_candle_id=ev["confirmation_candle_id"],
+                confirmation_close_iso=ev["close_timestamp"],
+            )
+            for ev in events
+        ]
 
-        # Reference price must be present
-        assert sig18["expected"]["entry_reference_price"] == 1.1395
+        # Both events must yield the exact same setup key
+        assert computed_keys[0] == computed_keys[1]
+        assert computed_keys[0] == csk_declared
+
+        # 3. Compute expected event IDs and patterns directly from events
+        computed_ids = [e["event_id"] for e in events]
+        computed_patterns = [e["pattern_type"] for e in events]
+        assert computed_ids == sig18["expected"]["confirmation_event_ids"]
+        assert computed_patterns == sig18["expected"]["confirmation_patterns"]
+
+        # 4. Verify distinct producers
+        producers = [e["producer_id"] for e in events]
+        assert len(set(producers)) == 2
+        assert "CHOCH_DETECTOR_v1" in producers
+        assert "ISS_ENGINE_v1" in producers
+
+        # 5. Price & provenance
+        assert sig18["expected"]["entry_reference_price"] == events[0]["close_price"]
+        assert sig18["expected"]["price_basis"] == events[0]["price_basis"]
         assert sig18["expected"]["price_provenance"] == "CONFIRMATION_CANDLE_CLOSE"
+
+    def test_competing_candidates_and_cancellation_targets_bound_to_input_activations(self, trade_signal_fixtures: Dict[str, Any]) -> None:
+        """Verifies cancellation targets are computed from input activations excluding the winner (sig_09, sig_10, sig_11, sig_12)."""
+        fixture_ids = [
+            "sig_09_competing_activations_earlier_timestamp_wins",
+            "sig_10_competing_simultaneous_timestamp_lower_timeframe_wins",
+            "sig_11_competing_simultaneous_same_source_tjl2_wins",
+            "sig_12_winning_entry_marks_level_used_and_cancels_all_others",
+        ]
+
+        for fix_id in fixture_ids:
+            fix = trade_signal_fixtures[fix_id]
+            input_acts = fix["input_activations"]
+            winner_act_id = fix["expected"]["winning_activation_id"]
+            declared_cancels = fix["expected"]["cancelled_activation_ids"]
+
+            # Run cancellation validator
+            validate_cancellation_targets_integrity(input_acts, winner_act_id, declared_cancels)
+
+            # Assert winner is NOT in cancellations
+            assert winner_act_id not in declared_cancels
+
+            # Assert every cancellation target belongs to input activations
+            input_act_ids = {a["activation_id"] for a in input_acts}
+            for c in declared_cancels:
+                assert c in input_act_ids
+                assert c.startswith("ACT_G")
+                assert not c.startswith("CAND_")
+
+    def test_negative_different_event_close_versus_setup_key_close(self, trade_signal_fixtures: Dict[str, Any]) -> None:
+        """Negative test: assertion fails when event close does not match setup key close."""
+        sig18 = trade_signal_fixtures["sig_18_consolidated_choch_and_iss_confirmation_single_signal"]
+        corrupted_events = [
+            dict(sig18["confirmation_events"][0], close_timestamp="2026-10-02T08:45:00+00:00"),
+            sig18["confirmation_events"][1],
+        ]
+        with pytest.raises(ValueError, match="does not match setup key close"):
+            validate_consolidation_evidence_integrity(
+                corrupted_events,
+                sig18["candidate_setup_key"],
+                sig18["expected"]["confirmation_event_ids"],
+            )
+
+    def test_negative_expected_event_ids_absent_from_input_evidence(self, trade_signal_fixtures: Dict[str, Any]) -> None:
+        """Negative test: assertion fails when an expected event ID is missing from input events."""
+        sig18 = trade_signal_fixtures["sig_18_consolidated_choch_and_iss_confirmation_single_signal"]
+        missing_ids = ["EVT_CHOCH_0835", "EVT_PHANTOM_9999"]
+        with pytest.raises(ValueError, match="absent from input evidence"):
+            validate_consolidation_evidence_integrity(
+                sig18["confirmation_events"],
+                sig18["candidate_setup_key"],
+                missing_ids,
+            )
+
+    def test_negative_cancellation_target_absent_from_input_activations(self, trade_signal_fixtures: Dict[str, Any]) -> None:
+        """Negative test: assertion fails when cancellation target does not exist in input activations."""
+        sig09 = trade_signal_fixtures["sig_09_competing_activations_earlier_timestamp_wins"]
+        phantom_cancels = list(sig09["expected"]["cancelled_activation_ids"]) + [
+            "ACT_G01[15:ACT_ENGINE_DEMO][2:H1][6:EURUSD][15:SET_PHANTOM][4:TJL1]"
+        ]
+        with pytest.raises(ValueError, match="absent from input activations"):
+            validate_cancellation_targets_integrity(
+                sig09["input_activations"],
+                sig09["expected"]["winning_activation_id"],
+                phantom_cancels,
+            )
+
+    def test_negative_winner_incorrectly_included_among_cancellations(self, trade_signal_fixtures: Dict[str, Any]) -> None:
+        """Negative test: assertion fails when the winning activation is included in cancellations."""
+        sig09 = trade_signal_fixtures["sig_09_competing_activations_earlier_timestamp_wins"]
+        winner_id = sig09["expected"]["winning_activation_id"]
+        invalid_cancels = [winner_id] + sig09["expected"]["cancelled_activation_ids"]
+        with pytest.raises(ValueError, match="incorrectly included in cancellations"):
+            validate_cancellation_targets_integrity(
+                sig09["input_activations"],
+                winner_id,
+                invalid_cancels,
+            )
+
+    def test_negative_conflicting_price_or_basis_for_shared_candle_evidence(self, trade_signal_fixtures: Dict[str, Any]) -> None:
+        """Negative test: assertion fails when supposedly shared candle events have conflicting prices or price bases."""
+        sig18 = trade_signal_fixtures["sig_18_consolidated_choch_and_iss_confirmation_single_signal"]
+        conflicting_events = [
+            sig18["confirmation_events"][0],
+            dict(sig18["confirmation_events"][1], close_price=1.1450),  # Conflicting price!
+        ]
+        with pytest.raises(ValueError, match="Conflicting close price"):
+            validate_consolidation_evidence_integrity(
+                conflicting_events,
+                sig18["candidate_setup_key"],
+                sig18["expected"]["confirmation_event_ids"],
+            )
 
     def test_valid_signal_causal_timing(self, trade_signal_fixtures: Dict[str, Any]) -> None:
         """Verifies that for all valid published signals, confirmation close is on or after tap and reference price is present."""
@@ -355,8 +545,9 @@ class TestTradeSignalFixtureIntegrity:
         c2 = sig09["candidates"][1]  # 09:00 H1
         assert parse_utc_timestamp(c1["close_timestamp"]) < parse_utc_timestamp(c2["close_timestamp"])
         assert sig09["expected"]["winning_candidate_id"] == "CAND_H4_M5"
-        assert len(sig09["expected"]["cancelled_activation_ids"]) == 1
-        assert sig09["expected"]["cancelled_activation_ids"][0].startswith("ACT_G")
+        assert len(sig09["expected"]["cancelled_activation_ids"]) == 2
+        for act_id in sig09["expected"]["cancelled_activation_ids"]:
+            assert act_id.startswith("ACT_G")
         assert sig09["expected"]["signal_timestamp"] == c1["close_timestamp"]
 
         # 2. Simultaneous timestamp: lower confirmation timeframe wins (sig_10)

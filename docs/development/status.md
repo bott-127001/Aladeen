@@ -2431,3 +2431,57 @@ Last Updated: 2026-11-06 (Milestone 29 Release-Readiness Audit & Offline Runbook
   - Zero confirmation arbitration implementation, zero usage ledger runtime writes, zero automated trading.
   - Strategy engines 100% untouched (0 diff against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`).
   - Dedicated branch boundary: committed and pushed strictly on `requirements/trade-signal-acceptance`. Never merge into `main`.
+
+
+---
+
+## Milestone 30 — Trade-Signal Business Logic Requirements and Acceptance Contract (HANDOFF-090)
+
+- **Active Branch**: `requirements/trade-signal-acceptance`
+- **Immediate Parent Commit**: `b0a44bf8ec0a6777b76df345373ae90176e37328` (HANDOFF-089)
+- **Accepted Milestone 29 Baseline Commit**: `0144ddb8150b4132a7b60d24698105d897514cb2`
+- **Accepted Milestone 28 Controlled Browser Baseline**: `bf737ea41e8bfd554b9386a6e9be86f700824fb3`
+- **Requirements Baseline Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d`
+- **Root Baseline Engine Commit**: `0867c740352297fb43e781fb654706218771d533`
+- **Reviewer Feedback Addressed (HANDOFF-089 Review Directives 1–6 & HANDOFF-090 Closeout)**:
+  1. *Reconciled `sig_18` into Internally Consistent Single Evidence History*:
+     - Removed the stale `confirmations` array; unified `sig_18` into one authoritative `confirmation_events` collection.
+     - Each event explicitly specifies `producer_id` (`CHOCH_DETECTOR_v1` vs `ISS_ENGINE_v1`), `pattern_type` (`CHOCH` vs `ISS`), shared `confirmation_config_id` (`CONF_CFG_EURUSD_M5_v1`), `confirmation_candle_id`, `close_timestamp` (08:35:00 UTC), `close_price` (1.1395), `price_basis` ("BID"), and `price_provenance`.
+     - Computed the `CandidateSetupKey` for each event using `format_candidate_setup_key()` and proved exact equality with the declared setup key.
+     - Computed expected consolidated IDs `("EVT_CHOCH_0835", "EVT_ISS_0835")` and pattern types directly from input events.
+  2. *Bound Cancellation Targets to Structured Input Activations*:
+     - In `sig_09`, `sig_10`, `sig_11`, and `sig_12`, added `input_activations` with explicit structured fields (`activation_id`, `engine_id`, `source_timeframe`, `symbol`, `set_id`, `role`, `generation_seq`, `level_key`, `state`).
+     - Derived expected cancellation targets programmatically as all non-winning eligible pending activations within the active domain session.
+     - Verified:
+       * Winning activation is strictly excluded from cancellations.
+       * Eligible pending activations without a candidate confirmation (e.g. active H1 activation in `sig_09`) are included in cancellations.
+       * Every cancellation target exists in `input_activations`.
+       * Zero candidate IDs (`CAND_*`) appear as cancellation targets.
+  3. *Immutable Confirmation Evidence Record Contract & Scope Precision*:
+     - Specified `ConfirmationEvidenceRecord` schema in `docs/requirements/trade-signal-acceptance.md` §6.3.
+     - Clarified evidence claim precision: Current integrity tests validate requirements consistency, schema definitions, and mathematical identity relationships; they do NOT execute unimplemented runtime signal transitions.
+  4. *Added Negative Integrity Test Suite (5 Cases)*:
+     - Added 5 negative tests in `tests/test_trade_signal_fixture_integrity.py` asserting that corrupted inputs raise explicit errors:
+       * `test_negative_different_event_close_versus_setup_key_close`: catches mismatched event close vs setup key close.
+       * `test_negative_expected_event_ids_absent_from_input_evidence`: catches expected event IDs not in input evidence.
+       * `test_negative_cancellation_target_absent_from_input_activations`: catches cancellation targets not in input activations.
+       * `test_negative_winner_incorrectly_included_among_cancellations`: catches winning activation in cancellations.
+       * `test_negative_conflicting_price_or_basis_for_shared_candle_evidence`: catches conflicting prices/bases across shared candle evidence.
+  5. *Test Execution & Verification*:
+     - Trade-Signal fixture integrity suite: **33/33 passed in 5.56s**.
+     - Full offline repository test suite: **575/575 passed in 12.17s**.
+- **Verification Summary**:
+  - Trade-Signal fixture integrity suite: 33/33 passed in 5.56s (`pytest tests/test_trade_signal_fixture_integrity.py -v`).
+  - Full offline repository test suite: 575/575 passed in 12.17s (`pytest -q tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py --ignore=tests/test_activation_browser_controlled.py --ignore=tests/activation_browser_runner.py --ignore=tests/activation_browser_harness.py`).
+- **Completed Deliverables**:
+  1. [`docs/requirements/trade-signal-acceptance.md`](file:///docs/requirements/trade-signal-acceptance.md): Complete requirements contract with authoritative `ConfirmationEvidenceRecord` contract, bound cancellation targets, and evidence precision statements.
+  2. [`tests/fixtures/trade_signal_acceptance.json`](file:///tests/fixtures/trade_signal_acceptance.json): Standardized 39-fixture acceptance test suite (`sig_01` through `sig_39`) with reconciled `sig_18` and structured `input_activations`.
+  3. [`tests/test_trade_signal_fixture_integrity.py`](file:///tests/test_trade_signal_fixture_integrity.py): 33 automated integrity test methods including 5 negative integrity checks and computed cancellation validators.
+  4. [`docs/requirements/trade-signal-open-questions.md`](file:///docs/requirements/trade-signal-open-questions.md): Grounded open strategy questions with intra-candle limitation reframed as technical evidence invariant.
+  5. [`docs/development/status.md`](file:///docs/development/status.md): Milestone 30 HANDOFF-090 status update.
+- **Standing Invariants Maintained**:
+  - Pure requirements reconciliation, fixture design, and test specification.
+  - Strictly zero runtime signal engine implementation, zero UI order execution, zero MT5 live trading calls, zero live account modification.
+  - Zero confirmation arbitration implementation, zero usage ledger runtime writes, zero automated trading.
+  - Strategy engines 100% untouched (0 diff against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`).
+  - Dedicated branch boundary: committed and pushed strictly on `requirements/trade-signal-acceptance`. Never merge into `main`.

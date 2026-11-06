@@ -419,7 +419,8 @@
           "level_key": "FEED_EURUSD_H4:H4:2026-10-01T04:00:00+00:00:HIGH",
           "tap_timestamp": "2026-10-02T08:00:00+00:00",
           "close_timestamp": "2026-10-02T08:35:00+00:00",
-          "close_price": 1.1395
+          "close_price": 1.1395,
+          "activation_id": "ACT_G01[15:ACT_ENGINE_DEMO][2:H4][6:EURUSD][15:SET_20261001_H4][4:TJL1]"
         },
         {
           "candidate_id": "CAND_D1_H1",
@@ -430,7 +431,8 @@
           "level_key": "FEED_EURUSD_D1:D1:2026-09-25T00:00:00+00:00:LOW",
           "tap_timestamp": "2026-10-02T06:00:00+00:00",
           "close_timestamp": "2026-10-02T09:00:00+00:00",
-          "close_price": 1.141
+          "close_price": 1.141,
+          "activation_id": "ACT_G01[15:ACT_ENGINE_DEMO][2:D1][6:EURUSD][15:SET_20261001_D1][11:TJL2_A_PLUS]"
         }
       ],
       "expected": {
@@ -440,14 +442,51 @@
         "signal_timestamp": "2026-10-02T08:35:00+00:00",
         "entry_price": 1.1395,
         "cancelled_activation_ids": [
-          "ACT_G01[15:ACT_ENGINE_DEMO][2:D1][6:EURUSD][15:SET_20261001_D1][4:TJL1]"
+          "ACT_G01[15:ACT_ENGINE_DEMO][2:D1][6:EURUSD][15:SET_20261001_D1][11:TJL2_A_PLUS]",
+          "ACT_G01[15:ACT_ENGINE_DEMO][2:H1][6:EURUSD][15:SET_20261001_H1][4:TJL1]"
         ],
         "consumed_level_keys": [
           "FEED_EURUSD_H4:H4:2026-10-01T04:00:00+00:00:HIGH"
         ],
         "is_broker_execution": false,
-        "signal_type": "CONCEPTUAL_ANALYSIS_SIGNAL"
-      }
+        "signal_type": "CONCEPTUAL_ANALYSIS_SIGNAL",
+        "winning_activation_id": "ACT_G01[15:ACT_ENGINE_DEMO][2:H4][6:EURUSD][15:SET_20261001_H4][4:TJL1]"
+      },
+      "input_activations": [
+        {
+          "activation_id": "ACT_G01[15:ACT_ENGINE_DEMO][2:H4][6:EURUSD][15:SET_20261001_H4][4:TJL1]",
+          "engine_id": "ACT_ENGINE_DEMO",
+          "source_timeframe": "H4",
+          "symbol": "EURUSD",
+          "set_id": "SET_20261001_H4",
+          "role": "TJL1",
+          "generation_seq": 1,
+          "level_key": "FEED_EURUSD_H4:H4:2026-10-01T04:00:00+00:00:HIGH",
+          "state": "PENDING_ACTIVATION"
+        },
+        {
+          "activation_id": "ACT_G01[15:ACT_ENGINE_DEMO][2:D1][6:EURUSD][15:SET_20261001_D1][11:TJL2_A_PLUS]",
+          "engine_id": "ACT_ENGINE_DEMO",
+          "source_timeframe": "D1",
+          "symbol": "EURUSD",
+          "set_id": "SET_20261001_D1",
+          "role": "TJL2_A_PLUS",
+          "generation_seq": 1,
+          "level_key": "FEED_EURUSD_D1:D1:2026-09-25T00:00:00+00:00:LOW",
+          "state": "PENDING_ACTIVATION"
+        },
+        {
+          "activation_id": "ACT_G01[15:ACT_ENGINE_DEMO][2:H1][6:EURUSD][15:SET_20261001_H1][4:TJL1]",
+          "engine_id": "ACT_ENGINE_DEMO",
+          "source_timeframe": "H1",
+          "symbol": "EURUSD",
+          "set_id": "SET_20261001_H1",
+          "role": "TJL1",
+          "generation_seq": 1,
+          "level_key": "FEED_EURUSD_H1:H1:2026-10-01T08:00:00+00:00:HIGH",
+          "state": "PENDING_ACTIVATION"
+        }
+      ]
     },
     "sig_10_competing_simultaneous_timestamp_lower_timeframe_wins": {
       "category": [
@@ -465,7 +504,8 @@
           "direction": "UPWARD",
           "level_key": "FEED_EURUSD_D1:D1:2026-09-25T00:00:00+00:00:LOW",
           "close_timestamp": "2026-10-02T09:00:00+00:00",
-          "close_price": 1.1415
+          "close_price": 1.1415,
+          "activation_id": "ACT_G01[15:ACT_ENGINE_DEMO][2:D1][6:EURUSD][15:SET_20261001_D1][11:TJL2_A_PLUS]"
         },
         {
           "candidate_id": "CAND_H4_M5",
@@ -475,7 +515,8 @@
           "direction": "UPWARD",
           "level_key": "FEED_EURUSD_H4:H4:2026-10-01T04:00:00+00:00:HIGH",
           "close_timestamp": "2026-10-02T09:00:00+00:00",
-          "close_price": 1.14
+          "close_price": 1.14,
+          "activation_id": "ACT_G01[15:ACT_ENGINE_DEMO][2:H4][6:EURUSD][15:SET_20261001_H4][4:TJL1]"
         }
       ],
       "expected": {
@@ -485,14 +526,39 @@
         "signal_timestamp": "2026-10-02T09:00:00+00:00",
         "entry_price": 1.14,
         "cancelled_activation_ids": [
-          "ACT_G01[15:ACT_ENGINE_DEMO][2:D1][6:EURUSD][15:SET_20261001_D1][4:TJL1]"
+          "ACT_G01[15:ACT_ENGINE_DEMO][2:D1][6:EURUSD][15:SET_20261001_D1][11:TJL2_A_PLUS]"
         ],
         "consumed_level_keys": [
           "FEED_EURUSD_H4:H4:2026-10-01T04:00:00+00:00:HIGH"
         ],
         "is_broker_execution": false,
-        "signal_type": "CONCEPTUAL_ANALYSIS_SIGNAL"
-      }
+        "signal_type": "CONCEPTUAL_ANALYSIS_SIGNAL",
+        "winning_activation_id": "ACT_G01[15:ACT_ENGINE_DEMO][2:H4][6:EURUSD][15:SET_20261001_H4][4:TJL1]"
+      },
+      "input_activations": [
+        {
+          "activation_id": "ACT_G01[15:ACT_ENGINE_DEMO][2:H4][6:EURUSD][15:SET_20261001_H4][4:TJL1]",
+          "engine_id": "ACT_ENGINE_DEMO",
+          "source_timeframe": "H4",
+          "symbol": "EURUSD",
+          "set_id": "SET_20261001_H4",
+          "role": "TJL1",
+          "generation_seq": 1,
+          "level_key": "FEED_EURUSD_H4:H4:2026-10-01T04:00:00+00:00:HIGH",
+          "state": "PENDING_ACTIVATION"
+        },
+        {
+          "activation_id": "ACT_G01[15:ACT_ENGINE_DEMO][2:D1][6:EURUSD][15:SET_20261001_D1][11:TJL2_A_PLUS]",
+          "engine_id": "ACT_ENGINE_DEMO",
+          "source_timeframe": "D1",
+          "symbol": "EURUSD",
+          "set_id": "SET_20261001_D1",
+          "role": "TJL2_A_PLUS",
+          "generation_seq": 1,
+          "level_key": "FEED_EURUSD_D1:D1:2026-09-25T00:00:00+00:00:LOW",
+          "state": "PENDING_ACTIVATION"
+        }
+      ]
     },
     "sig_11_competing_simultaneous_same_source_tjl2_wins": {
       "category": [
@@ -510,7 +576,8 @@
           "direction": "UPWARD",
           "level_key": "FEED_EURUSD_H4:H4:2026-10-01T04:00:00+00:00:HIGH",
           "close_timestamp": "2026-10-02T09:00:00+00:00",
-          "close_price": 1.14
+          "close_price": 1.14,
+          "activation_id": "ACT_G01[15:ACT_ENGINE_DEMO][2:H4][6:EURUSD][15:SET_20261001_H4][4:TJL1]"
         },
         {
           "candidate_id": "CAND_H4_TJL2",
@@ -520,7 +587,8 @@
           "direction": "UPWARD",
           "level_key": "FEED_EURUSD_H4:H4:2026-10-01T04:00:00+00:00:LOW",
           "close_timestamp": "2026-10-02T09:00:00+00:00",
-          "close_price": 1.14
+          "close_price": 1.14,
+          "activation_id": "ACT_G01[15:ACT_ENGINE_DEMO][2:H4][6:EURUSD][15:SET_20261001_H4][11:TJL2_A_PLUS]"
         }
       ],
       "expected": {
@@ -536,8 +604,33 @@
           "FEED_EURUSD_H4:H4:2026-10-01T04:00:00+00:00:LOW"
         ],
         "is_broker_execution": false,
-        "signal_type": "CONCEPTUAL_ANALYSIS_SIGNAL"
-      }
+        "signal_type": "CONCEPTUAL_ANALYSIS_SIGNAL",
+        "winning_activation_id": "ACT_G01[15:ACT_ENGINE_DEMO][2:H4][6:EURUSD][15:SET_20261001_H4][11:TJL2_A_PLUS]"
+      },
+      "input_activations": [
+        {
+          "activation_id": "ACT_G01[15:ACT_ENGINE_DEMO][2:H4][6:EURUSD][15:SET_20261001_H4][4:TJL1]",
+          "engine_id": "ACT_ENGINE_DEMO",
+          "source_timeframe": "H4",
+          "symbol": "EURUSD",
+          "set_id": "SET_20261001_H4",
+          "role": "TJL1",
+          "generation_seq": 1,
+          "level_key": "FEED_EURUSD_H4:H4:2026-10-01T04:00:00+00:00:HIGH",
+          "state": "PENDING_ACTIVATION"
+        },
+        {
+          "activation_id": "ACT_G01[15:ACT_ENGINE_DEMO][2:H4][6:EURUSD][15:SET_20261001_H4][11:TJL2_A_PLUS]",
+          "engine_id": "ACT_ENGINE_DEMO",
+          "source_timeframe": "H4",
+          "symbol": "EURUSD",
+          "set_id": "SET_20261001_H4",
+          "role": "TJL2_A_PLUS",
+          "generation_seq": 1,
+          "level_key": "FEED_EURUSD_H4:H4:2026-10-01T04:00:00+00:00:LOW",
+          "state": "PENDING_ACTIVATION"
+        }
+      ]
     },
     "sig_12_winning_entry_marks_level_used_and_cancels_all_others": {
       "category": [
@@ -550,19 +643,22 @@
           "candidate_id": "CAND_H4",
           "source_timeframe": "H4",
           "level_key": "FEED_EURUSD_H4:H4:LVL_01",
-          "close_timestamp": "2026-10-02T08:30:00+00:00"
+          "close_timestamp": "2026-10-02T08:30:00+00:00",
+          "activation_id": "ACT_G01[15:ACT_ENGINE_DEMO][2:H4][6:EURUSD][15:SET_20261001_H4][4:TJL1]"
         },
         {
           "candidate_id": "CAND_D1",
           "source_timeframe": "D1",
           "level_key": "FEED_EURUSD_D1:D1:LVL_01",
-          "close_timestamp": "2026-10-02T09:00:00+00:00"
+          "close_timestamp": "2026-10-02T09:00:00+00:00",
+          "activation_id": "ACT_G01[15:ACT_ENGINE_DEMO][2:D1][6:EURUSD][15:SET_20261001_D1][4:TJL1]"
         },
         {
           "candidate_id": "CAND_H1",
           "source_timeframe": "H1",
           "level_key": "FEED_EURUSD_H1:H1:LVL_01",
-          "close_timestamp": "2026-10-02T09:00:00+00:00"
+          "close_timestamp": "2026-10-02T09:00:00+00:00",
+          "activation_id": "ACT_G01[15:ACT_ENGINE_DEMO][2:H1][6:EURUSD][15:SET_20261001_H1][4:TJL1]"
         }
       ],
       "expected": {
@@ -577,8 +673,44 @@
         "remaining_unused_level_keys": [
           "FEED_EURUSD_D1:D1:LVL_01",
           "FEED_EURUSD_H1:H1:LVL_01"
-        ]
-      }
+        ],
+        "winning_activation_id": "ACT_G01[15:ACT_ENGINE_DEMO][2:H4][6:EURUSD][15:SET_20261001_H4][4:TJL1]"
+      },
+      "input_activations": [
+        {
+          "activation_id": "ACT_G01[15:ACT_ENGINE_DEMO][2:H4][6:EURUSD][15:SET_20261001_H4][4:TJL1]",
+          "engine_id": "ACT_ENGINE_DEMO",
+          "source_timeframe": "H4",
+          "symbol": "EURUSD",
+          "set_id": "SET_20261001_H4",
+          "role": "TJL1",
+          "generation_seq": 1,
+          "level_key": "FEED_EURUSD_H4:H4:LVL_01",
+          "state": "PENDING_ACTIVATION"
+        },
+        {
+          "activation_id": "ACT_G01[15:ACT_ENGINE_DEMO][2:D1][6:EURUSD][15:SET_20261001_D1][4:TJL1]",
+          "engine_id": "ACT_ENGINE_DEMO",
+          "source_timeframe": "D1",
+          "symbol": "EURUSD",
+          "set_id": "SET_20261001_D1",
+          "role": "TJL1",
+          "generation_seq": 1,
+          "level_key": "FEED_EURUSD_D1:D1:LVL_01",
+          "state": "PENDING_ACTIVATION"
+        },
+        {
+          "activation_id": "ACT_G01[15:ACT_ENGINE_DEMO][2:H1][6:EURUSD][15:SET_20261001_H1][4:TJL1]",
+          "engine_id": "ACT_ENGINE_DEMO",
+          "source_timeframe": "H1",
+          "symbol": "EURUSD",
+          "set_id": "SET_20261001_H1",
+          "role": "TJL1",
+          "generation_seq": 1,
+          "level_key": "FEED_EURUSD_H1:H1:LVL_01",
+          "state": "PENDING_ACTIVATION"
+        }
+      ]
     },
     "sig_13_used_level_cannot_rearm_or_trade_again": {
       "category": [
@@ -761,49 +893,64 @@
         "level_key": "FEED_EURUSD_H4:H4:LVL_01",
         "direction": "UPWARD"
       },
-      "confirmations": [
-        {
-          "pattern_type": "CHOCH",
-          "event_id": "EVT_CHOCH_01",
-          "close_timestamp": "2026-10-02T09:00:00+00:00"
-        },
-        {
-          "pattern_type": "AUTHORITATIVE_CONFIRMED_ISS",
-          "event_id": "EVT_ISS_01",
-          "close_timestamp": "2026-10-02T09:00:00+00:00"
-        }
-      ],
       "expected": {
         "signal_published": true,
         "signal_count": 1,
+        "signal_timestamp": "2026-10-02T08:35:00+00:00",
         "confirmation_event_ids": [
-          "EVT_CHOCH_01",
-          "EVT_ISS_01"
+          "EVT_CHOCH_0835",
+          "EVT_ISS_0835"
         ],
-        "is_broker_execution": false,
+        "confirmation_patterns": [
+          "CHOCH",
+          "ISS"
+        ],
+        "is_consolidated": true,
         "entry_reference_price": 1.1395,
         "price_basis": "BID",
         "price_provenance": "CONFIRMATION_CANDLE_CLOSE",
-        "different_producers_consolidated": true
+        "different_producers_consolidated": true,
+        "is_broker_execution": false,
+        "signal_type": "CONCEPTUAL_ANALYSIS_SIGNAL"
       },
       "shared_confirmation_config_id": "CONF_CFG_EURUSD_M5_v1",
       "candidate_setup_key": "CSK[17:SESSION_EURUSD_01][7:REV_001][71:ACT_G01[15:ACT_ENGINE_DEMO][2:H4][6:EURUSD][15:SET_20261001_H4][4:TJL1]][30:MK[15:SET_20261001_H4][4:TJL1]][21:CONF_CFG_EURUSD_M5_v1][26:EURUSD:M5:20261002T083500Z][25:2026-10-02T08:35:00+00:00]",
       "confirmation_events": [
         {
+          "event_id": "EVT_CHOCH_0835",
           "producer_id": "CHOCH_DETECTOR_v1",
           "pattern_type": "CHOCH",
-          "event_id": "EVT_CHOCH_0835",
+          "confirmation_config_id": "CONF_CFG_EURUSD_M5_v1",
+          "confirmation_timeframe": "M5",
+          "confirmation_candle_id": "EURUSD:M5:20261002T083500Z",
+          "close_timestamp": "2026-10-02T08:35:00+00:00",
           "close_price": 1.1395,
-          "price_basis": "BID"
+          "price_basis": "BID",
+          "price_provenance": "CONFIRMATION_CANDLE_CLOSE",
+          "is_completed": true,
+          "has_unresolved_dependencies": false,
+          "activation_id": "ACT_G01[15:ACT_ENGINE_DEMO][2:H4][6:EURUSD][15:SET_20261001_H4][4:TJL1]",
+          "source_member_key": "MK[15:SET_20261001_H4][4:TJL1]"
         },
         {
+          "event_id": "EVT_ISS_0835",
           "producer_id": "ISS_ENGINE_v1",
           "pattern_type": "ISS",
-          "event_id": "EVT_ISS_0835",
+          "confirmation_config_id": "CONF_CFG_EURUSD_M5_v1",
+          "confirmation_timeframe": "M5",
+          "confirmation_candle_id": "EURUSD:M5:20261002T083500Z",
+          "close_timestamp": "2026-10-02T08:35:00+00:00",
           "close_price": 1.1395,
-          "price_basis": "BID"
+          "price_basis": "BID",
+          "price_provenance": "CONFIRMATION_CANDLE_CLOSE",
+          "is_completed": true,
+          "has_unresolved_dependencies": false,
+          "activation_id": "ACT_G01[15:ACT_ENGINE_DEMO][2:H4][6:EURUSD][15:SET_20261001_H4][4:TJL1]",
+          "source_member_key": "MK[15:SET_20261001_H4][4:TJL1]"
         }
-      ]
+      ],
+      "activation_id": "ACT_G01[15:ACT_ENGINE_DEMO][2:H4][6:EURUSD][15:SET_20261001_H4][4:TJL1]",
+      "source_member_key": "MK[15:SET_20261001_H4][4:TJL1]"
     },
     "sig_19_chronological_listing_without_position_gating": {
       "category": [
