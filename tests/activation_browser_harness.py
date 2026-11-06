@@ -43,6 +43,12 @@ from tests.test_activation_dashboard_integration import make_snapshot_from_fixtu
 
 logger = logging.getLogger("activation_browser_harness")
 
+PROD_PORT = 8068
+HARNESS_PORT = 8069
+PROD_URL = f"http://127.0.0.1:{PROD_PORT}"
+HARNESS_URL = f"http://127.0.0.1:{HARNESS_PORT}"
+ALLOWED_ORIGINS = {f"http://127.0.0.1:{PROD_PORT}", f"http://127.0.0.1:{HARNESS_PORT}"}
+
 
 class ControlledServerHandle:
     """Controllable Werkzeug server handle with fail-verifiable startup, shutdown, and port audit."""
@@ -265,20 +271,31 @@ class ControllableActivationMockAdapter:
 
 
 class BrowserAuditWatcher:
-    """Full-lifecycle audit monitor attached to pages for error accounting and callback response audits."""
+    """Full-lifecycle audit monitor attached to pages and contexts for comprehensive error and callback auditing."""
 
     def __init__(self) -> None:
         self.console_errors: List[Dict[str, str]] = []
         self.page_errors: List[str] = []
         self.failed_callback_responses: List[Dict[str, Any]] = []
+        self.failed_callback_requests: List[Dict[str, Any]] = []
+
+    def attach_context(self, context: BrowserContext, label: str) -> None:
+        """Attaches page auditing through context page events before navigation can complete."""
+        def on_page(page: Page) -> None:
+            page_label = f"{label}-SpawnedTab"
+            self.attach(page, page_label)
+
+        context.on("page", on_page)
 
     def attach(self, page: Page, label: str) -> None:
-        """Attaches console, pageerror, and response event listeners to a page."""
+        """Attaches console, pageerror, requestfailed, and response event listeners to a page."""
         def on_console(msg: Any) -> None:
             if msg.type == "error":
                 text = msg.text
-                if "favicon.ico" in text or "net::ERR_ABORTED" in text:
+                # Filter strictly benign browser 404 for missing favicon
+                if "favicon.ico" in text:
                     return
+                # Do not blanket suppress net::ERR_ABORTED; only filter if specifically about favicon
                 self.console_errors.append({"page": label, "text": text})
 
         def on_page_error(err: Any) -> None:
@@ -294,15 +311,32 @@ class BrowserAuditWatcher:
                         "status": response.status,
                     })
 
+        def on_request_failed(request: Request) -> None:
+            url = request.url
+            if "/_dash-update-component" in url:
+                failure = request.failure
+                failure_text = str(failure) if failure else ""
+                # Narrowly distinguish expected navigation cancellations if any
+                if "NS_BINDING_ABORTED" in failure_text:
+                    logger.info(f"Ignored benign navigation abort for callback: {url}")
+                    return
+                self.failed_callback_requests.append({
+                    "page": label,
+                    "url": url,
+                    "failure": failure_text,
+                })
+
         page.on("console", on_console)
         page.on("pageerror", on_page_error)
         page.on("response", on_response)
+        page.on("requestfailed", on_request_failed)
 
     def assert_clean(self) -> None:
-        """Asserts zero console errors, zero page errors, and zero failed callbacks."""
+        """Asserts zero console errors, zero page errors, zero non-200 responses, and zero failed callback requests."""
         assert len(self.console_errors) == 0, f"Encountered browser console errors: {self.console_errors}"
         assert len(self.page_errors) == 0, f"Encountered uncaught page errors: {self.page_errors}"
-        assert len(self.failed_callback_responses) == 0, f"Encountered failed Dash callbacks: {self.failed_callback_responses}"
+        assert len(self.failed_callback_responses) == 0, f"Encountered failed Dash callback responses: {self.failed_callback_responses}"
+        assert len(self.failed_callback_requests) == 0, f"Encountered failed Dash callback requests (no response): {self.failed_callback_requests}"
 
 
 def configure_and_apply_msm(
@@ -446,3 +480,143 @@ def _create_fixture_harness_app(fixtures: Dict[str, Any]) -> Dash:
         return elements, scenario_key
 
     return app
+
+
+def verify_server_lifecycle_failure_injection() -> None:
+    """Verifies that ControlledServerHandle and managed_servers cleanly release resources on failure."""
+    print("\n--- FAILURE-INJECTION VERIFICATION: Server Lifecycle & Recovery ---")
+    dummy_app = Dash("dummy_test_app")
+    dummy_app.layout = html.Div("Dummy")
+
+    # 1. Verify single server start, stop, socket release, and thread termination
+    s = ControlledServerHandle(dummy_app, "127.0.0.1", 8098, "Test Server")
+    s.start()
+    assert s._is_running is True
+    assert s.thread is not None and s.thread.is_alive()
+    s.stop()
+    assert s._is_running is False
+    assert not s.thread.is_alive()
+    print("   ✓ Single server lifecycle verified: startup, socket binding, thread join, and port release.")
+
+    # 2. Verify managed_servers startup failure cleans up prior started server on collision
+    s1 = ControlledServerHandle(dummy_app, "127.0.0.1", 8098, "Test Server 1")
+    occupied_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    occupied_sock.bind(("127.0.0.1", 0))
+    occupied_port = occupied_sock.getsockname()[1]
+    occupied_sock.listen(1)
+
+    try:
+        s2 = ControlledServerHandle(dummy_app, "127.0.0.1", occupied_port, "Test Server 2 (Colliding)")
+        failed = False
+        try:
+            with managed_servers(s1, s2):
+                pass
+        except Exception:
+            failed = True
+        assert failed is True, "managed_servers must fail if a server cannot bind"
+        assert s1._is_running is False, "Server 1 must be cleanly stopped if Server 2 fails to start"
+        print("   ✓ Startup failure recovery verified: Server 1 cleanly stopped when Server 2 startup failed.")
+    finally:
+        occupied_sock.close()
+
+    # 3. Verify managed_servers teardown when an exception occurs INSIDE the managed body
+    s3 = ControlledServerHandle(dummy_app, "127.0.0.1", 8097, "Test Server 3")
+    s4 = ControlledServerHandle(dummy_app, "127.0.0.1", 8096, "Test Server 4")
+    body_exception_raised = False
+    try:
+        with managed_servers(s3, s4):
+            assert s3._is_running is True
+            assert s4._is_running is True
+            raise AssertionError("Simulated test assertion failure inside browser execution body")
+    except AssertionError as ae:
+        body_exception_raised = True
+        assert "Simulated test assertion failure" in str(ae)
+
+    assert body_exception_raised is True, "Assertion error must propagate out of managed_servers"
+    assert s3._is_running is False, "Server 3 must be cleanly stopped after exception in body"
+    assert s4._is_running is False, "Server 4 must be cleanly stopped after exception in body"
+    assert not s3.thread.is_alive(), "Server 3 thread must be joined after exception in body"
+    assert not s4.thread.is_alive(), "Server 4 thread must be joined after exception in body"
+    print("   ✓ Failure inside managed body verified: all running servers cleanly stopped and joined on assertion failure.")
+
+
+def verify_isolation_guards_negative_controls(browser: Any) -> None:
+    """Verifies that ContextSecurityFirewall and install_server_socket_guard reject prohibited access."""
+    print("\n--- NEGATIVE CONTROLS: Isolation Guards Rejection Verification ---")
+
+    # 1. Negative control for ContextSecurityFirewall
+    test_firewall = ContextSecurityFirewall({"http://127.0.0.1:8068"})
+    test_ctx = browser.new_context()
+    test_firewall.attach(test_ctx)
+    test_page = test_ctx.new_page()
+
+    # Attempt to route to a disallowed near-match origin (unauthorized local port 8070)
+    blocked_navigation = False
+    try:
+        test_page.goto("http://127.0.0.1:8070/api/test", timeout=3000)
+    except Exception as e:
+        blocked_navigation = True
+        err_msg = str(e).lower()
+        assert "err_blocked_by_client" in err_msg or "net::err_failed" in err_msg or "blockedbyclient" in err_msg
+
+    assert blocked_navigation is True, "Firewall must abort request to unauthorized port 8070"
+    assert len(test_firewall.blocked_requests) == 1, "Blocked request must be recorded in firewall audit"
+    assert test_firewall.blocked_requests[0]["origin"] == "http://127.0.0.1:8070"
+
+    # Attempt to route to an external domain (example.com)
+    try:
+        test_page.goto("http://example.com/unauthorized", timeout=3000)
+    except Exception as e:
+        err_msg = str(e).lower()
+        assert "err_blocked_by_client" in err_msg or "net::err_failed" in err_msg or "blockedbyclient" in err_msg
+
+    assert len(test_firewall.blocked_requests) == 2
+    assert test_firewall.blocked_requests[1]["origin"] == "http://example.com"
+    test_ctx.close()
+    print("   ✓ ContextSecurityFirewall negative controls verified: unauthorized port 8070 and external domain blocked before navigation.")
+
+    # 2. Negative control for install_server_socket_guard
+    underlying_calls: List[Any] = []
+    real_orig_connect = socket.socket.connect
+
+    def mock_underlying_connect(self: socket.socket, address: Any) -> None:
+        underlying_calls.append(address)
+
+    # Monkeypatch the base connect target to avoid actual network traffic during negative test
+    socket.socket.connect = mock_underlying_connect
+    try:
+        with install_server_socket_guard({"127.0.0.1", "localhost"}) as violations:
+            dummy_s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            # A) Prohibited external destination
+            prohibited_rejected = False
+            try:
+                dummy_s.connect(("8.8.8.8", 53))
+            except PermissionError as pe:
+                prohibited_rejected = True
+                assert "Unauthorized socket connection attempt to ('8.8.8.8', 53)" in str(pe)
+
+            assert prohibited_rejected is True, "Socket guard must raise PermissionError for prohibited IP"
+            assert len(violations) == 1
+            assert len(underlying_calls) == 0, "Prohibited address must never reach underlying connect"
+
+            # B) Permitted local destination
+            dummy_s.connect(("127.0.0.1", 8068))
+            assert len(violations) == 1  # Unchanged
+            assert len(underlying_calls) == 1
+            assert underlying_calls[0] == ("127.0.0.1", 8068)
+            dummy_s.close()
+    finally:
+        socket.socket.connect = real_orig_connect
+
+    # C) Verify guard restoration after an exception inside the managed context
+    exception_raised = False
+    try:
+        with install_server_socket_guard({"127.0.0.1"}):
+            raise ValueError("Forced error inside socket guard context")
+    except ValueError:
+        exception_raised = True
+
+    assert exception_raised is True
+    # Verify socket.socket.connect is restored to real_orig_connect
+    assert socket.socket.connect == real_orig_connect, "Socket guard must be cleanly restored even on exception"
+    print("   ✓ install_server_socket_guard negative controls verified: prohibited destination blocked from connect, allowed host passed, clean restoration on exception.")

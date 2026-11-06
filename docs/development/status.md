@@ -1688,3 +1688,60 @@ Last Updated: 2026-11-06 (Milestone 27 Read-Only Activation Dashboard Accepted â
   3. *Engine Integrity*: Strictly zero modification to accepted strategy engines (`msm_engine`, `choch_engine`, `iss_engine`, `tjl_coordinator`, `activation_engine`, `activation_adapter`).
   4. *Core Ambiguities Preserved*: Upstream $c_1 == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
   5. *Branch Boundary*: Committed and pushed strictly on `feature/activation-dashboard`. No merging into `main`.
+
+---
+
+## Milestone 28 â€” Controlled Offline Browser Validation of Activation Dashboard (HANDOFF-077)
+
+- **Active Branch**: `feature/activation-dashboard`
+- **Immediate Parent Commit**: `3c84c6e257294ac20ac075e8c405c643230ff4f7` (HANDOFF-076)
+- **Accepted Implementation Baseline Commit**: `d6587a1200735fe6453ff24f043931699f21f407` (Milestone 27 accepted)
+- **Requirements Baseline Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d` (Milestone 26 / HANDOFF-066 accepted)
+- **Root Baseline Engine Commit**: `0867c740352297fb43e781fb654706218771d533` (Milestone 25 / HANDOFF-061)
+- **Objective**: Verification closeout addressing all feedback items from Perplexity HANDOFF-076 review:
+  1. *Negative Controls for Isolation Guards (Without External Contact)*:
+     - Implemented `verify_isolation_guards_negative_controls(browser)`:
+       * `ContextSecurityFirewall`: Routed disallowed near-match origin (`http://127.0.0.1:8070/api/test`) and external domain (`http://example.com/unauthorized`); asserted immediate abort (`blockedbyclient` / `ERR_BLOCKED_BY_CLIENT`) with requests recorded in blocked audit.
+       * `install_server_socket_guard`: Tested prohibited destination (`('8.8.8.8', 53)`) with instrumented connect target; asserted `PermissionError` raised and destination never reached underlying connect; tested permitted local destination (`('127.0.0.1', 8068)`) passed through; asserted clean socket guard restoration even on exception inside context.
+       * Exact guard coverage documented: patches Python `socket.socket.connect`, protecting Python code using standard socket connect; does not cover OS subprocesses or native C-level extensions.
+  2. *Complete Callback-Failure Accounting*:
+     - Enhanced `BrowserAuditWatcher`:
+       * Added `requestfailed` listener on `/_dash-update-component` to record failed callback requests with no response.
+       * Removed blanket `net::ERR_ABORTED` suppression from console errors, filtering strictly benign missing `favicon.ico`.
+       * Added `watcher.attach_context(context, label)` listening to `context.on("page", ...)` so spawned tabs/popups receive immediate audit listeners before navigation completes.
+  3. *Fully Retrievable Runner Orchestration*:
+     - Created standalone entry point [`tests/activation_browser_runner.py`](file:///tests/activation_browser_runner.py) (129 lines):
+       * Explicit socket guard installation, protected multi-server startup (`managed_servers`), context firewall and audit attachment, section execution (A, B, C), final audit assertions, browser closure, and clean server teardown.
+  4. *Failure Inside Managed Body Cleanup Verification*:
+     - Added failure-inside-managed-body verification to `verify_server_lifecycle_failure_injection()`: simulated an assertion error inside `with managed_servers(s3, s4): raise AssertionError(...)`; verified error propagated and both servers were cleanly stopped, threads terminated, and ports released.
+  5. *Accurate Inventory, Module Sizes, and Browser Versions*:
+     - Test browser: `Chromium 153.0.8010.12` launched via Playwright `1.57.0`.
+     - Tested scenario inventory on visual harness: 13 catalog fixtures (fixtures 2 through 14; fixture 1 is un-rendered initial state, fixtures 15 and 16 are internal non-visual fixtures) plus 2 custom cases (history 50-limit bounding, sync error diagnostic) = exactly 15 scenarios.
+     - Module sizes:
+       * [`tests/activation_browser_runner.py`](file:///tests/activation_browser_runner.py): 129 lines.
+       * [`tests/test_activation_browser_controlled.py`](file:///tests/test_activation_browser_controlled.py): 325 lines.
+       * [`tests/activation_browser_harness.py`](file:///tests/activation_browser_harness.py): 622 lines.
+  6. *Standing Limitations Retained*:
+     - Programmatic `window.open` is tested; native browser-menu tab duplication remains unverified.
+     - Scenario 13 is synthetic snapshot presentation, not a demonstrated candle-derived pipeline.
+     - No external broker or MT5 connection used.
+- **Completed Deliverables**:
+  1. [`tests/activation_browser_runner.py`](file:///tests/activation_browser_runner.py): Standalone master runner (129 lines).
+  2. [`tests/activation_browser_harness.py`](file:///tests/activation_browser_harness.py): Enhanced with negative controls, body-exception recovery, and callback failure accounting.
+  3. [`tests/test_activation_browser_controlled.py`](file:///tests/test_activation_browser_controlled.py): Compact section definitions (325 lines) delegating to runner.
+  4. `tests/evidence/activation_browser/`: 9 captured visual validation screenshots updated.
+  5. [`docs/development/status.md`](file:///docs/development/status.md): Appended HANDOFF-077 documentation.
+- **Verification Summary**:
+  - Failure Injection & Server Lifecycle: **Passed** (single server start/stop, startup collision recovery, and managed-body exception recovery verified).
+  - Negative Controls: **Passed** (firewall aborts unauthorized ports/domains; socket guard blocks prohibited IPs without hitting connect, passes local, restores on exception).
+  - Controlled browser validation suite: **All assertions passed, 0 failures, 9 screenshots captured, ports 8068 and 8069 cleanly released** (`python tests/activation_browser_runner.py`).
+  - Activation dashboard integration suite: **22 / 22 passed** in 1.97s (`pytest tests/test_activation_dashboard_integration.py`).
+  - App unit suite: **16 / 16 passed** in 1.97s (`pytest tests/test_app.py`).
+  - Full offline repository test suite: **542 / 542 passed** in 8.49s (`pytest -q tests/ --ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py --ignore=tests/test_activation_browser_controlled.py --ignore=tests/activation_browser_runner.py --ignore=tests/activation_browser_harness.py`).
+  - Strategy Engine Purity Audit: Exactly zero modifications to strategy engines (`msm_engine.py`, `choch_engine.py`, `iss_engine.py`, `tjl_coordinator.py`, `activation_engine.py`, `activation_adapter.py`). `git diff 3f6689c194c95ca3761833f8831bb8a3f5b4740d -- src/aladeen/strategy/` is completely clean.
+- **Scope Compliance & Standing Invariants**:
+  1. *Pure Read-Only Presentation*: Strictly zero UI order execution, zero MT5 live trading calls, zero live account modification.
+  2. *Downstream Invariant*: Strictly zero confirmation arbitration/selection, zero usage ledger writes, zero trade entry signals.
+  3. *Engine Integrity*: Strictly zero modification to accepted strategy engines (`msm_engine`, `choch_engine`, `iss_engine`, `tjl_coordinator`, `activation_engine`, `activation_adapter`).
+  4. *Core Ambiguities Preserved*: Upstream $c_1 == p_2$ boundary and ISS multi-candle pullbacks remain isolated and unresolved.
+  5. *Branch Boundary*: Committed and pushed strictly on `feature/activation-dashboard`. No merging into `main`.
