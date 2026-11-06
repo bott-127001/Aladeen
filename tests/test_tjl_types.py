@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import pytest
 
 from aladeen.strategy.types import Direction, StrategyCandle
@@ -274,5 +274,67 @@ class TestTJLTypes:
                 transition_time=None,
                 outgoing_cancelled_set_id="SET_1",
                 outgoing_cancelled_fingerprint=fp,
+            )
+
+    def test_observation_point_validation_and_exact_prices(self) -> None:
+        """[Directive 2] TJLStructuralObservation strictly validates point kind, status, lookup keys, exact prices, and horizons."""
+        from aladeen.strategy.types import SwingPoint
+        t0 = datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc)
+        c1 = StrategyCandle(index=1, open_time=t0, open=1.130, high=1.140, low=1.129, close=1.135, is_forming=False, bar_status="CONFIRMED_COMPLETED")
+        c4 = StrategyCandle(index=4, open_time=t0, open=1.110, high=1.115, low=1.104, close=1.105, is_forming=False, bar_status="CONFIRMED_COMPLETED")
+        c5 = StrategyCandle(index=5, open_time=t0, open=1.140, high=1.155, low=1.139, close=1.155, is_forming=False, bar_status="CONFIRMED_COMPLETED")
+
+        # 1. Exact price rejection (even 1e-9 off is strictly rejected)
+        ch_bad_price = SwingPoint(price=1.135 + 1e-8, candle_index=1, candle_open_time=t0, identified_bar_index=1, confirmed_bar_index=4)
+        with pytest.raises(ValueError, match="does not exactly match source candle upper body edge"):
+            TJLStructuralObservation(
+                source_engine_id="E", symbol_feed_id="F", source_timeframe="H1", direction=Direction.UPWARD,
+                candle_index=7, candle_open_time=t0, ch_point=ch_bad_price,
+                source_candle_lookup={1: c1},
+            )
+
+        # 2. Unconfirmed ch_point rejected
+        ch_unconfirmed = SwingPoint(price=1.135, candle_index=1, candle_open_time=t0, identified_bar_index=1, confirmed_bar_index=None)
+        with pytest.raises(ValueError, match="ch_point in observation must be confirmed"):
+            TJLStructuralObservation(
+                source_engine_id="E", symbol_feed_id="F", source_timeframe="H1", direction=Direction.UPWARD,
+                candle_index=7, candle_open_time=t0, ch_point=ch_unconfirmed,
+                source_candle_lookup={1: c1},
+            )
+
+        # 3. Already confirmed tentative_p3 rejected
+        p3_confirmed = SwingPoint(price=1.155, candle_index=5, candle_open_time=t0, identified_bar_index=5, confirmed_bar_index=7)
+        with pytest.raises(ValueError, match="tentative_p3 in observation cannot be already confirmed"):
+            TJLStructuralObservation(
+                source_engine_id="E", symbol_feed_id="F", source_timeframe="H1", direction=Direction.UPWARD,
+                candle_index=7, candle_open_time=t0, tentative_p3=p3_confirmed,
+                source_candle_lookup={5: c5},
+            )
+
+        # 4. Inverted CH/CL price hierarchy rejected
+        ch_valid = SwingPoint(price=1.135, candle_index=1, candle_open_time=t0, identified_bar_index=1, confirmed_bar_index=4)
+        cl_inverted = SwingPoint(price=1.135, candle_index=4, candle_open_time=t0, identified_bar_index=4, confirmed_bar_index=4)
+        c4_inv = StrategyCandle(index=4, open_time=t0, open=1.135, high=1.140, low=1.130, close=1.135, is_forming=False, bar_status="CONFIRMED_COMPLETED")
+        with pytest.raises(ValueError, match="ch_point price .* must be strictly greater than cl_point price"):
+            TJLStructuralObservation(
+                source_engine_id="E", symbol_feed_id="F", source_timeframe="H1", direction=Direction.UPWARD,
+                candle_index=7, candle_open_time=t0, ch_point=ch_valid, cl_point=cl_inverted,
+                source_candle_lookup={1: c1, 4: c4_inv},
+            )
+
+        # 5. Future provenance rejected relative to observation horizon
+        ch_future = SwingPoint(price=1.135, candle_index=1, candle_open_time=t0, identified_bar_index=1, confirmed_bar_index=4, confirmed_time=t0 + timedelta(hours=10))
+        with pytest.raises(ValueError, match="lies in future relative to observation horizon"):
+            TJLStructuralObservation(
+                source_engine_id="E", symbol_feed_id="F", source_timeframe="H1", direction=Direction.UPWARD,
+                candle_index=7, candle_open_time=t0, availability_time=t0 + timedelta(hours=8),
+                ch_point=ch_future, source_candle_lookup={1: c1},
+            )
+
+        # 6. Negative structural epoch rejected
+        with pytest.raises(ValueError, match="structural_epoch must be non-negative"):
+            TJLStructuralObservation(
+                source_engine_id="E", symbol_feed_id="F", source_timeframe="H1", direction=Direction.UPWARD,
+                candle_index=7, candle_open_time=t0, structural_epoch=-1,
             )
 

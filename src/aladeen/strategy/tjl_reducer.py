@@ -70,6 +70,8 @@ class TJLReducer:
         self._set_counter: int = 0
         self._structural_epoch: int = 0
         self._last_choch_time: Optional[datetime] = None
+        self._last_choch_c2_index: Optional[int] = None
+        self._last_choch_event_time: Optional[datetime] = None
 
     @property
     def source_engine_id(self) -> str:
@@ -154,6 +156,12 @@ class TJLReducer:
                 f"Non-chronological observation open_time: {observation.candle_open_time} <= {self._last_received_open_time}"
             )
 
+        # Authoritative Structural Epoch Check
+        if observation.structural_epoch != self._structural_epoch:
+            raise ValueError(
+                f"Observation structural_epoch ({observation.structural_epoch}) does not match reducer epoch ({self._structural_epoch})"
+            )
+
         # Direction consistency check
         if (
             self._current_direction is not None
@@ -164,14 +172,21 @@ class TJLReducer:
                 f"Direction changed spontaneously from {self._current_direction} to {observation.direction} without is_choch_event=True"
             )
 
-        # Post-CHOCH current-epoch provenance check using confirmation time
-        if self._last_choch_time is not None and not observation.is_choch_event:
+        # Post-CHOCH current-epoch provenance check
+        if self._structural_epoch > 0 and not observation.is_choch_event:
             for pt_name, pt in (("ch_point", observation.ch_point), ("cl_point", observation.cl_point)):
-                if pt is not None and pt.confirmed_time is not None:
-                    if pt.confirmed_time <= self._last_choch_time:
+                if pt is not None:
+                    # 1. Reject point confirmed on or before the CHOCH confirmation bar
+                    if self._last_choch_c2_index is not None and pt.confirmed_bar_index == self._last_choch_c2_index:
                         raise ValueError(
-                            f"Pre-CHOCH point {pt_name} (confirmed at {pt.confirmed_time}) cannot be reused in new structural epoch (CHOCH at {self._last_choch_time})"
+                            f"Point {pt_name} confirmed on CHOCH bar {pt.confirmed_bar_index} cannot be reused as new-epoch point"
                         )
+                    # 2. Reject point confirmed prior to CHOCH event time
+                    if pt.confirmed_time is not None and self._last_choch_event_time is not None:
+                        if pt.confirmed_time <= self._last_choch_event_time:
+                            raise ValueError(
+                                f"Pre-CHOCH point {pt_name} (confirmed at {pt.confirmed_time}) cannot be reused in new structural epoch (CHOCH at {self._last_choch_event_time})"
+                            )
 
         # -----------------------------------------------------------------
         # Stage mutation in local working variables to ensure full atomicity
@@ -192,6 +207,8 @@ class TJLReducer:
         staged_set_counter = self._set_counter
         staged_epoch = self._structural_epoch
         staged_choch_time = self._last_choch_time
+        staged_last_choch_c2_index = self._last_choch_c2_index
+        staged_last_choch_event_time = self._last_choch_event_time
         newly_labeled: List[TJLZone] = []
 
         # 1. Unresolved State Handling
@@ -235,6 +252,12 @@ class TJLReducer:
             staged_direction = observation.new_choch_direction
             staged_epoch += 1
             staged_choch_time = observation.candle_open_time
+            staged_last_choch_c2_index = observation.candle_index
+            staged_last_choch_event_time = (
+                observation.availability_time
+                if observation.availability_time is not None
+                else observation.candle_open_time
+            )
 
             record = TJLTransitionRecord(
                 transition_type=TJLTransitionType.CHOCH_INVALIDATION,
@@ -260,6 +283,8 @@ class TJLReducer:
             self._received_indices.add(observation.candle_index)
             self._structural_epoch = staged_epoch
             self._last_choch_time = staged_choch_time
+            self._last_choch_c2_index = staged_last_choch_c2_index
+            self._last_choch_event_time = staged_last_choch_event_time
             return self.get_snapshot()
 
         # 3. Label Confirmed Swing Points and Compute Zones

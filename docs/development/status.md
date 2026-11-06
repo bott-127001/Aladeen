@@ -292,3 +292,34 @@ Last Updated: 2026-11-05 (MSM Dashboard Milestone Accepted — Transition to CHO
   - Full repository offline suite: 373/373 tests passing in 14.35s (0 failures, 1 deselected).
 - **Scope Compliance**: Strictly offline calculations. Zero UI, zero tap tracking, zero activation engine, zero usage ledger, zero order execution, and zero merging to `main`.
 
+---
+
+## 10. Authoritative Epoch Provenance & Test Verification Hardening (HANDOFF-041)
+- **Repository Provenance Clarification**:
+  - **Immediate Git Parent**: `a44682a09c3fbf343c82dbabcc7e6287821b7049` (HANDOFF-040 commit on `feature/tjl-engine`).
+  - **Accepted Requirements Baseline**: `859cf12ae11b2198a6306a183364860e84b82724` (`HANDOFF-037`).
+- **Core Hardening Implementation**:
+  1. **Authoritative Event/Epoch Provenance (Directive 1)**:
+     - Replaced timestamp fallback inference with strictly monotonic chronological event positions in completed candles sequence (`pair_conf_pos > latest_choch.c2_chronological_pos`).
+     - Zero reliance on numeric source ID order, zero dependence on `close_time`, and zero conflation between `open_time` and `close_time`.
+     - Explicit `structural_epoch: int` passed in `TJLStructuralObservation` and verified fail-closed in `TJLReducer`.
+     - Permitted legitimate pre-CHOCH source origins in new-epoch points (e.g. restart reference candle 5) while enforcing that the pair confirmation event postdates CHOCH.
+  2. **Complete Point Validation (Directive 2)**:
+     - Replaced `math.isclose` with strict price equality (`point.price == expected_body_edge`).
+     - Required confirmed status on `ch_point` and `cl_point`, tentative status on `tentative_p3`.
+     - Validated lookup key matching contained candle index, structural price hierarchy (`ch_point.price > cl_point.price`), and rejected any future provenance relative to observation horizon.
+  3. **Full Prefix Assertions on Actual CHOCH Recovery (Directive 3)**:
+     - Asserted every significant prefix (0–16): Bullish Set 1 creation at 7, retention at 8, CHOCH invalidation and explicit outgoing Set 1 at 9, gap periods at 10–13 with no active set, labels only at 14, idempotent no-op at 15, and Bearish Set 2 first creation at 16.
+  4. **Decreasing Unique Source IDs for Full Sequence (Directive 4)**:
+     - Verified complete 17-candle recovery sequence with strictly decreasing IDs (`900, 890, 880... 740`).
+     - Semantic equivalence proven via source-time mapping.
+  5. **Full Prefix Consistency Across APIs (Directive 5)**:
+     - Verified identical snapshots across `process_candles` (fresh batch), `process_candle` (sequential), and `replay_candles` at every prefix $k \in [0..N]$ across continuation replacement (`tjl_06`) and CHOCH recovery (`tjl_09`), under both known and unknown close availability (`close_time=None`).
+  6. **Complete-State Failure Injection Comparison (Directive 6)**:
+     - Compared complete underlying coordinator snapshot, reducer snapshot, candle lookup, CHOCH count, and epoch state before vs after failed injection.
+     - Verified recovered coordinator matches an independent clean reference run identically.
+- **Verification Summary**:
+  - Full TJL suite: 44/44 tests passing in 0.82s.
+  - Full repository offline suite: 374/374 tests passing in 5.77s (0 failures, 1 deselected).
+- **Scope Compliance**: Strictly offline calculations. Zero UI, zero tap tracking, zero activation engine, zero usage ledger, zero order execution, and zero merging to `main`.
+

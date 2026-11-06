@@ -441,6 +441,7 @@ class TJLStructuralObservation:
     is_unresolved: bool = False
     unresolved_diagnostic: Optional[str] = None
     source_candle_lookup: Mapping[int, StrategyCandle] = field(default_factory=dict)
+    structural_epoch: int = 0
 
     def __post_init__(self) -> None:
         if not isinstance(self.source_engine_id, str) or not self.source_engine_id.strip():
@@ -449,6 +450,8 @@ class TJLStructuralObservation:
             raise ValueError("symbol_feed_id must be non-empty string")
         if not isinstance(self.source_timeframe, str) or not self.source_timeframe.strip():
             raise ValueError("source_timeframe must be non-empty string")
+        if not isinstance(self.structural_epoch, int) or self.structural_epoch < 0:
+            raise ValueError(f"structural_epoch must be non-negative integer, got {self.structural_epoch}")
         if isinstance(self.direction, str):
             object.__setattr__(self, "direction", Direction(self.direction))
         elif not isinstance(self.direction, Direction):
@@ -477,7 +480,9 @@ class TJLStructuralObservation:
             if self.new_choch_direction is not None:
                 raise ValueError("is_choch_event=False cannot have new_choch_direction")
 
-        # Validate swing point kinds, confirmation status, and exact marking prices
+        observation_horizon = self.availability_time if self.availability_time is not None else self.candle_open_time
+
+        # Validate swing point kinds, confirmation status, exact marking prices, and lookup consistency
         if self.ch_point is not None:
             if not isinstance(self.ch_point, SwingPoint):
                 raise TypeError(f"ch_point must be SwingPoint, got {type(self.ch_point).__name__}")
@@ -486,11 +491,20 @@ class TJLStructuralObservation:
             if self.ch_point.candle_index not in self.source_candle_lookup:
                 raise ValueError(f"ch_point candle index {self.ch_point.candle_index} missing from source lookup")
             c_high = self.source_candle_lookup[self.ch_point.candle_index]
+            if c_high.index != self.ch_point.candle_index:
+                raise ValueError(f"Lookup key {self.ch_point.candle_index} does not match candle index {c_high.index}")
             if self.ch_point.candle_open_time != c_high.open_time:
                 raise ValueError("ch_point open_time does not match source candle open_time")
-            if not math.isclose(self.ch_point.price, c_high.upper_body_edge, abs_tol=1e-9):
+            if self.ch_point.candle_open_time > self.candle_open_time:
+                raise ValueError(f"ch_point candle_open_time {self.ch_point.candle_open_time} lies in future relative to observation {self.candle_open_time}")
+            if self.ch_point.identified_time is not None and self.ch_point.identified_time > observation_horizon:
+                raise ValueError(f"ch_point identified_time {self.ch_point.identified_time} lies in future relative to observation horizon {observation_horizon}")
+            if self.ch_point.confirmed_time is not None and self.ch_point.confirmed_time > observation_horizon:
+                raise ValueError(f"ch_point confirmed_time {self.ch_point.confirmed_time} lies in future relative to observation horizon {observation_horizon}")
+            # Strict exact equality (no tolerance, no math.isclose)
+            if self.ch_point.price != c_high.upper_body_edge:
                 raise ValueError(
-                    f"ch_point price ({self.ch_point.price}) does not match source candle upper body edge ({c_high.upper_body_edge})"
+                    f"ch_point price ({self.ch_point.price}) does not exactly match source candle upper body edge ({c_high.upper_body_edge})"
                 )
 
         if self.cl_point is not None:
@@ -501,11 +515,26 @@ class TJLStructuralObservation:
             if self.cl_point.candle_index not in self.source_candle_lookup:
                 raise ValueError(f"cl_point candle index {self.cl_point.candle_index} missing from source lookup")
             c_low = self.source_candle_lookup[self.cl_point.candle_index]
+            if c_low.index != self.cl_point.candle_index:
+                raise ValueError(f"Lookup key {self.cl_point.candle_index} does not match candle index {c_low.index}")
             if self.cl_point.candle_open_time != c_low.open_time:
                 raise ValueError("cl_point open_time does not match source candle open_time")
-            if not math.isclose(self.cl_point.price, c_low.lower_body_edge, abs_tol=1e-9):
+            if self.cl_point.candle_open_time > self.candle_open_time:
+                raise ValueError(f"cl_point candle_open_time {self.cl_point.candle_open_time} lies in future relative to observation {self.candle_open_time}")
+            if self.cl_point.identified_time is not None and self.cl_point.identified_time > observation_horizon:
+                raise ValueError(f"cl_point identified_time {self.cl_point.identified_time} lies in future relative to observation horizon {observation_horizon}")
+            if self.cl_point.confirmed_time is not None and self.cl_point.confirmed_time > observation_horizon:
+                raise ValueError(f"cl_point confirmed_time {self.cl_point.confirmed_time} lies in future relative to observation horizon {observation_horizon}")
+            # Strict exact equality (no tolerance, no math.isclose)
+            if self.cl_point.price != c_low.lower_body_edge:
                 raise ValueError(
-                    f"cl_point price ({self.cl_point.price}) does not match source candle lower body edge ({c_low.lower_body_edge})"
+                    f"cl_point price ({self.cl_point.price}) does not exactly match source candle lower body edge ({c_low.lower_body_edge})"
+                )
+
+        if self.ch_point is not None and self.cl_point is not None:
+            if self.ch_point.price <= self.cl_point.price:
+                raise ValueError(
+                    f"ch_point price ({self.ch_point.price}) must be strictly greater than cl_point price ({self.cl_point.price})"
                 )
 
         if self.tentative_p3 is not None:
@@ -516,12 +545,19 @@ class TJLStructuralObservation:
             if self.tentative_p3.candle_index not in self.source_candle_lookup:
                 raise ValueError(f"tentative_p3 candle index {self.tentative_p3.candle_index} missing from source lookup")
             c_p3 = self.source_candle_lookup[self.tentative_p3.candle_index]
+            if c_p3.index != self.tentative_p3.candle_index:
+                raise ValueError(f"Lookup key {self.tentative_p3.candle_index} does not match candle index {c_p3.index}")
             if self.tentative_p3.candle_open_time != c_p3.open_time:
                 raise ValueError("tentative_p3 open_time does not match source candle open_time")
+            if self.tentative_p3.candle_open_time > self.candle_open_time:
+                raise ValueError(f"tentative_p3 candle_open_time {self.tentative_p3.candle_open_time} lies in future relative to observation {self.candle_open_time}")
+            if self.tentative_p3.identified_time is not None and self.tentative_p3.identified_time > observation_horizon:
+                raise ValueError(f"tentative_p3 identified_time {self.tentative_p3.identified_time} lies in future relative to observation horizon {observation_horizon}")
             expected_p3_price = c_p3.upper_body_edge if self.direction == Direction.UPWARD else c_p3.lower_body_edge
-            if not math.isclose(self.tentative_p3.price, expected_p3_price, abs_tol=1e-9):
+            # Strict exact equality (no tolerance, no math.isclose)
+            if self.tentative_p3.price != expected_p3_price:
                 raise ValueError(
-                    f"tentative_p3 price ({self.tentative_p3.price}) does not match expected body edge ({expected_p3_price})"
+                    f"tentative_p3 price ({self.tentative_p3.price}) does not exactly match expected body edge ({expected_p3_price})"
                 )
 
 

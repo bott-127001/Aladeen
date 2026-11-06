@@ -181,19 +181,16 @@ class TJLCoordinator:
             obs_direction = coord_snap.active_direction
             new_choch_direction = None
 
-        # 4. Extract current-epoch confirmed high and low
+        # 4. Extract current-epoch confirmed high and low using authoritative event positions
         ch_point: Optional[SwingPoint] = None
         cl_point: Optional[SwingPoint] = None
         if coord_snap.msm_snapshot.confirmed_pairs:
             latest_pair = coord_snap.msm_snapshot.confirmed_pairs[-1]
             if coord_snap.confirmed_choch_events:
-                last_choch_time = coord_snap.confirmed_choch_events[-1].c2_open_time
-                conf_candle = candle_lookup_copy.get(latest_pair.confirmation_bar_index)
-                conf_time = (
-                    latest_pair.confirmation_time
-                    or (conf_candle.open_time if conf_candle is not None else None)
-                )
-                if conf_time is not None and conf_time > last_choch_time:
+                latest_choch = coord_snap.confirmed_choch_events[-1]
+                candle_positions = {c.index: i for i, c in enumerate(main_coord_copy._completed_candles)}
+                pair_conf_pos = candle_positions.get(latest_pair.confirmation_bar_index)
+                if pair_conf_pos is not None and pair_conf_pos > latest_choch.c2_chronological_pos:
                     ch_point = latest_pair.high
                     cl_point = latest_pair.low
             else:
@@ -214,6 +211,7 @@ class TJLCoordinator:
             tentative_p3=coord_snap.msm_snapshot.tentative_point,
             is_choch_event=is_choch_event,
             new_choch_direction=new_choch_direction,
+            structural_epoch=self._reducer.structural_epoch,
             is_unresolved=coord_snap.is_unresolved,
             unresolved_diagnostic=(
                 coord_snap.unresolved_diagnostic.diagnostic_type.value

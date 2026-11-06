@@ -300,6 +300,7 @@ class TestTJLReducer:
             candle_index=14,
             candle_open_time=t0 + timedelta(hours=14),
             availability_time=t0 + timedelta(hours=15),
+            structural_epoch=1,
             ch_point=ch_down,
             cl_point=cl_down,
             tentative_p3=p3_down,
@@ -357,6 +358,7 @@ class TestTJLReducer:
             direction=Direction.DOWNWARD,
             candle_index=10,
             candle_open_time=t0 + timedelta(hours=10),
+            structural_epoch=1,
             is_unresolved=True,
             unresolved_diagnostic="CHOCH_AMBIGUITY",
         ))
@@ -460,7 +462,20 @@ class TestTJLReducer:
             new_choch_direction=Direction.DOWNWARD,
         ))
 
-        # 3. Post-CHOCH observation at Bar 10 attempts to use CL confirmed at t0 + 4h (pre-CHOCH confirmation!)
+        # 3. Post-CHOCH observation at Bar 10 with mismatched structural_epoch=0 is rejected fail-closed
+        with pytest.raises(ValueError, match="does not match reducer epoch"):
+            reducer.reduce(TJLStructuralObservation(
+                source_engine_id="ENGINE_TEST",
+                symbol_feed_id="FEED_TEST",
+                source_timeframe="H1",
+                direction=Direction.DOWNWARD,
+                candle_index=10,
+                candle_open_time=t0 + timedelta(hours=10),
+                structural_epoch=0,  # Mismatch!
+                source_candle_lookup={4: c4},
+            ))
+
+        # 4. Post-CHOCH observation at Bar 10 with structural_epoch=1 attempts to use CL confirmed at t0 + 4h (pre-CHOCH confirmation!)
         with pytest.raises(ValueError, match="cannot be reused in new structural epoch"):
             reducer.reduce(TJLStructuralObservation(
                 source_engine_id="ENGINE_TEST",
@@ -469,6 +484,7 @@ class TestTJLReducer:
                 direction=Direction.DOWNWARD,
                 candle_index=10,
                 candle_open_time=t0 + timedelta(hours=10),
+                structural_epoch=1,
                 cl_point=cl,  # Confirmed at t0 + 4h <= CHOCH at t0 + 9h!
                 source_candle_lookup={4: c4},
             ))
