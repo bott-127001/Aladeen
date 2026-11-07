@@ -3873,3 +3873,33 @@ Last Updated: 2026-11-07 (Milestone 33 Interleaved Chronological Schedules & Spl
   - Pure offline read-only documentation and specification. Zero MT5 live trading calls, zero order execution, zero account modification.
   - Zero candidate arbitration, zero usage ledger writes, zero final signal publication, zero automated trading, zero runtime preprocessor code.
   - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
+
+## 75. Milestone 38 — Evidence Composition, Positive Gate, As-Of Selection & 25-Case Inventory (HANDOFF-135)
+- **Active Branch**: `feature/confirmation-monitor`
+- **Parent Commit**: `162719f307af7ad9da9c8c7820747f684efe5e0d` (HANDOFF-134)
+- **Accepted Milestone 37 Requirements Baseline**: `8ea1ec2fdd8e9b699f4dbbc86d71a10a6e2a3e44` (HANDOFF-132)
+- **Accepted Milestone 36 Baseline**: `600925471e1fc56d01ba6621ed86f728d7eb76a0` (HANDOFF-125)
+- **Accepted Milestone 35 Requirements Baseline**: `ef71efdb67e56fb063803e10ba7332d53e112b16` (HANDOFF-119)
+- **Accepted Milestone 34 Requirements Baseline**: `7285a1d16a4413c051c4ecd032a53c49683f1600` (HANDOFF-113)
+- **Requirements Baseline Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d`
+- **Scope**: Implements all 5 corrections directed in Perplexity's review of HANDOFF-134:
+  1. *Concrete Coordinator/TJL Evidence Composition*:
+     - In `docs/requirements/source-resolution-implementation-proposal.md` (§2.2), defined `SourceResolutionEvidenceBundle` explicitly composing `CoordinatorSnapshot` (`aladeen.strategy.coordinator`) and `TJLSnapshot` (`aladeen.strategy.tjl_coordinator`) with observation binding metadata.
+     - Preserved upstream classes without modification and specified fail-closed mismatch rejection.
+  2. *Exhaustive 12-Point Positive Authorization Gate*:
+     - In §4.1, specified the complete 12-point normative gate required before any member key can emit positive `True` (independent scope, observation binding, canonical anchor validation, `RESOLVED` state, known establishment time $T_{	ext{est}} \le T_{	ext{verified}}$, active geometry agreement, member isolation `SRC-RES-11`, predecessor supersession `SRC-RES-12`, dual-engine resolution state, schedule provenance, prefix hash integrity, canonical formatting, and lack of as-of demoting notices).
+  3. *Deterministic Precedence: False vs. Unknown Omission*:
+     - In §4.2, defined strict precedence: valid, applicable, explicitly unresolved evidence maps to `False`; missing, mismatched, corrupt, conflicting, or temporally inapplicable evidence maps to omission (`UNKNOWN`). An invalid record never becomes authoritative by carrying an unresolved label.
+  4. *As-Of Evidence Selection & Historical Invariance*:
+     - In §5, specified temporal filtering selecting only records available as of evaluation time ($T_{	ext{avail}} \le T_{	ext{eval}}$). Later assertions cannot alter historical evaluations. Added historical-invariance invariant.
+  5. *Reconciled Full 25-Case Contract Inventory & Deep Immutability*:
+     - In §7, catalogued all 25 resolution contracts (`SRC-RES-01` through `SRC-RES-25`), explicitly detailing `SRC-RES-11` and `SRC-RES-12`, plus 5 supporting structural assertions.
+     - In §2.4, specified deep defensive immutability with `MappingProxyType` wrapping defensive copies and tuple conversions.
+- **Verification Summary**:
+  - Authoritative established offline test suite: **740 / 740 passed** in 22.26s (executed at commit `422db59` / verified at HEAD `162719f`).
+  - Core strategy engine purity: **0 diff** against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`.
+  - Matcher logic purity: **0 diff** against `7285a1d16a4413c051c4ecd032a53c49683f1600`.
+- **Safety Boundary Maintained**:
+  - Pure offline read-only documentation and specification. Zero MT5 live trading calls, zero order execution, zero account modification.
+  - Zero candidate arbitration, zero usage ledger writes, zero final signal publication, zero automated trading, zero runtime preprocessor code.
+  - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
