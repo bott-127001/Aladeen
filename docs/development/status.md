@@ -3818,3 +3818,26 @@ Last Updated: 2026-11-07 (Milestone 33 Interleaved Chronological Schedules & Spl
   - Pure offline read-only documentation and specification. Zero MT5 live trading calls, zero order execution, zero account modification.
   - Zero candidate arbitration, zero usage ledger writes, zero final signal publication, zero automated trading.
   - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
+
+## 73. Milestone 38 — Source-Resolution Authority Implementation Proposal (HANDOFF-133)
+- **Active Branch**: `feature/confirmation-monitor`
+- **Parent Commit**: `8ea1ec2fdd8e9b699f4dbbc86d71a10a6e2a3e44` (HANDOFF-132)
+- **Accepted Milestone 37 Requirements Baseline**: `8ea1ec2fdd8e9b699f4dbbc86d71a10a6e2a3e44` (HANDOFF-132)
+- **Accepted Milestone 36 Baseline**: `600925471e1fc56d01ba6621ed86f728d7eb76a0` (HANDOFF-125)
+- **Accepted Milestone 35 Requirements Baseline**: `ef71efdb67e56fb063803e10ba7332d53e112b16` (HANDOFF-119)
+- **Accepted Milestone 34 Requirements Baseline**: `7285a1d16a4413c051c4ecd032a53c49683f1600` (HANDOFF-113)
+- **Requirements Baseline Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d`
+- **Scope**: Documentation-only implementation proposal (`docs/requirements/source-resolution-implementation-proposal.md`) addressing all 5 areas directed in Perplexity's acceptance review of Milestone 37:
+  1. *Proposed Component Boundary & Placement Evaluation*: Analyzed Option A (embedded preprocessor in `activation_adapter.py`) vs. Option B (standalone `SourceResolutionEvaluator` in `src/aladeen/strategy/source_resolution.py`). Recommended Option B for clean separation of concerns and independent testability.
+  2. *Trusted Offline Inputs vs. Caller Claims*: Formally classified 4-tier origin hierarchy distinguishing verified snapshot state from caller-supplied offline metadata, with deterministic fail-closed validation.
+  3. *Blocked Upstream Contracts*: Reaffirmed explicit non-goals (`SRC-GAP-01` through `SRC-GAP-04`), forbidding multi-process locks, live socket streaming, database writes, and live trading.
+  4. *Selected Acceptance Cases & Phased Implementation Plan*: Structured all 33 accepted test contracts across Phase 1 (Core Resolution Contracts, 12 cases), Phase 2 (Lifecycle, Chaining & Serialization, 13 cases), and Phase 3 (Integration & Negative Controls, 8 cases).
+  5. *Exact File Allowlist*: Defined strict allowlist (`src/aladeen/strategy/source_resolution.py`, `tests/test_source_resolution_authority.py`, `tests/test_source_resolution_integration.py`, documentation files) with strict **0 diff** invariants on core strategy engines and matcher.
+- **Verification Summary**:
+  - Authoritative established offline test suite: **740 / 740 passed** in 22.26s.
+  - Core strategy engine purity: **0 diff** against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`.
+  - Matcher logic purity: **0 diff** against `7285a1d16a4413c051c4ecd032a53c49683f1600`.
+- **Safety Boundary Maintained**:
+  - Pure offline read-only documentation and specification. Zero MT5 live trading calls, zero order execution, zero account modification.
+  - Zero candidate arbitration, zero usage ledger writes, zero final signal publication, zero automated trading, zero runtime preprocessor code.
+  - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
