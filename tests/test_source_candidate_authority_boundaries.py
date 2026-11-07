@@ -100,7 +100,7 @@ class TestSourceCandidateAuthorityBoundaries:
             expected_price_basis=PRICE_BASIS, expected_confirmation_config_id=CONF_CFG,
             matching_sequence_domain=DEFAULT_DOMAIN, evaluation_time=eval_time, expected_timeframe="H1",
             expected_interval_start=t0, expected_interval_end=t_1000,
-            source_resolution_status=src_res or {m: True for m in members},
+            source_resolution_status=src_res if src_res is not None else {},
         )
         return ctx
 
@@ -286,7 +286,8 @@ class TestSourceCandidateAuthorityBoundaries:
             required_interval_end=data["t_1000"],
             physical_levels=(lvl1,),
         )
-        ctx_missing = self._build_context(builder, auth_eval, snap_touched_missing.current_members, data["eval_time"], t0, data["t_1000"])
+        syn_res_missing = {m: True for m in snap_touched_missing.current_members}
+        ctx_missing = self._build_context(builder, auth_eval, snap_touched_missing.current_members, data["eval_time"], t0, data["t_1000"], src_res=syn_res_missing)
         res_missing = matcher.match(act_missing, data["evidence"], ctx_missing)
         assert res_missing.status == ConfirmationMatchStatus.REJECTED
         assert ConfirmationRejectionReason.UNKNOWN_USAGE in res_missing.rejection_reasons
@@ -324,7 +325,8 @@ class TestSourceCandidateAuthorityBoundaries:
         assert act_fut.state == ActivationState.INACTIVE_INELIGIBLE
         assert act_fut.usage_evidence_status == UsageEvidenceStatus.UNKNOWN
 
-        ctx_fut = self._build_context(builder, auth_eval, snap_touched_fut.current_members, data["eval_time"], t0, data["t_1000"])
+        syn_res_fut = {m: True for m in snap_touched_fut.current_members}
+        ctx_fut = self._build_context(builder, auth_eval, snap_touched_fut.current_members, data["eval_time"], t0, data["t_1000"], src_res=syn_res_fut)
         res_fut = matcher.match(act_fut, data["evidence"], ctx_fut)
         assert res_fut.status == ConfirmationMatchStatus.REJECTED
         assert ConfirmationRejectionReason.UNKNOWN_USAGE in res_fut.rejection_reasons
@@ -538,6 +540,37 @@ class TestSourceCandidateAuthorityBoundaries:
         )
         assert auth_later.resolved_coverage_status == CoverageStatus.COMPLETE
 
+    def test_empty_source_resolution_authority_blocks_candidate(self) -> None:
+        """Empty source resolution mapping {} is preserved fail-closed and blocks matching."""
+        data = self._setup_pipeline()
+        lvl1 = data["cset"].tjl1_zone.level_id
+        t0, eval_time = data["t0"], data["eval_time"]
+        builder, matcher = AuthorityContextBuilder(trust_config=DEFAULT_TRUST), ConfirmationMatcher()
+
+        cov_rec = ProposedFeedCoverageRecord(
+            record_id="COV_01", schema_version="v1", issuer_id="OFFLINE_FEED_AUDITOR_v1",
+            feed_id=FEED_ID, sequence_domain=DEFAULT_DOMAIN, timeframe="H1",
+            confirmation_config_id=CONF_CFG, covered_interval_start=t0, covered_interval_end=data["t_1000"],
+            status=CoverageStatus.COMPLETE, issued_time=data["t_1000"], available_time=data["t_1000"], revision_seq=1,
+        )
+        usg_rec = ProposedUsageEvidenceRecord(
+            record_id="USG_01", schema_version="v1", issuer_id="UPSTREAM_TRADE_LEDGER_OFFLINE",
+            level_id=lvl1, status=UsageEvidenceStatus.UNUSED, established_time=t0, available_time=t0, provenance_ref="LEDGER_001",
+        )
+        auth = builder.validate_and_build(
+            coverage_records=(cov_rec,), usage_records=(usg_rec,), evaluation_time=eval_time,
+            target_feed_id=FEED_ID, target_sequence_domain=DEFAULT_DOMAIN, target_timeframe="H1",
+            target_confirmation_config_id=CONF_CFG, required_interval_start=t0, required_interval_end=data["t_1000"],
+            physical_levels=(lvl1,),
+        )
+        ctx_empty = self._build_context(builder, auth, data["snap_act_touched"].current_members, eval_time, t0, data["t_1000"], src_res={})
+        assert ctx_empty.source_resolution_status == {}
+
+        res = matcher.match(data["act_rec_tjl1"], data["evidence"], ctx_empty)
+        assert res.status == ConfirmationMatchStatus.BLOCKED
+        assert ConfirmationRejectionReason.UNKNOWN_SOURCE_RESOLUTION_AUTHORITY in res.rejection_reasons
+        assert res.candidate_record is None
+
     def test_supplied_synthetic_authority_boundaries(self) -> None:
         """Synthetic Matcher-Contract Boundary: Unknown usage, incomplete coverage, and unresolved resolution reject fail-closed."""
         from aladeen.strategy.activation_types import format_activation_id
@@ -619,69 +652,28 @@ class TestSourceCandidateAuthorityBoundaries:
         assert res_a.candidate_record is None
 
         # Boundary B: Incomplete stream coverage rejects as INCOMPLETE_COVERAGE
-        ctx_incomplete_cov = MatchingContext(
-            domain_session_id="SESS_01",
-            revision_id="REV_01",
-            expected_price_basis=PriceBasis.BID,
-            expected_confirmation_config_id="CONF_CFG_01",
-            matching_sequence_domain=DEFAULT_DOMAIN,
+        ctx_valid = MatchingContext(
+            domain_session_id="SESS_01", revision_id="REV_01", expected_price_basis=PriceBasis.BID,
+            expected_confirmation_config_id="CONF_CFG_01", matching_sequence_domain=DEFAULT_DOMAIN,
             evaluation_time=datetime(2026, 10, 1, 12, 0, tzinfo=timezone.utc),
             current_members={mem_valid.member_key: mem_valid},
-            source_resolution_status={mem_valid.member_key: True},
-            coverage_status=CoverageStatus.INCOMPLETE,
+            source_resolution_status={mem_valid.member_key: True}, coverage_status=CoverageStatus.COMPLETE,
         )
+        ctx_incomplete_cov = replace(ctx_valid, coverage_status=CoverageStatus.INCOMPLETE)
         res_b = matcher.match(act_valid, ev_valid, ctx_incomplete_cov)
         assert res_b.status == ConfirmationMatchStatus.REJECTED
         assert ConfirmationRejectionReason.INCOMPLETE_COVERAGE in res_b.rejection_reasons
         assert res_b.candidate_record is None
 
         # Boundary C: Unresolved source member resolution rejects as BLOCKED_UNRESOLVED_SOURCE_DEPENDENCY
-        ctx_unresolved = MatchingContext(
-            domain_session_id="SESS_01",
-            revision_id="REV_01",
-            expected_price_basis=PriceBasis.BID,
-            expected_confirmation_config_id="CONF_CFG_01",
-            matching_sequence_domain=DEFAULT_DOMAIN,
-            evaluation_time=datetime(2026, 10, 1, 12, 0, tzinfo=timezone.utc),
-            current_members={mem_valid.member_key: mem_valid},
-            source_resolution_status={mem_valid.member_key: False},
-            coverage_status=CoverageStatus.COMPLETE,
-        )
+        ctx_unresolved = replace(ctx_valid, source_resolution_status={mem_valid.member_key: False})
         res_c = matcher.match(act_valid, ev_valid, ctx_unresolved)
         assert res_c.status == ConfirmationMatchStatus.BLOCKED
         assert ConfirmationRejectionReason.BLOCKED_UNRESOLVED_SOURCE_DEPENDENCY in res_c.rejection_reasons
         assert res_c.candidate_record is None
 
         # Boundary D: Evidence has unresolved structural dependencies
-        ev_unresolved_dep = ConfirmationEvidenceRecord(
-            event_id="EV_UNRES",
-            producer_id="PROD_CHOCH",
-            confirmation_config_id="CONF_CFG_01",
-            confirmation_timeframe="H1",
-            confirmation_candle_id="CANDLE_01",
-            direction=Direction.DOWNWARD,
-            pattern_type="CHOCH",
-            close_price=1.1350,
-            close_timestamp=datetime(2026, 10, 1, 9, 0, tzinfo=timezone.utc),
-            symbol="FEED_EURUSD_D1",
-            feed_id="FEED_EURUSD_D1",
-            sequence_domain=DEFAULT_DOMAIN,
-            price_basis=PriceBasis.BID,
-            provenance_type=EvidenceProvenanceType.SYNTHETIC_TYPED,
-            structural_dependency_references=("DEP_01",),
-            has_unresolved_dependencies=True,
-        )
-        ctx_valid = MatchingContext(
-            domain_session_id="SESS_01",
-            revision_id="REV_01",
-            expected_price_basis=PriceBasis.BID,
-            expected_confirmation_config_id="CONF_CFG_01",
-            matching_sequence_domain=DEFAULT_DOMAIN,
-            evaluation_time=datetime(2026, 10, 1, 12, 0, tzinfo=timezone.utc),
-            current_members={mem_valid.member_key: mem_valid},
-            source_resolution_status={mem_valid.member_key: True},
-            coverage_status=CoverageStatus.COMPLETE,
-        )
+        ev_unresolved_dep = replace(ev_valid, event_id="EV_UNRES", has_unresolved_dependencies=True)
         res_d = matcher.match(act_valid, ev_unresolved_dep, ctx_valid)
         assert res_d.status == ConfirmationMatchStatus.BLOCKED
         assert ConfirmationRejectionReason.UNRESOLVED_DEPENDENCY in res_d.rejection_reasons

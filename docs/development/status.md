@@ -3560,3 +3560,42 @@ Last Updated: 2026-11-07 (Milestone 33 Interleaved Chronological Schedules & Spl
   - Pure in-memory read-only calculation layer. Zero MT5 live trading calls, zero order execution, zero account modification.
   - Zero candidate arbitration, zero usage ledger writes, zero final signal publication, zero automated trading.
   - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
+
+## 65. Milestone 36 — Explicit Source-Resolution Mapping and Empty-Resolution Regression (HANDOFF-125)
+- **Active Branch**: `feature/confirmation-monitor`
+- **Parent Commit**: `831ea1cc97a1782e45aa77fd44329f4997966d12` (HANDOFF-124)
+- **Accepted Milestone 35 Requirements Baseline**: `ef71efdb67e56fb063803e10ba7332d53e112b16` (HANDOFF-119)
+- **Accepted Milestone 34 Requirements Baseline**: `7285a1d16a4413c051c4ecd032a53c49683f1600` (HANDOFF-113)
+- **Requirements Baseline Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d`
+- **Scope**: Implements final bounded helper closeout directed by Perplexity in HANDOFF-124 review:
+  1. *Removed Truthiness-Based Resolution Fallback*:
+     - In `_build_context()` in `tests/test_source_candidate_authority_boundaries.py`, replaced truthiness fallback `src_res or {m: True for m in members}` with `src_res if src_res is not None else {}`. An explicitly empty mapping `{}` is preserved fail-closed rather than overwritten with optimistic True defaults.
+     - Call sites requiring a synthetic resolved mapping now define and pass an explicit mapping (e.g. `src_res=syn_res`).
+  2. *Added Empty Source-Resolution Integration Regression (`test_empty_source_resolution_authority_blocks_candidate`)*:
+     - With valid touched activation, confirmed evidence, valid usage, and complete coverage:
+     - Passes `src_res={}` through `_build_context()`.
+     - Asserts resulting context retains the empty mapping: `assert ctx_empty.source_resolution_status == {}`.
+     - Asserts matcher status `ConfirmationMatchStatus.BLOCKED`.
+     - Asserts specific rejection reason `ConfirmationRejectionReason.UNKNOWN_SOURCE_RESOLUTION_AUTHORITY in res.rejection_reasons`.
+     - Asserts candidate record is None (`res.candidate_record is None`).
+  3. *Reconciled Test Counts & Strict File Line Limits*:
+     - Adding this new test node increases the modular suite from 13 to **14 tests**, and the established offline suite from 739 to **740 tests** (727 baseline + 13 new integration tests).
+     - Compacted `test_source_candidate_authority_boundaries.py` to **680 lines** (strictly < 710 lines).
+- **Verification Summary**:
+  - 6 Focused Modular Integration Files: **14 / 14 passed** in 0.71s (`pytest tests/test_source_candidate_authority_*.py -v`).
+  - Established offline repository test suite: **740 / 740 passed** in 9.17s (`pytest tests/ --ignore=... -q`).
+  - Dedicated regression suite: **15 / 15 passed** in 0.63s (`tests/test_authority_handoff_118_regressions.py`).
+  - Main authority builder suite: **60 / 60 passed** in 0.63s (`tests/test_authority_context_builder.py`).
+  - Core strategy engine purity: **0 diff** against `3f6689c194c95ca3761833f8831bb8a3f5b4740d` across tracked repository paths (`src/aladeen/strategy/engine.py`, `choch_detector.py`, `iss_engine.py`, `tjl_coordinator.py`, `activation_engine.py`, `activation_adapter.py`, `types.py`, `validator.py`).
+  - Matcher logic purity: **0 diff** against accepted Milestone 34 baseline `7285a1d16a4413c051c4ecd032a53c49683f1600` on `src/aladeen/strategy/confirmation_pair_matcher.py`.
+- **File Line Lengths (< 710 lines each)**:
+  - `tests/test_source_candidate_authority_binding.py`: **527 lines**
+  - `tests/test_source_candidate_authority_boundaries.py`: **680 lines**
+  - `tests/test_source_candidate_authority_chain.py`: **572 lines**
+  - `tests/test_source_candidate_authority_equality.py`: **350 lines**
+  - `tests/test_source_candidate_authority_rearm.py`: **401 lines**
+  - `tests/test_source_candidate_authority_replacement.py`: **618 lines**
+- **Safety Boundary Maintained**:
+  - Pure in-memory read-only calculation layer. Zero MT5 live trading calls, zero order execution, zero account modification.
+  - Zero candidate arbitration, zero usage ledger writes, zero final signal publication, zero automated trading.
+  - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
