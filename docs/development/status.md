@@ -3630,3 +3630,36 @@ Last Updated: 2026-11-07 (Milestone 33 Interleaved Chronological Schedules & Spl
   - Pure offline read-only documentation and specification. Zero MT5 live trading calls, zero order execution, zero account modification.
   - Zero candidate arbitration, zero usage ledger writes, zero final signal publication, zero automated trading.
   - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
+
+## 67. Milestone 37 — Resolution Horizons, Categorized Origins & Acceptance Inventory Reconciliation (HANDOFF-127)
+- **Active Branch**: `feature/confirmation-monitor`
+- **Parent Commit**: `85f298438c245024b41fa268566fede31ec27a7e` (HANDOFF-126)
+- **Accepted Milestone 36 Baseline**: `600925471e1fc56d01ba6621ed86f728d7eb76a0` (HANDOFF-125)
+- **Accepted Milestone 35 Requirements Baseline**: `ef71efdb67e56fb063803e10ba7332d53e112b16` (HANDOFF-119)
+- **Accepted Milestone 34 Requirements Baseline**: `7285a1d16a4413c051c4ecd032a53c49683f1600` (HANDOFF-113)
+- **Requirements Baseline Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d`
+- **Scope**: Implements all 5 corrections directed in Perplexity's review of HANDOFF-126:
+  1. *Separated Verified-Through vs. Required Resolution Horizons*:
+     - Decoupled member establishment time (`CurrentEligibleSet.eligibility_available_time: Optional[datetime]`) from continuous verified boundary (`verified_source_boundary`).
+     - Explicitly specified `required_source_boundary` for evaluation at $T_{\text{eval}}$, enforcing invariant: $T_{\text{avail}} \le T_{\text{eval}}$ AND $T_{\text{verified}} \ge T_{\text{required_boundary}}$. Stale records verified only through earlier bars cannot authorize subsequent candidates across unconfirmed or ambiguous candles.
+  2. *Categorized Field-to-Origin Mapping*:
+     - Partitioned fields into 4 explicit origin categories: Existing Source Fields (e.g. `TJLSnapshot.source_engine_id`, `CurrentEligibleSet.eligibility_available_time` as `Optional[datetime]`), Derived Engineering Identities (`format_member_key(set_id, role)` length-prefixed, `StableLevelId`), Caller-Supplied Offline Metadata (`evidence_available_time`, `verified_source_boundary`, `run_id`, `feed_id`), and Missing Upstream Contracts (Continuous Resolution Emitter, Live Multi-Process Cursor Sync).
+     - Corrected `_bound_context_key[0]` to `data_source` (not `feed_id`), `MSMConfig` as parameter dataclass (not string ID), and removed unsupported "sync timestamp" attribution from `TJLSynchronizer.sync()`.
+  3. *Deterministic Conflict, Supersession & Unknown-Time Invalidation Rules*:
+     - Contradictory resolution records deterministically trigger diagnostic `CONFLICTING_SOURCE_RESOLUTION_AUTHORITY` and map to absent key -> `UNKNOWN_SOURCE_RESOLUTION_AUTHORITY`, `BLOCKED`, 0 candidates.
+     - Superseded members enforce two-stage gating: Gate 2 absent member check emits `MEMBERSHIP_CANCELLED_OR_REPLACED`, plus resolution authority expiry.
+     - Finalized invalidations with unknown timestamps (`transition_time is None`) remain strictly ordered by index position in `transition_history` without requiring fabricated timestamps.
+  4. *Reconciled Acceptance Inventory & Exact Test Node IDs*:
+     - Replaced all descriptive aliases with the exact 14 pytest node IDs across the modular integration suite.
+     - Separated 74 existing executable tests from 20 proposed cases (12 synthetic contracts, 4 integration cases, 4 negative controls) and 4 blocked upstream gaps.
+  5. *Test Execution Boundary & Count Reconciliation*:
+     - Reconciled 740 vs. 742 test count: established offline non-browser non-live suite is **740 tests** (excluding `test_iss_browser_controlled.py` and `test_tjl_browser_controlled.py`). Including the two mock browser tests yields **742 tests**.
+- **Verification Summary**:
+  - Modular integration suite: **14 / 14 passed** in 0.69s (`pytest tests/test_source_candidate_authority_*.py -v`).
+  - Offline non-browser repository suite: **740 / 740 passed** in 9.21s.
+  - Core strategy engine purity: **0 diff** against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`.
+  - Matcher logic purity: **0 diff** against `7285a1d16a4413c051c4ecd032a53c49683f1600`.
+- **Safety Boundary Maintained**:
+  - Pure offline read-only documentation and specification. Zero MT5 live trading calls, zero order execution, zero account modification.
+  - Zero candidate arbitration, zero usage ledger writes, zero final signal publication, zero automated trading.
+  - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
