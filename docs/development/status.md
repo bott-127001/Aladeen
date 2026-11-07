@@ -3788,3 +3788,33 @@ Last Updated: 2026-11-07 (Milestone 33 Interleaved Chronological Schedules & Spl
   - Pure offline read-only documentation and specification. Zero MT5 live trading calls, zero order execution, zero account modification.
   - Zero candidate arbitration, zero usage ledger writes, zero final signal publication, zero automated trading.
   - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
+
+## 72. Milestone 37 — Canonical Float/Timestamp Serialization, Execution Provenance & Inventory Alignment (HANDOFF-132)
+- **Active Branch**: `feature/confirmation-monitor`
+- **Parent Commit**: `422db59d656f2f178cebb1346c73a3cb5c5297e2` (HANDOFF-131)
+- **Accepted Milestone 36 Baseline**: `600925471e1fc56d01ba6621ed86f728d7eb76a0` (HANDOFF-125)
+- **Accepted Milestone 35 Requirements Baseline**: `ef71efdb67e56fb063803e10ba7332d53e112b16` (HANDOFF-119)
+- **Accepted Milestone 34 Requirements Baseline**: `7285a1d16a4413c051c4ecd032a53c49683f1600` (HANDOFF-113)
+- **Requirements Baseline Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d`
+- **Scope**: Implements all 4 final corrections directed in Perplexity's review of HANDOFF-131:
+  1. *Single Deterministic Canonical Price & Timestamp Serialization*:
+     - In `docs/requirements/source-resolution-authority.md` (§5.5), eliminated interchangeable representations. Price fields must be strictly of type `float` and finite (`math.isfinite(price) == True`), serialized strictly via `repr(price)`. Silent coercion through `float()` and variable decimal strings are prohibited.
+     - Single canonical timestamp formatter specified: `dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")`, losslessly preserving microseconds and replacing normalized UTC offset with `Z`.
+     - Specified recursive traversal across all declared fields, preserving sequence order and explicit nulls (`None` $ightarrow$ `null`).
+  2. *Matching Timestamp Normalization for Record ID*:
+     - In §5.2, applied identical canonical UTC timestamp normalization to `verified_iso` used in `format_source_resolution_record_id`.
+  3. *Accurate Inventory Heading & Execution Provenance*:
+     - In §8.1, renamed heading to accurately reflect content: "74 Test Items: 14 Explicit Node IDs + 60 Preprocessing Suite Tests".
+     - Added explicit execution provenance note distinguishing the full 740-test regression baseline (executed at HEAD `422db59` in 22.26s) from component-level sub-suites.
+     - Updated §9.1 with exact execution provenance and timing (22.26s).
+  4. *SRC-RES-25 Deterministic Repeat Assertion & Anchor Formatter Alignment*:
+     - Extended `SRC-RES-25` to require byte-identical tokens and hashes across repeated runs for identical float values, with fail-closed rejection of non-finite floats.
+     - Formally aligned handoff transmission summary with the committed 8-field engine-history anchor scope (`data_source`, `feed_id`, `run_id`, `source_engine_id`, `symbol_feed_id`, `source_timeframe`, `source_config_hash`, `structural_epoch`).
+- **Verification Summary**:
+  - Authoritative established offline test suite: **740 / 740 passed** in 22.26s.
+  - Core strategy engine purity: **0 diff** against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`.
+  - Matcher logic purity: **0 diff** against `7285a1d16a4413c051c4ecd032a53c49683f1600`.
+- **Safety Boundary Maintained**:
+  - Pure offline read-only documentation and specification. Zero MT5 live trading calls, zero order execution, zero account modification.
+  - Zero candidate arbitration, zero usage ledger writes, zero final signal publication, zero automated trading.
+  - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.

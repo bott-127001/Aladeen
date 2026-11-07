@@ -262,6 +262,7 @@ In strict accordance with accepted strategy types:
            f"[{len(verified_iso)}:{verified_iso}]"
        )
    ```
+   - **Timestamp Normalization**: `verified_iso` must be normalized using the single canonical UTC timestamp representation (`verified_source_boundary.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")`), preserving microseconds losslessly and replacing the normalized UTC offset with `Z`. Naive datetimes are strictly rejected fail-closed.
 
 ### 5.3 Tri-State Semantics (`SourceResolutionState`)
 1. **`RESOLVED`**:
@@ -329,12 +330,14 @@ A hash of a prefix cannot be directly compared against a hash of a longer prefix
    ```
    Initial empty history representation:
    $$H_{\text{prefix}}(-1) = \text{SHA256}(\text{format\_transition\_anchor\_payload}(...)).\text{hexdigest}().\text{lower}()$$
-2. **Lossless Canonical Serialization of `TJLTransitionRecord` (`CanonicalJSON(T_i)`)**:
+2. **Deterministic Canonical Serialization of `TJLTransitionRecord` (`CanonicalJSON(T_i)`)**:
    - **Encoding**: UTF-8 encoded JSON with keys strictly sorted lexicographically (`sort_keys=True`) and compact separators (`","`, `":"` with zero extraneous whitespace).
-   - **Lossless Timestamps**: Timestamps MUST be timezone-aware UTC (naive timestamps strictly rejected). Microseconds are preserved losslessly via `.astimezone(timezone.utc).isoformat()` (e.g. `2026-11-01T00:00:00.123456Z` or `2026-11-01T00:00:00Z` if zero microseconds). `None` serialized as JSON `null`.
+   - **Recursive Scope & Structural Nulls**: Transition serialization recursively traverses and serializes all declared transition fields and nested values, strictly preserves sequence order, and retains explicit nulls (`None` serialized as JSON `null`).
    - **Enums**: Serialized strictly as uppercase string values (`trans.transition_type.value`, e.g. `"SET_REPLACEMENT"`).
-   - **Lossless Price Representation**: Prices are serialized losslessly via exact string representation of the Python `float` (e.g. `repr(float(price))` or exact lossless decimal string), preserving all precision bits without rounding or six-decimal truncation. Distinct values (e.g. `1.0000001` vs `1.0000002`) produce distinct string tokens (`SRC-RES-25`).
-   - **Null Values**: Serialized as JSON `null`.
+   - **Single Canonical Price Representation**: Price fields must be strictly of type `float` and finite (`math.isfinite(price) == True`; non-finite floats like `NaN`, `+Inf`, `-Inf`, or non-float types are rejected fail-closed). The canonical string token is generated strictly via `repr(price)`. No interchangeable alternatives (no decimal strings, no variable-length decimal formats) are permitted, and arbitrary values must never be silently coerced through `float()`. Distinct finite float prices (e.g. `1.0000001` vs `1.0000002`) produce distinct string tokens (`SRC-RES-25`).
+   - **Single Canonical Timestamp Representation**: Timestamps must be timezone-aware UTC `datetime` objects (naive timestamps without timezone info are strictly rejected fail-closed). The canonical timestamp token is formatted strictly as:
+     `dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")`
+     preserving microseconds losslessly (e.g. `"2026-11-01T00:00:00.123456Z"`, or `"2026-11-01T00:00:00Z"` if microseconds are zero). The normalized UTC offset `+00:00` is explicitly replaced with `Z`.
 3. **Chained Cumulative Hashing**:
    - Each transition record is hashed to a 64-character lowercase hexadecimal digest:
      $$H(T_i) = \text{SHA256}(\text{CanonicalJSON}(T_i).\text{encode('utf-8')})$$
@@ -437,7 +440,10 @@ The mapping explicitly classifies every field into one of four origin categories
 
 The inventory preserves all original case meanings, adds new horizon, scope, update, integrity, isolation, and serialization cases under distinct IDs, and separates executable evidence from proposed planning.
 
-### 8.1 Group 1: Existing Executable Test Items (74 Exact Node IDs)
+### 8.1 Group 1: Existing Executable Test Items (74 Test Items: 14 Explicit Node IDs + 60 Preprocessing Suite Tests)
+
+#### Execution Provenance:
+The 740 passed tests reported in Milestone 37 represent the full authoritative offline test suite execution (`pytest tests/ ... -q` passing in 22.26s on the `feature/confirmation-monitor` branch at commit `422db59`). The 14 explicit node IDs in `tests/test_source_candidate_authority_*.py` (passing in 0.90s) and the 60 preprocessing suite tests in `tests/test_authority_context_builder.py` (passing in 0.44s) represent component-level test suites verified as part of this full regression baseline.
 
 #### Modular Integration Suite (14 Tests in `tests/test_source_candidate_authority_*.py`):
 1. `tests/test_source_candidate_authority_binding.py::TestSourceCandidateAuthorityBinding::test_case_4_request_binding_rejects_cross_context_reuse`
@@ -483,7 +489,7 @@ The inventory preserves all original case meanings, adds new horizon, scope, upd
 - `SRC-RES-22`: Later unresolved assertion sharing verified boundary with distinct `assertion_seq`/`record_id` within the same stream demotes state to `UNRESOLVED_FROZEN` without triggering duplicate-ID corruption.
 - `SRC-RES-23`: Assertion sequence order separates receipt diagnostic from transition index (receipt diagnostic increments `assertion_seq` while leaving `transition_prefix_index` unchanged, establishing authoritative order).
 - `SRC-RES-24`: Stream isolation: two streams differing only in configuration hash or epoch with identical `assertion_seq` and `verified_iso` generate distinct `record_id`s and remain strictly isolated without false collision.
-- `SRC-RES-25`: Lossless price serialization: distinct prices (e.g. `1.0000001` vs `1.0000002`) serialize to distinct canonical JSON tokens and produce distinct transition hashes.
+- `SRC-RES-25`: Canonical lossless price and timestamp serialization: distinct finite float prices (e.g. `1.0000001` vs `1.0000002`) serialize to distinct canonical string tokens and produce distinct transition hashes; identical float values produce byte-identical tokens and hashes across repeated runs; non-finite floats are rejected fail-closed.
 
 ### 8.3 Group 3: Proposed Integration Cases (4 Proposed Cases)
 - `SRC-INT-01`: Clean 3-way authority (Valid Source Resolution + COMPLETE Coverage + UNUSED Usage) produces valid candidate.
@@ -521,8 +527,8 @@ python -m pytest tests/ \
   --ignore=tests/browser_check.py \
   -q
 ```
-- **Authoritative Passed Test Count**: **740 / 740 passed** in 39.29s.
-- This represents the exact offline regression boundary accepted in Milestone 36. Zero tests were added or removed in this documentation-only milestone.
+- **Authoritative Passed Test Count**: **740 / 740 passed** in 22.26s at commit `422db59` (HANDOFF-131).
+- This represents the exact offline regression boundary accepted in Milestone 36, verified with full execution provenance. Zero tests were added or removed in this documentation-only milestone.
 
 ### 9.2 Author-Reported Alternate Execution (Informational)
 - An alternate exploratory run excluding live MT5/service files executed 742 passed tests.
