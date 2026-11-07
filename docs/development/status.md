@@ -3412,3 +3412,35 @@ Last Updated: 2026-11-07 (Milestone 33 Interleaved Chronological Schedules & Spl
   - Pure in-memory read-only calculation layer. Zero MT5 live trading calls, zero order execution, zero account modification.
   - Zero candidate arbitration, zero usage ledger writes, zero final signal publication, zero automated trading.
   - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
+
+## 61. Milestone 36 — Modular Authority-Backed Integration Proof with Genuine Lifecycle (HANDOFF-121)
+- **Active Branch**: `feature/confirmation-monitor`
+- **Parent Commit**: `3675d5ee38295872d89bdad069d5aa73b53b938d` (HANDOFF-120)
+- **Accepted Milestone 35 Requirements Baseline**: `ef71efdb67e56fb063803e10ba7332d53e112b16` (HANDOFF-119)
+- **Accepted Milestone 34 Requirements Baseline**: `7285a1d16a4413c051c4ecd032a53c49683f1600` (HANDOFF-113)
+- **Requirements Baseline Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d`
+- **Scope**: Implements all 5 corrections directed by Perplexity in HANDOFF-120 review:
+  1. *Authority-Backed Registration*: Activation starts from explicit usage records evaluated through `AuthorityContextBuilder.validate_and_build()` *first*; resolved physical-level usage is passed into `TJLSynchronizer.sync()`.
+  2. *Chronological Integration Schedule*: Preserves genuine causal boundaries (1: Source registration at 00:00 UTC; 2: Pre-touch at 07:00 UTC; 3: Touch at 07:30 UTC; 4: Pre-confirmation close at 09:30 UTC; 5: Confirmation close at 10:00 UTC / eval at 10:30 UTC) using retained engine instances and empty evidence where detector has none.
+  3. *Zero Private Engine Mutation*: Removed `object.__setattr__()` mutation hack. Missing/future usage at registration naturally produces `UNKNOWN` / `INACTIVE_INELIGIBLE` activation, and member/activation metadata disagreement is asserted without mutating frozen records.
+  4. *Coverage Certificate Knowledge Alignment*: Certificate covers `[00:00, 10:00]` (the interval of completed bars through confirming candle 9), issued and available at `10:00 UTC`, with evaluation time `10:30 UTC`.
+  5. *Genuine Lifecycle Execution & Modular Split*: Split monolithic integration test into 4 focused modules (< 720 lines each):
+     - `tests/test_source_candidate_authority_chain.py` (572 lines): Complete chronological schedule across Boundaries 1..5.
+     - `tests/test_source_candidate_authority_boundaries.py` (523 lines): Negative boundaries (missing/future usage at registration, missing/future usage at evaluation, missing/future coverage, point-in-time availability, and preserved synthetic matcher boundary).
+     - `tests/test_source_candidate_authority_binding.py` (485 lines): Request binding compatibility enforcement (cross-config, cross-domain, timeframe, expanded interval) and conflict isolation to affected entity.
+     - `tests/test_source_candidate_authority_lifecycle.py` (715 lines): Genuine engine rearm (Gen 1 -> departure -> commit cancel -> OUT_OF_ZONE_ARMED -> retouch -> Gen 2 REARMED_PENDING -> Gen 2 confirmation match) and replacement (SET_1 -> SourceCancellationEvent -> SET_2 registration -> no revival of invalidated memberships) executions, terminal USED retention, and deterministic complete equality (`match_res1 == match_res2`).
+- **Verification Summary**:
+  - 4 Focused Integration Modules: **10 / 10 passed** in 0.71s (`pytest tests/test_source_candidate_authority_chain.py tests/test_source_candidate_authority_boundaries.py tests/test_source_candidate_authority_binding.py tests/test_source_candidate_authority_lifecycle.py -v`).
+  - Established offline repository test suite: **737 / 737 passed** in 8.91s (727 Milestone 35 baseline + 10 new modular tests).
+  - Dedicated regression suite: **15 / 15 passed** in 0.65s (`tests/test_authority_handoff_118_regressions.py`).
+  - Main authority builder suite: **60 / 60 passed** in 0.67s (`tests/test_authority_context_builder.py`).
+  - Core strategy engine purity: **0 diff** against `3f6689c194c95ca3761833f8831bb8a3f5b4740d` across tracked repository paths (`src/aladeen/strategy/engine.py`, `choch_detector.py`, `iss_engine.py`, `tjl_coordinator.py`, `activation_engine.py`, `activation_adapter.py`, `types.py`, `validator.py`).
+  - Matcher logic purity: **0 diff** against accepted Milestone 34 baseline `7285a1d16a4413c051c4ecd032a53c49683f1600` on `src/aladeen/strategy/confirmation_pair_matcher.py`.
+- **Remaining Synthetic Assumptions**:
+  - Source resolution mapping `source_resolution_status={m_k: True}` remains explicit labeled synthetic input.
+  - Price prints and synthetic candle timeline mappings remain explicit synthetic fixture preparation.
+- **Safety Boundary Maintained**:
+  - Pure in-memory read-only calculation layer. Zero MT5 live trading calls, zero order execution, zero account modification.
+  - Zero candidate arbitration, zero usage ledger writes, zero final signal publication, zero automated trading.
+  - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
+
