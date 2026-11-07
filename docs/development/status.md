@@ -3599,3 +3599,34 @@ Last Updated: 2026-11-07 (Milestone 33 Interleaved Chronological Schedules & Spl
   - Pure in-memory read-only calculation layer. Zero MT5 live trading calls, zero order execution, zero account modification.
   - Zero candidate arbitration, zero usage ledger writes, zero final signal publication, zero automated trading.
   - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
+
+## 66. Milestone 37 — Source-Resolution Authority Requirements & Upstream State Inspection (HANDOFF-126)
+- **Active Branch**: `feature/confirmation-monitor`
+- **Parent Commit**: `600925471e1fc56d01ba6621ed86f728d7eb76a0` (HANDOFF-125)
+- **Accepted Milestone 36 Baseline**: `600925471e1fc56d01ba6621ed86f728d7eb76a0` (HANDOFF-125)
+- **Accepted Milestone 35 Requirements Baseline**: `ef71efdb67e56fb063803e10ba7332d53e112b16` (HANDOFF-119)
+- **Accepted Milestone 34 Requirements Baseline**: `7285a1d16a4413c051c4ecd032a53c49683f1600` (HANDOFF-113)
+- **Requirements Baseline Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d`
+- **Scope**: Implements requirements and acceptance planning for the remaining source-resolution authority boundary per Perplexity directive:
+  1. *Exhaustive Upstream State Inspection*:
+     - Audited and attributed actual fields across `coordinator.py` (`CoordinatorSnapshot`), `tjl_coordinator.py` (`TJLCoordinator`), `tjl_reducer.py` (`TJLReducer`, `TJLSnapshot`, `TJLTransitionRecord`), `activation_adapter.py` (`TJLSynchronizer`), and `service.py` (`MSMServiceResult`, `ActivationSessionCoordinator`).
+     - Strictly avoided inventing cursors or assuming cursor equality proves resolution.
+  2. *Rejection of False-Positive Heuristics*:
+     - Formally rejected 4 heuristics: current-set presence alone, valid zone geometry alone, closed-bar status alone, and cursor equality alone (`last_processed_index == last_received_index`).
+  3. *Proposed Source-Resolution Evidence Contract (`ProposedSourceResolutionRecord`)*:
+     - Defined formal contract schema specifying member identity (`set_id`, `role`, `member_key`, `level_id`, `structural_epoch`), scope non-transitivity (`feed_id`, `run_id`, `sequence_domain`, `source_config_id`), temporal boundaries (`effective_source_boundary`, `evidence_available_time`), tri-state semantics (`RESOLVED`, `UNRESOLVED_FROZEN`, `UNKNOWN`), idempotent deduplication, fail-closed conflict handling, and transition supersession.
+  4. *Fail-Closed Matcher Mapping*:
+     - Mapped `RESOLVED` -> `True` (Pass Gate 1), `UNRESOLVED_FROZEN` -> `False` (`BLOCKED_UNRESOLVED_SOURCE_DEPENDENCY`), `UNKNOWN` / future / cross-scope -> absent key (`UNKNOWN_SOURCE_RESOLUTION_AUTHORITY`). All non-resolved states block candidate generation.
+  5. *Traceable Acceptance Inventory (36 Cases Planned)*:
+     - Categorized into: Category A (14 Modular + 60 Unit Tests Executable Evidence), Category B (12 Proposed Synthetic Resolution Contracts), Category C (4 Proposed Integration Cases), Category D (4 Blocked Upstream Gaps), Category E (4 Negative False-Positive Controls).
+  6. *Field-to-Origin Mapping Table*:
+     - Comprehensive tabular attribution connecting contract fields to originating classes and files in `docs/requirements/source-resolution-authority.md`.
+- **Verification Summary**:
+  - Offline repository test suite: **740 / 740 passed** in 9.17s.
+  - Core strategy engine purity: **0 diff** against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`.
+  - Matcher logic purity: **0 diff** against `7285a1d16a4413c051c4ecd032a53c49683f1600`.
+  - Zero runtime code changed in Milestone 37; specification and requirements planning only.
+- **Safety Boundary Maintained**:
+  - Pure offline read-only documentation and specification. Zero MT5 live trading calls, zero order execution, zero account modification.
+  - Zero candidate arbitration, zero usage ledger writes, zero final signal publication, zero automated trading.
+  - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
