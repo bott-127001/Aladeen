@@ -153,12 +153,14 @@ class TestSourceCandidateAuthorityReplacement:
         cset_set1 = snap_tjl_set1.current_eligible_set
         assert cset_set1 is not None
         assert cset_set1.set_id == "SET_1"
+        assert cset_set1.eligibility_available_time == source_candles[9].close_time
+        t_set1_avail = cset_set1.eligibility_available_time
 
         lvl1_set1 = cset_set1.tjl1_zone.level_id
         lvl2_set1 = cset_set1.tjl2_zone.level_id
         t0 = start_date
 
-        # Authority-backed registration for SET_1
+        # Authority-backed registration for SET_1 evaluated at snapshot availability boundary
         usg_set1_1 = ProposedUsageEvidenceRecord(
             record_id="USG_SET1_1",
             schema_version="v1",
@@ -182,13 +184,13 @@ class TestSourceCandidateAuthorityReplacement:
         auth_set1 = builder.validate_and_build(
             coverage_records=(),
             usage_records=(usg_set1_1, usg_set1_2),
-            evaluation_time=t0,
+            evaluation_time=t_set1_avail,
             target_feed_id=FEED_ID,
             target_sequence_domain=DEFAULT_DOMAIN,
             target_timeframe="H1",
             target_confirmation_config_id=CONF_CFG,
             required_interval_start=t0,
-            required_interval_end=t0,
+            required_interval_end=t_set1_avail,
             physical_levels=(lvl1_set1, lvl2_set1),
         )
         snap_act_set1 = synchronizer.sync(
@@ -199,10 +201,11 @@ class TestSourceCandidateAuthorityReplacement:
         mem_key_set1_tjl1 = format_member_key("SET_1", "TJL1")
         assert mem_key_set1_tjl1 in snap_act_set1.active_activations
 
-        # 2. Touch SET_1 TJL1 inside zone -> transitions to PENDING_ACTIVATION
+        # 2. Touch SET_1 TJL1 inside zone strictly after SET_1 availability -> transitions to PENDING_ACTIVATION
         z1 = cset_set1.tjl1_zone
         touch_price = (z1.lower_price + z1.upper_price) / 2.0
-        p_touch = ExactPricePrint("OBS_TOUCH_SET1", touch_price, PRICE_BASIS, t0 + timedelta(days=10), DEFAULT_DOMAIN, 1005)
+        t_touch = t_set1_avail + timedelta(hours=12)
+        p_touch = ExactPricePrint("OBS_TOUCH_SET1", touch_price, PRICE_BASIS, t_touch, DEFAULT_DOMAIN, 1005)
         act_engine.process_event(p_touch)
         act_rec_set1_tjl1 = act_engine.get_snapshot().active_activations[mem_key_set1_tjl1]
         assert act_rec_set1_tjl1.state == ActivationState.PENDING_ACTIVATION
@@ -214,25 +217,35 @@ class TestSourceCandidateAuthorityReplacement:
         cset_set2 = snap_tjl_set2.current_eligible_set
         assert cset_set2 is not None
         assert cset_set2.set_id == "SET_2"
+        assert cset_set2.eligibility_available_time == source_candles[16].close_time
+        t_set2_avail = cset_set2.eligibility_available_time
 
         lvl1_set2 = cset_set2.tjl1_zone.level_id
         lvl2_set2 = cset_set2.tjl2_zone.level_id
 
-        # Explicit comparison of outgoing and incoming physical level IDs
-        assert lvl1_set1 != lvl1_set2  # Different open times (2026-10-03 vs 2026-10-08)
-        assert lvl2_set1 != lvl2_set2  # Different open times (2026-10-05 vs 2026-10-14)
-        # Note: In genuine fixture tjl_06, all level IDs differ (no physical persistence between SET_1 and SET_2).
-        # Physical level persistence is marked unproven on this genuine source fixture.
+        # Explicit comparison of outgoing and incoming physical level IDs:
+        # Full set comparison proves all physical level IDs differ across both same-role and cross-role checks
+        set1_physical_ids = {lvl1_set1, lvl2_set1}
+        set2_physical_ids = {lvl1_set2, lvl2_set2}
+        assert set1_physical_ids.isdisjoint(set2_physical_ids)
+        assert len(set1_physical_ids & set2_physical_ids) == 0
+        assert lvl1_set1 != lvl1_set2
+        assert lvl2_set1 != lvl2_set2
+        assert lvl1_set1 != lvl2_set2
+        assert lvl2_set1 != lvl1_set2
+        # Note: In genuine fixture tjl_06, all level IDs differ (disjoint physical ID sets).
+        # Physical level persistence across replacement cannot be proven on this genuine source fixture and is marked unproven here.
+        # (The synthetic same-level case below is a typed authority/matcher specification contract under tjl_07b, but does not itself execute an engine replacement).
 
-        # Authority-backed registration for SET_2
+        # Authority-backed registration for SET_2 evaluated at snapshot availability boundary
         usg_set2_1 = ProposedUsageEvidenceRecord(
             record_id="USG_SET2_1",
             schema_version="v1",
             issuer_id="UPSTREAM_TRADE_LEDGER_OFFLINE",
             level_id=lvl1_set2,
             status=UsageEvidenceStatus.UNUSED,
-            established_time=t0 + timedelta(days=16),
-            available_time=t0 + timedelta(days=16),
+            established_time=t0,
+            available_time=t_set2_avail,
             provenance_ref="LEDGER_003",
         )
         usg_set2_2 = ProposedUsageEvidenceRecord(
@@ -241,20 +254,20 @@ class TestSourceCandidateAuthorityReplacement:
             issuer_id="UPSTREAM_TRADE_LEDGER_OFFLINE",
             level_id=lvl2_set2,
             status=UsageEvidenceStatus.UNUSED,
-            established_time=t0 + timedelta(days=16),
-            available_time=t0 + timedelta(days=16),
+            established_time=t0,
+            available_time=t_set2_avail,
             provenance_ref="LEDGER_004",
         )
         auth_set2 = builder.validate_and_build(
             coverage_records=(),
             usage_records=(usg_set2_1, usg_set2_2),
-            evaluation_time=t0 + timedelta(days=16),
+            evaluation_time=t_set2_avail,
             target_feed_id=FEED_ID,
             target_sequence_domain=DEFAULT_DOMAIN,
             target_timeframe="H1",
             target_confirmation_config_id=CONF_CFG,
-            required_interval_start=t0 + timedelta(days=16),
-            required_interval_end=t0 + timedelta(days=16),
+            required_interval_start=t0,
+            required_interval_end=t_set2_avail,
             physical_levels=(lvl1_set2, lvl2_set2),
         )
 
@@ -283,7 +296,7 @@ class TestSourceCandidateAuthorityReplacement:
             act_engine.register_source_members([snap_act_set1.current_members[mem_key_set1_tjl1]])
 
         # 4. Evaluating cancelled SET_1 against updated context fails closed
-        eval_time = t0 + timedelta(days=17)
+        eval_time = t_set2_avail + timedelta(hours=12)
         cov_rec = ProposedFeedCoverageRecord(
             record_id="COV_01",
             schema_version="v1",
@@ -502,10 +515,11 @@ class TestSourceCandidateAuthorityReplacement:
         assert res_shared.candidate_record is None
         assert ConfirmationRejectionReason.STALE_EVIDENCE_FOR_GENERATION in res_shared.rejection_reasons
 
-    def test_synthetic_activation_terminal_used_consistency_contract(self) -> None:
-        """Synthetic Activation Terminal USED Consistency Contract:
+    def test_synthetic_activation_used_metadata_consistency_contract(self) -> None:
+        """Synthetic Activation USED Metadata Consistency Contract:
         - Separately labeled synthetic composition contract:
-        - Synthetic activation with terminal USED history blocks context composition (raises ValueError) when authority resolves UNUSED.
+        - Synthetic immutable usage-metadata consistency check.
+        - Proves rejection of USED activation metadata against UNUSED authority (not archival terminal-history behavior).
         """
         builder = AuthorityContextBuilder(trust_config=DEFAULT_TRUST)
         t0 = datetime(2026, 10, 11, 0, 0, tzinfo=timezone.utc)

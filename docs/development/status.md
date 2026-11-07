@@ -3483,3 +3483,42 @@ Last Updated: 2026-11-07 (Milestone 33 Interleaved Chronological Schedules & Spl
   - Pure in-memory read-only calculation layer. Zero MT5 live trading calls, zero order execution, zero account modification.
   - Zero candidate arbitration, zero usage ledger writes, zero final signal publication, zero automated trading.
   - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
+
+## 63. Milestone 36 — Snapshot Availability Alignment, Disjoint Physical ID Verification, and Collection Reconciliation (HANDOFF-123)
+- **Active Branch**: `feature/confirmation-monitor`
+- **Parent Commit**: `382bf1f3b14d6743014163d2fa2caac2ad33a865` (HANDOFF-122)
+- **Accepted Milestone 35 Requirements Baseline**: `ef71efdb67e56fb063803e10ba7332d53e112b16` (HANDOFF-119)
+- **Accepted Milestone 34 Requirements Baseline**: `7285a1d16a4413c051c4ecd032a53c49683f1600` (HANDOFF-113)
+- **Requirements Baseline Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d`
+- **Scope**: Implements all 4 corrections directed by Perplexity in HANDOFF-122 review:
+  1. *Replacement Authority Aligned with Snapshot Availability*:
+     - Uses emitted `cset_set1.eligibility_available_time` (`source_candles[9].close_time`) and `cset_set2.eligibility_available_time` (`source_candles[16].close_time`) directly.
+     - Asserts `cset_set1.eligibility_available_time == source_candles[9].close_time` and `cset_set2.eligibility_available_time == source_candles[16].close_time`.
+     - Evaluates registration authority at snapshot availability boundaries (`t_set1_avail` and `t_set2_avail`).
+     - Places touch event strictly after SET_1 availability (`t_touch = t_set1_avail + timedelta(hours=12)`), and cancelled SET_1 evaluation strictly after SET_2 availability (`eval_time = t_set2_avail + timedelta(hours=12)`).
+  2. *Disjoint Physical-ID Set Verification*:
+     - Evaluates full set comparison between outgoing SET_1 physical level IDs and incoming SET_2 physical level IDs: `set1_physical_ids = {lvl1_set1, lvl2_set1}`, `set2_physical_ids = {lvl1_set2, lvl2_set2}`.
+     - Asserts `set1_physical_ids.isdisjoint(set2_physical_ids)` and `len(set1_physical_ids & set2_physical_ids) == 0`.
+     - Confirms cross-role as well as same-role difference: zero physical level IDs persist under any role across replacement in genuine fixture `tjl_06`.
+     - Honestly documents physical level persistence as unproven on this genuine source fixture.
+     - Separately clarifies that the synthetic same-level case (`test_synthetic_same_level_replacement_contract`) is a typed authority/matcher specification contract (`tjl_07b` spec) that does not execute an engine replacement.
+  3. *Reconciled Test Inventory with Exact Collected Node IDs*:
+     - Reconciles closeout inventory with exact pytest collected node IDs (e.g. `test_case_7_repeated_evaluations_produce_identical_outputs_and_immutable_inputs` testing complete equality and input immutability, not rearm isolation).
+     - Full collection-level reconciliation: Zero baseline tests were removed. Baseline suite at `ef71efd` contained 727 tests, including `tests/test_source_candidate_authority_boundaries.py::TestSourceCandidateAuthorityBoundaries::test_supplied_synthetic_authority_boundaries`, which was preserved in place. Exactly 12 new modular integration tests were added across the 6 modular files (totaling 13 tests in the modular suite). Overall suite total: 727 baseline tests + 12 new tests = 739 passing offline tests.
+  4. *Synthetic USED Metadata Consistency Contract*:
+     - Renamed `test_synthetic_activation_used_metadata_consistency_contract`.
+     - Explicitly documented as an immutable usage-metadata consistency check proving rejection of `USED` activation metadata against `UNUSED` authority (not archival terminal-history behavior).
+- **Verification Summary**:
+  - 6 Focused Modular Integration Files: **13 / 13 passed** in 0.75s (`pytest tests/test_source_candidate_authority_*.py -v`).
+  - Established offline repository test suite: **739 / 739 passed** in 8.91s (`pytest tests/ --ignore=... -q`).
+  - Dedicated regression suite: **15 / 15 passed** in 0.64s (`tests/test_authority_handoff_118_regressions.py`).
+  - Main authority builder suite: **60 / 60 passed** in 0.65s (`tests/test_authority_context_builder.py`).
+  - Core strategy engine purity: **0 diff** against `3f6689c194c95ca3761833f8831bb8a3f5b4740d` across tracked repository paths (`src/aladeen/strategy/engine.py`, `choch_detector.py`, `iss_engine.py`, `tjl_coordinator.py`, `activation_engine.py`, `activation_adapter.py`, `types.py`, `validator.py`).
+  - Matcher logic purity: **0 diff** against accepted Milestone 34 baseline `7285a1d16a4413c051c4ecd032a53c49683f1600` on `src/aladeen/strategy/confirmation_pair_matcher.py`.
+- **Remaining Synthetic Assumptions**:
+  - Source resolution mapping `source_resolution_status={m_k: True}` remains explicit labeled synthetic input.
+  - Price prints and synthetic candle timeline mappings remain explicit synthetic fixture preparation.
+- **Safety Boundary Maintained**:
+  - Pure in-memory read-only calculation layer. Zero MT5 live trading calls, zero order execution, zero account modification.
+  - Zero candidate arbitration, zero usage ledger writes, zero final signal publication, zero automated trading.
+  - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
