@@ -17,8 +17,9 @@ The objective of Milestone 37 is to:
 1. **Define Verified-Through vs. Required Resolution Horizons**: Strictly decouple initial member establishment from continuous calculation validity, preventing stale `RESOLVED` records from authorizing later candidates across subsequent ambiguous candles.
 2. **Exhaustively Inspect Actual Upstream State**: Attribute all claims to exact repository paths, classes, and fields, distinguishing existing source fields, derived engineering identities, caller-supplied offline metadata, and missing upstream contracts.
 3. **Reject False-Positive Heuristics**: Establish strict boundaries proving that current-set presence alone, valid zone geometry alone, closed-bar status alone, and cursor equality alone do **not** prove source resolution.
-4. **Define Deterministic Fail-Closed Mappings**: Provide unambiguous rules for conflicting records, stale/superseded members, and unknown-time invalidations.
-5. **Catalogue Traceable Acceptance Inventory**: Group existing tests with exact pytest node IDs, proposed synthetic contracts, proposed integration cases, blocked live gaps, and negative controls.
+4. **Define Deterministic Fail-Closed Mappings**: Provide unambiguous rules for conflicting records, stale/superseded members, and unknown-time invalidations aligned with accepted matcher behavior.
+5. **Catalogue Traceable Acceptance Inventory**: Group existing tests with exact pytest node IDs, preserve stable case IDs (`SRC-RES-01` through `SRC-RES-17`), proposed integration cases, blocked live gaps, and negative controls.
+6. **Restore Established Offline Test Boundary**: Formally document the accepted 8-exclusion test command yielding exactly 740 tests.
 
 ---
 
@@ -137,14 +138,25 @@ The resolution-evidence contract specifies four separate temporal parameters:
 4. **`evidence_available_time` (`datetime`)**:
    - The timestamp when the resolution evidence record was generated and made accessible to downstream consumers ($T_{\text{avail}} \ge T_{\text{verified}}$).
 
-### 3.3 Horizon Gating Invariant
-A resolution authority record authorizes candidate evaluation at $T_{\text{eval}}$ **if and only if** all of the following hold:
-$$T_{\text{avail}} \le T_{\text{eval}}$$
-$$T_{\text{verified}} \ge T_{\text{required\_boundary}}$$
-$$\text{member\_key} \in \text{context.current\_members}$$
-$$\text{is\_unresolved} == \text{False}$$
+### 3.3 Horizon Provenance & Declaration
+- In offline execution, `required_source_boundary` cannot be inferred from `last_received_index` or wall-clock.
+- It derives from a declared canonical source schedule (`SourceScheduleDeclaration`) or an explicit offline candle collection with closed bar boundaries.
 
-If $T_{\text{verified}} < T_{\text{required\_boundary}}$, the record is **insufficient / stale**, and cannot authorize the evaluation. If the engine halted due to ambiguity prior to $T_{\text{required\_boundary}}$, the state is explicitly `UNRESOLVED_FROZEN`.
+### 3.4 Complete Authorization Predicate
+A resolution authority record authorizes candidate evaluation at $T_{\text{eval}}$ **if and only if** all of the following conditions are met:
+1. **Scope & Configuration Concordance**: `feed_id`, `run_id`, `source_engine_id`, `symbol_feed_id`, `source_timeframe`, and `source_config_hash` match the target evaluation context.
+2. **Transition Prefix Validity**: `transition_prefix_index` and `transition_prefix_hash` match active un-rewritten engine history.
+3. **Temporal Validity**:
+   $$T_{\text{avail}} \le T_{\text{eval}} \quad \text{AND} \quad T_{\text{verified}} \ge T_{\text{required\_boundary}}$$
+4. **Active Current Membership**:
+   $$\text{member\_key} \in \text{context.current\_members}$$
+5. **Known Establishment**:
+   $$\text{member\_establishment\_time is not None} \quad \text{AND} \quad \text{member\_establishment\_time} \le T_{\text{verified}}$$
+6. **Unambiguous Engine State**:
+   $$\text{resolution\_state} == \text{SourceResolutionState.RESOLVED} \quad \text{AND} \quad \text{is\_unresolved} == \text{False}$$
+7. **Absence of Contradictions or Superseding Transitions**: No contradictory record or successor transition has invalidated the member.
+
+If $T_{\text{verified}} < T_{\text{required\_boundary}}$, the record is **insufficient / stale**, and cannot authorize the evaluation. It is omitted from `source_resolution_status`. If the engine halted due to ambiguity prior to $T_{\text{required\_boundary}}$, the state is explicitly `UNRESOLVED_FROZEN`.
 
 ---
 
@@ -171,7 +183,9 @@ To maintain mathematical integrity, four heuristics are formally rejected:
 @dataclass(frozen=True)
 class ProposedSourceResolutionRecord:
     """Offline authority record establishing verified calculation resolution for a source member."""
-    # 1. Member Identity
+    # 1. Identity & Schema Versioning
+    record_id: str                             # Canonical immutable ID: SRR[v1:run:engine:mk:verified_iso]
+    schema_version: int                        # Schema version integer (e.g. 1)
     source_engine_id: str                      # Existing field: e.g. "ENGINE_EURUSD_D1"
     symbol_feed_id: str                        # Existing field: e.g. "EURUSD"
     source_timeframe: str                      # Existing field: e.g. "D1"
@@ -196,16 +210,20 @@ class ProposedSourceResolutionRecord:
     # 4. Authority State
     resolution_state: SourceResolutionState    # RESOLVED, UNRESOLVED_FROZEN, or UNKNOWN
 
-    # 5. Provenance & Audit
+    # 5. Provenance & History Integrity
     transition_prefix_index: int               # Existing field: index in transition_history
+    transition_prefix_hash: str                # Derived engineering identity: hash of prefix transitions
     provenance_ref: str                        # Derived engineering string or caller-supplied batch ID
     diagnostic_reason: Optional[str] = None    # Descriptive reason if UNRESOLVED_FROZEN or UNKNOWN
 ```
 
 ### 5.2 Canonical Member Key Encoding
-In accordance with accepted matcher requirements, `member_key` uses the length-prefixed canonical format defined by `format_member_key(set_id, role)`:
-$$\text{format\_member\_key}(s, r) = \text{len}(s) + \text{":"} + s + \text{":"} + \text{len}(r) + \text{":"} + r$$
-Example: For `set_id = "SET1"` and `role = "TJL1"`, the canonical key is `"4:SET1:4:TJL1"`.
+In strict accordance with accepted matcher types (`src/aladeen/strategy/activation_types.py:19`), `member_key` uses the accepted length-prefixed canonical format defined by `format_member_key(set_id, role)`:
+```python
+def format_member_key(set_id: str, role: str) -> str:
+    return f"MK[{len(set_id)}:{set_id}][{len(role)}:{role}]"
+```
+Example: For `set_id = "SET1"` and `role = "TJL1"`, the canonical key is `MK[4:SET1][4:TJL1]`.
 
 ### 5.3 Tri-State Semantics (`SourceResolutionState`)
 1. **`RESOLVED`**:
@@ -218,23 +236,32 @@ Example: For `set_id = "SET1"` and `role = "TJL1"`, the canonical key is `"4:SET
    - Upstream engine encountered ambiguity (`is_unresolved == True` or `BLOCKED_UNRESOLVED`) at or before `required_source_boundary`.
    - Maps to `False` in `MatchingContext.source_resolution_status[member_key]`.
 3. **`UNKNOWN`**:
-   - Missing record, scope mismatch, unproven engine, or future knowledge ($T_{\text{avail}} > T_{\text{eval}}$).
+   - Missing record, scope mismatch, unproven engine, stale horizon, or future knowledge ($T_{\text{avail}} > T_{\text{eval}}$).
    - Maps to **omission from `source_resolution_status`** (key absent).
+
+### 5.4 Update vs. Contradiction vs. Rewritten Prefix
+The contract deterministically distinguishes:
+- **Legitimate Later Resolution Update**: Same `member_key`, same `source_engine_id`, same `run_id`, strictly advancing `verified_source_boundary` ($T_{\text{verified\_new}} > T_{\text{verified\_old}}$), advancing or equal `transition_prefix_index`, continuous transition prefix matching `transition_prefix_hash`, and advancing $T_{\text{avail}}$. Supersedes the older record.
+- **Contradictory Assertion**: Same `member_key`, same `verified_source_boundary`, but disagreeing `resolution_state` (e.g. `RESOLVED` vs `UNRESOLVED_FROZEN`) or incompatible geometry. Triggers preprocessor diagnostic `CONFLICTING_SOURCE_RESOLUTION_AUTHORITY` and maps to **omission from `source_resolution_status`** (key absent).
+- **Rewritten Transition Prefix**: Incoming update where transitions at existing indices differ from `transition_prefix_hash`. Triggers diagnostic `ALTERED_TRANSITION_HISTORY_PREFIX` and rejects fail-closed as invalid evidence attack, mapping to absent key.
 
 ---
 
 ## 6. Deterministic Fail-Closed Matcher Mapping
 
 ### 6.1 Conflict Handling: Deterministic Omission
-If contradictory resolution records arrive for the same member key and evaluation window (e.g. one `RESOLVED` and one `UNRESOLVED_FROZEN`):
+If contradictory resolution records arrive for the same member key and evaluation window:
 - Preprocessor emits diagnostic `CONFLICTING_SOURCE_RESOLUTION_AUTHORITY`.
 - The member key is **omitted from `source_resolution_status`**.
 - In `ConfirmationPairMatcher`, the absent key triggers `ConfirmationRejectionReason.UNKNOWN_SOURCE_RESOLUTION_AUTHORITY`, setting status to `ConfirmationMatchStatus.BLOCKED` (0 candidates emitted).
 
 ### 6.2 Supersession & Stale Membership: Two-Stage Rejection
 When an upstream transition (`SET_REPLACEMENT` or `CHOCH_INVALIDATION`) occurs:
-1. **Membership Gating (Gate 2)**: The outgoing member is removed from `current_eligible_set` and transitions to `historical_sets`. In `ConfirmationPairMatcher` (lines 174-180), matching first checks `activation.member_key in context.current_members`. When absent, it emits:
-   $$\text{ConfirmationRejectionReason.MEMBERSHIP\_CANCELLED\_OR\_REPLACED}$$
+1. **Membership Gating (Gate 2, lines 174-180)**: The outgoing member is removed from `current_eligible_set` and transitions to `historical_sets`. When evaluating an activation bound to the outgoing member, `activation.member_key not in context.current_members` triggers:
+   $$\text{rejection\_reasons.append(ConfirmationRejectionReason.MEMBERSHIP\_CANCELLED\_OR\_REPLACED)}$$
+   The resolution gate (`else:` branch, lines 182-194) is **skipped**.
+   At line 410, since `rejection_reasons` is non-empty, matcher status is set to:
+   $$\text{status} = \text{ConfirmationMatchStatus.REJECTED} \quad \text{(0 candidates emitted)}$$
 2. **Resolution Authority Expiry**: In addition, any prior `RESOLVED` status for the outgoing member expires; it is omitted from `source_resolution_status`.
 Both stages are enforced. Resolution removal alone is not a substitute for membership validation.
 
@@ -244,7 +271,7 @@ In `TJLTransitionRecord`, `transition_time` is `Optional[datetime]`. If upstream
 - In `activation_adapter.py`, cancellation events are sequenced via sequential integer sequence references (`sequence_ref`).
 - **No fabricated timestamp is permitted or required** to make a transition or cancellation effective.
 
-### 6.4 Matcher Decision Matrix
+### 6.4 Matcher Decision Matrix (Aligned with Code)
 
 | Source Resolution Record Condition | Context Mapping | Matcher Rejection Reason | Match Status | Candidate Output |
 | :--- | :--- | :--- | :--- | :--- |
@@ -252,9 +279,10 @@ In `TJLTransitionRecord`, `transition_time` is `Optional[datetime]`. If upstream
 | `UNRESOLVED_FROZEN` | `member_key: False` | `BLOCKED_UNRESOLVED_SOURCE_DEPENDENCY` | `BLOCKED` | 0 Candidates |
 | `UNKNOWN` (missing / scope mismatch) | Key absent | `UNKNOWN_SOURCE_RESOLUTION_AUTHORITY` | `BLOCKED` | 0 Candidates |
 | Future Knowledge ($T_{\text{avail}} > T_{\text{eval}}$) | Key absent | `UNKNOWN_SOURCE_RESOLUTION_AUTHORITY` | `BLOCKED` | 0 Candidates |
-| Stale Boundary ($T_{\text{verified}} < T_{\text{req}}$) | Key absent / False | `UNKNOWN_SOURCE_RESOLUTION_AUTHORITY` | `BLOCKED` | 0 Candidates |
+| Stale Boundary ($T_{\text{verified}} < T_{\text{req}}$) | Key absent | `UNKNOWN_SOURCE_RESOLUTION_AUTHORITY` | `BLOCKED` | 0 Candidates |
 | Contradictory Records | Key absent | `UNKNOWN_SOURCE_RESOLUTION_AUTHORITY` | `BLOCKED` | 0 Candidates |
-| Superseded Member | Absent from `current_members` | `MEMBERSHIP_CANCELLED_OR_REPLACED` | `BLOCKED` | 0 Candidates |
+| Rewritten Transition Prefix | Key absent | `UNKNOWN_SOURCE_RESOLUTION_AUTHORITY` | `BLOCKED` | 0 Candidates |
+| Superseded Member | Absent from `current_members` | `MEMBERSHIP_CANCELLED_OR_REPLACED` | `REJECTED` | 0 Candidates |
 
 ---
 
@@ -273,16 +301,20 @@ The mapping explicitly classifies every field into one of four origin categories
 | `member_establishment_time` | **Existing Source Field** | `src/aladeen/strategy/tjl_types.py:84` | `CurrentEligibleSet.eligibility_available_time` (`Optional[datetime]`) |
 | `transition_prefix_index` | **Existing Source Field** | `src/aladeen/strategy/tjl_types.py:117` | Index in `TJLSnapshot.transition_history` |
 | `is_unresolved` | **Existing Source Field** | `src/aladeen/strategy/coordinator.py:23` | `CoordinatorSnapshot.is_unresolved` |
-| `member_key` | **Derived Engineering Identity** | `src/aladeen/strategy/activation_types.py:19` | `format_member_key(set_id, role)` (canonical length-prefixed) |
+| `record_id` | **Derived Engineering Identity** | Proposed Contract Formatter | Canonical format: `f"SRR[{v}:{run}:{eng}:{mk}:{iso}]"` |
+| `schema_version` | **Derived Engineering Identity** | Proposed Contract Version | Constant integer `1` |
+| `member_key` | **Derived Engineering Identity** | `src/aladeen/strategy/activation_types.py:19` | `format_member_key(set_id, role)` -> `MK[len:set][len:role]` |
 | `level_id` | **Derived Engineering Identity** | `src/aladeen/strategy/tjl_types.py:34` | `StableLevelId(symbol_feed_id, source_timeframe, bar_time, side)` |
 | `sequence_domain` | **Derived Engineering Identity** | `src/aladeen/strategy/activation_types.py:88` | `SequenceDomain(feed_id, run_id)` |
 | `source_config_hash` | **Derived Engineering Identity** | `src/aladeen/strategy/coordinator.py:12` | Deterministic hash of `MSMConfig` fields |
+| `transition_prefix_hash` | **Derived Engineering Identity** | Proposed Prefix Hasher | Deterministic hash of transitions `[0..prefix_index]` |
 | `provenance_ref` | **Derived Engineering Identity** | `src/aladeen/strategy/activation_adapter.py:402` | Formatted event ID (e.g. `f"EVT_TJL_TRANS_{type}_{idx}"`) |
 | `data_source` | **Caller-Supplied Offline Metadata** | `src/aladeen/strategy/service.py:137` | `ActivationSessionCoordinator._bound_context_key[0]` (`"MT5"` or `"SYNTHETIC"`) |
 | `feed_id` | **Caller-Supplied Offline Metadata** | Offline Request Specification | Explicit feed identifier (e.g. `"FEED_EURUSD"`) |
 | `run_id` | **Caller-Supplied Offline Metadata** | `src/aladeen/strategy/service.py:133` | `ActivationSessionCoordinator._current_run_id` |
 | `evidence_available_time` | **Caller-Supplied Offline Metadata** | Offline Request Specification | Emitted calculation completion timestamp ($T_{\text{avail}}$) |
 | `verified_source_boundary` | **Caller-Supplied Offline Metadata** | Offline Request Specification | Boundary timestamp through which resolution was calculated |
+| `required_source_boundary` | **Caller-Supplied Offline Metadata** | Offline Schedule Specification | Required boundary derived from canonical schedule |
 | Continuous Resolution Emitter | **Missing Upstream Contract** | Upstream Strategy Engine | Automated continuous horizon certification across live ticks |
 | Live Multi-Process Cursor Sync| **Missing Upstream Contract** | Service Infrastructure | Distributed real-time lock-free cursor protocol |
 
@@ -290,7 +322,7 @@ The mapping explicitly classifies every field into one of four origin categories
 
 ## 8. Traceable Acceptance Inventory
 
-The inventory strictly separates existing executable test items from proposed cases and blocked gaps.
+The inventory preserves all original case meanings, adds new horizon and scope cases under distinct IDs, and separates executable evidence from proposed planning.
 
 ### 8.1 Group 1: Existing Executable Test Items (74 Exact Node IDs)
 
@@ -313,62 +345,67 @@ The inventory strictly separates existing executable test items from proposed ca
 #### Unit Authority Preprocessing Suite (60 Tests in `tests/test_authority_context_builder.py`):
 - 60 distinct unit tests verifying `CoveragePreprocessor`, `UsagePreprocessor`, `TrustConfiguration`, and `AuthorityContextBuilder` request binding validation.
 
-### 8.2 Group 2: Proposed Synthetic Resolution Contracts (12 Proposed Cases)
-1. `SRC-RES-01`: Valid `RESOLVED` record with $T_{\text{verified}} \ge T_{\text{req}}$ maps to `True` in `source_resolution_status`.
-2. `SRC-RES-02`: Explicit `UNRESOLVED_FROZEN` record maps to `False` in `source_resolution_status`.
-3. `SRC-RES-03`: Missing record for member maps to absent key.
-4. `SRC-RES-04`: Record with $T_{\text{avail}} > T_{\text{eval}}$ maps to absent key (future authority rejection).
-5. `SRC-RES-05`: Record with $T_{\text{verified}} < T_{\text{req}}$ maps to absent key (stale boundary rejection).
-6. `SRC-RES-06`: Record with cross-symbol mismatch (`GBPUSD` vs `EURUSD`) rejected fail-closed.
-7. `SRC-RES-07`: Record with cross-timeframe mismatch (`H4` vs `D1`) rejected fail-closed.
-8. `SRC-RES-08`: Record with cross-engine mismatch rejected fail-closed.
-9. `SRC-RES-09`: Identical duplicate records deduplicated idempotently without diagnostic error.
-10. `SRC-RES-10`: Contradictory duplicate records (`RESOLVED` vs `UNRESOLVED_FROZEN`) trigger diagnostic and map to absent key.
-11. `SRC-RES-11`: Resolution for `TJL1` does not authorize `TJL2_A_PLUS` in the same set.
-12. `SRC-RES-12`: Member with unknown establishment time (`eligibility_available_time is None`) remains unknown fail-closed.
+### 8.2 Group 2: Proposed Synthetic Resolution Contracts (17 Proposed Cases)
+- `SRC-RES-01`: Valid `RESOLVED` record maps to `True` in `source_resolution_status`.
+- `SRC-RES-02`: Explicit `UNRESOLVED_FROZEN` record maps to `False` in `source_resolution_status`.
+- `SRC-RES-03`: Missing record for member maps to absent key.
+- `SRC-RES-04`: Record with $T_{\text{avail}} > T_{\text{eval}}$ maps to absent key (future authority rejection).
+- `SRC-RES-05`: Record with cross-symbol mismatch (`GBPUSD` vs `EURUSD`) rejected fail-closed.
+- `SRC-RES-06`: Record with cross-timeframe mismatch (`H4` vs `D1`) rejected fail-closed.
+- `SRC-RES-07`: Record with cross-engine mismatch rejected fail-closed.
+- `SRC-RES-08`: Record with cross-run mismatch rejected fail-closed.
+- `SRC-RES-09`: Identical duplicate records deduplicated idempotently without diagnostic error.
+- `SRC-RES-10`: Contradictory duplicate records (`RESOLVED` vs `UNRESOLVED_FROZEN`) trigger diagnostic and map to absent key.
+- `SRC-RES-11`: Resolution for `TJL1` does not authorize `TJL2_A_PLUS` in the same set.
+- `SRC-RES-12`: Superseded member from predecessor set loses `RESOLVED` status upon successor set creation.
+- `SRC-RES-13`: Stale resolution boundary ($T_{\text{verified}} < T_{\text{req}}$) maps to absent key.
+- `SRC-RES-14`: Member with unknown establishment time (`eligibility_available_time is None`) remains unknown fail-closed.
+- `SRC-RES-15`: Cross-feed mismatch (`FEED_A` vs `FEED_B`) rejected fail-closed.
+- `SRC-RES-16`: Configuration hash mismatch (`source_config_hash`) rejected fail-closed.
+- `SRC-RES-17`: Rewritten transition prefix hash mismatch rejected fail-closed.
 
 ### 8.3 Group 3: Proposed Integration Cases (4 Proposed Cases)
-1. `SRC-INT-01`: Clean 3-way authority (Valid Source Resolution + COMPLETE Coverage + UNUSED Usage) produces valid candidate.
-2. `SRC-INT-02`: Clean Coverage + Clean Usage, but `UNRESOLVED_FROZEN` Source Resolution $\rightarrow$ `BLOCKED`, 0 candidates.
-3. `SRC-INT-03`: Clean Coverage + Clean Usage, but `UNKNOWN` Source Resolution $\rightarrow$ `BLOCKED`, 0 candidates.
-4. `SRC-INT-04`: Replacement lifecycle: Set 1 replaced by Set 2 $\rightarrow$ Set 1 rejected at Gate 2 (`MEMBERSHIP_CANCELLED_OR_REPLACED`), Set 2 evaluated under fresh resolution authority.
+- `SRC-INT-01`: Clean 3-way authority (Valid Source Resolution + COMPLETE Coverage + UNUSED Usage) produces valid candidate.
+- `SRC-INT-02`: Clean Coverage + Clean Usage, but `UNRESOLVED_FROZEN` Source Resolution $\rightarrow$ `BLOCKED`, 0 candidates.
+- `SRC-INT-03`: Clean Coverage + Clean Usage, but `UNKNOWN` Source Resolution $\rightarrow$ `BLOCKED`, 0 candidates.
+- `SRC-INT-04`: Replacement lifecycle: Set 1 replaced by Set 2 $\rightarrow$ Set 1 rejected at Gate 2 (`MEMBERSHIP_CANCELLED_OR_REPLACED`), Set 2 evaluated under fresh resolution authority.
 
 ### 8.4 Group 4: Negative False-Positive Controls (4 Cases)
-1. `FP-CTRL-01`: **Current-Set Presence Alone (Synthetic)**: Inject populated `current_eligible_set` from an engine where `is_unresolved = True`. Assert source resolution remains `UNRESOLVED_FROZEN`, matcher blocks, 0 candidates.
-2. `FP-CTRL-02`: **Valid Geometry Alone (Synthetic)**: Inject zones with valid finite prices (`lower_price < upper_price`) without upstream resolution record. Assert source resolution remains `UNKNOWN`, matcher blocks, 0 candidates.
-3. `FP-CTRL-03`: **Closed Bar Alone (Candle-Driven)**: Ingest real candle sequence where a closed candle triggers `ChochDiagnosticType.BLOCKED_BY_UNRESOLVED_STATE`. Assert resolution remains `UNRESOLVED_FROZEN`, matcher blocks, 0 candidates.
-4. `FP-CTRL-04`: **Cursor Equality Alone (Synthetic)**: Force `last_processed_index == last_received_index` while engine `is_unresolved = True`. Assert source resolution remains `UNRESOLVED_FROZEN`, matcher blocks, 0 candidates.
+- `FP-CTRL-01`: **Current-Set Presence Alone (Synthetic)**: Inject populated `current_eligible_set` from an engine where `is_unresolved = True`. Assert source resolution remains `UNRESOLVED_FROZEN`, matcher blocks, 0 candidates.
+- `FP-CTRL-02`: **Valid Geometry Alone (Synthetic)**: Inject zones with valid finite prices (`lower_price < upper_price`) without upstream resolution record. Assert source resolution remains `UNKNOWN`, matcher blocks, 0 candidates.
+- `FP-CTRL-03`: **Closed Bar Alone (Candle-Driven)**: Ingest real candle sequence where a closed candle triggers `ChochDiagnosticType.BLOCKED_BY_UNRESOLVED_STATE`. Assert resolution remains `UNRESOLVED_FROZEN`, matcher blocks, 0 candidates.
+- `FP-CTRL-04`: **Cursor Equality Alone (Synthetic)**: Force `last_processed_index == last_received_index` while engine `is_unresolved = True`. Assert source resolution remains `UNRESOLVED_FROZEN`, matcher blocks, 0 candidates.
 
 ### 8.5 Group 5: Blocked Upstream Gaps (4 Blocked Cases)
-1. `SRC-GAP-01`: Asynchronous multi-process cursor synchronization across independent Python processes.
-2. `SRC-GAP-02`: Real-time streaming bar updates from live MT5 terminal connection.
-3. `SRC-GAP-03`: Persistent cross-restart source resolution database ledger.
-4. `SRC-GAP-04`: Live broker execution and order submission (strictly prohibited by `AGENTS.md`).
+- `SRC-GAP-01`: Asynchronous multi-process cursor synchronization across independent Python processes.
+- `SRC-GAP-02`: Real-time streaming bar updates from live MT5 terminal connection.
+- `SRC-GAP-03`: Persistent cross-restart source resolution database ledger.
+- `SRC-GAP-04`: Live broker execution and order submission (strictly prohibited by `AGENTS.md`).
 
 ---
 
-## 9. Test Execution Record & Boundary Reconciliation
+## 9. Established Offline Test Boundary & Alternate Execution Record
 
-### 9.1 Exact Offline Test Boundary
-The established offline repository test suite executes purely in memory without live network, live broker, or external database:
+### 9.1 Established Offline Test Boundary (Authoritative)
+The established offline repository test suite uses the accepted 8 browser-controlled and runner exclusions:
 ```bash
 python -m pytest tests/ \
-  --ignore=tests/test_live_mt5_adapter.py \
-  --ignore=tests/test_mt5_smoke.py \
-  --ignore=tests/test_service_real_candles.py \
-  --ignore=tests/test_live_ui_market_data.py \
-  --ignore=tests/test_ui_market_data.py \
-  --ignore=tests/test_activation_inspection_real_candles.py \
-  --ignore=tests/test_iss_browser_controlled.py \
   --ignore=tests/test_tjl_browser_controlled.py \
+  --ignore=tests/test_iss_browser_controlled.py \
+  --ignore=tests/test_activation_browser_controlled.py \
+  --ignore=tests/activation_browser_runner.py \
+  --ignore=tests/activation_browser_harness.py \
+  --ignore=tests/test_browser_race_controlled.py \
+  --ignore=tests/test_choch_browser_verification.py \
+  --ignore=tests/browser_check.py \
   -q
 ```
-- **Total Offline Tests Collected & Passed**: **740 / 740 passed** in ~9.2s.
+- **Authoritative Passed Test Count**: **740 / 740 passed** in 39.29s.
+- This represents the exact offline regression boundary accepted in Milestone 36. Zero tests were added or removed in this documentation-only milestone.
 
-### 9.2 Reconciliation of 740 vs. 742 Test Count
-- When running without ignoring the two mock browser-controlled tests (`tests/test_iss_browser_controlled.py` [1 test] and `tests/test_tjl_browser_controlled.py` [1 test]), pytest collects and passes **742 tests**.
-- Both tests execute purely in-memory using mocked Dash/Selenium components without a running browser or live server.
-- Excluding them yields the exact **740 offline non-browser tests** accepted in Milestone 36. Zero tests were added or removed in this documentation-only milestone.
+### 9.2 Author-Reported Alternate Execution (Informational)
+- An alternate exploratory run excluding live MT5/service files (`--ignore=tests/test_live_mt5_adapter.py --ignore=tests/test_mt5_smoke.py ...`) executed 742 passed tests.
+- This alternate execution is recorded purely as an exploratory run; it is **not** the accepted baseline. The authoritative offline suite remains the established 8-exclusion command producing 740 tests.
 
 ---
 
@@ -389,4 +426,4 @@ In compliance with `AGENTS.md`:
 - **Strict Read-Only Execution**: Zero MT5 live trading calls, zero order execution, zero account modification, zero credential storage.
 - **Zero Inventions**: No invented cursor protocols or automatic resolution heuristics. All mappings fail closed to `UNKNOWN` or `BLOCKED`.
 - **Core Strategy Purity**: Core engines (`engine.py`, `choch_detector.py`, `iss_engine.py`, `tjl_coordinator.py`, `activation_engine.py`, `activation_adapter.py`, `types.py`, `validator.py`) and matcher (`confirmation_pair_matcher.py`) remain 100% untouched (**0 diff**).
-- **Protected Branch**: All work is restricted to `feature/confirmation-monitor`. No merge into `main`.
+- **Protected Branch**: All work is restricted to `feature/confirmation-monitor`. Never merge into `main`.

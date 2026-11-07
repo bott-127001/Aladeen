@@ -3663,3 +3663,36 @@ Last Updated: 2026-11-07 (Milestone 33 Interleaved Chronological Schedules & Spl
   - Pure offline read-only documentation and specification. Zero MT5 live trading calls, zero order execution, zero account modification.
   - Zero candidate arbitration, zero usage ledger writes, zero final signal publication, zero automated trading.
   - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
+
+## 68. Milestone 37 — Canonical Encoding, Code-Aligned Gating, Inventory Stability & Baseline Test Restoration (HANDOFF-128)
+- **Active Branch**: `feature/confirmation-monitor`
+- **Parent Commit**: `cc78e08d40fe98a2f4ad4d2c4864850e7c3012e6` (HANDOFF-127)
+- **Accepted Milestone 36 Baseline**: `600925471e1fc56d01ba6621ed86f728d7eb76a0` (HANDOFF-125)
+- **Accepted Milestone 35 Requirements Baseline**: `ef71efdb67e56fb063803e10ba7332d53e112b16` (HANDOFF-119)
+- **Accepted Milestone 34 Requirements Baseline**: `7285a1d16a4413c051c4ecd032a53c49683f1600` (HANDOFF-113)
+- **Requirements Baseline Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d`
+- **Scope**: Implements all 5 corrections directed in Perplexity's review of HANDOFF-127:
+  1. *Restored Actual Canonical Member-Key Encoding*:
+     - In `docs/requirements/source-resolution-authority.md` (§5.2), replaced ad-hoc formula with accepted canonical formatter `format_member_key(set_id, role)` returning `f"MK[{len(set_id)}:{set_id}][{len(role)}:{role}]"` (e.g. `MK[4:SET1][4:TJL1]`), referencing `src/aladeen/strategy/activation_types.py:19` directly.
+  2. *Code-Aligned Matcher Decision Matrix (§6.4)*:
+     - Clarified two-stage gating: Superseded member absent from `current_members` is evaluated at Gate 2 (lines 174-180), which skips the resolution check and sets status to `REJECTED` (line 410) with rejection reason `MEMBERSHIP_CANCELLED_OR_REPLACED`.
+     - Explicitly separated omission from false: stale/insufficient evidence ($T_{\text{verified}} < T_{\text{req}}$) maps to key omission -> `UNKNOWN_SOURCE_RESOLUTION_AUTHORITY`, `BLOCKED`. Explicit false maps to `BLOCKED_UNRESOLVED_SOURCE_DEPENDENCY`, `BLOCKED`.
+  3. *Evidence Identity, Update/Conflict Disambiguation & Horizon Provenance*:
+     - Added immutable `record_id` (`f"SRR[{schema_version}:{run_id}:{source_engine_id}:{member_key}:{verified_iso}]"`), `schema_version: int`, and `transition_prefix_hash` to `ProposedSourceResolutionRecord`.
+     - Defined deterministic distinction between legitimate advancing updates, contradictory assertions (omission), and rewritten transition prefixes (fail-closed rejection).
+     - Defined required-horizon provenance: $T_{\text{required_boundary}}$ derived from declared source schedule or closed-candle collection, NOT inferred from `last_received_index` or wall-clock.
+  4. *Preserved Stable Case IDs in Acceptance Inventory*:
+     - Retained all 12 original `SRC-RES-01` through `SRC-RES-12` cases with their exact original meanings.
+     - Added new cases under distinct IDs: `SRC-RES-13` (stale horizon), `SRC-RES-14` (unknown establishment), `SRC-RES-15` (cross-feed), `SRC-RES-16` (config hash), `SRC-RES-17` (rewritten prefix). Total planned contracts: 17 cases.
+  5. *Restored Established 8-Exclusion Offline Test Boundary*:
+     - Restored the established 8-exclusion test command (`--ignore=tests/test_tjl_browser_controlled.py ... --ignore=tests/browser_check.py`) as the authoritative baseline: **740 / 740 passed** in 39.29s.
+     - Documented the exploratory 742-test run purely as an author-reported alternate execution, not the accepted baseline.
+- **Verification Summary**:
+  - Modular integration suite: **14 / 14 passed** in 0.69s (`pytest tests/test_source_candidate_authority_*.py -v`).
+  - Authoritative established offline test suite: **740 / 740 passed** in 39.29s.
+  - Core strategy engine purity: **0 diff** against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`.
+  - Matcher logic purity: **0 diff** against `7285a1d16a4413c051c4ecd032a53c49683f1600`.
+- **Safety Boundary Maintained**:
+  - Pure offline read-only documentation and specification. Zero MT5 live trading calls, zero order execution, zero account modification.
+  - Zero candidate arbitration, zero usage ledger writes, zero final signal publication, zero automated trading.
+  - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
