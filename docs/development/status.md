@@ -3841,3 +3841,35 @@ Last Updated: 2026-11-07 (Milestone 33 Interleaved Chronological Schedules & Spl
   - Pure offline read-only documentation and specification. Zero MT5 live trading calls, zero order execution, zero account modification.
   - Zero candidate arbitration, zero usage ledger writes, zero final signal publication, zero automated trading, zero runtime preprocessor code.
   - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
+
+## 74. Milestone 38 — Independent Evaluation Context, Trust Boundaries & Phase 1 Scope (HANDOFF-134)
+- **Active Branch**: `feature/confirmation-monitor`
+- **Parent Commit**: `f175007e4cbcb73786871e076b21d1640e66bf83` (HANDOFF-133)
+- **Accepted Milestone 37 Requirements Baseline**: `8ea1ec2fdd8e9b699f4dbbc86d71a10a6e2a3e44` (HANDOFF-132)
+- **Accepted Milestone 36 Baseline**: `600925471e1fc56d01ba6621ed86f728d7eb76a0` (HANDOFF-125)
+- **Accepted Milestone 35 Requirements Baseline**: `ef71efdb67e56fb063803e10ba7332d53e112b16` (HANDOFF-119)
+- **Accepted Milestone 34 Requirements Baseline**: `7285a1d16a4413c051c4ecd032a53c49683f1600` (HANDOFF-113)
+- **Requirements Baseline Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d`
+- **Scope**: Implements all 5 corrections directed in Perplexity's review of HANDOFF-133:
+  1. *Independent Immutable Evaluation Context*:
+     - In `docs/requirements/source-resolution-implementation-proposal.md` (§2.2), defined `SourceResolutionRequestContext` containing all independent expected scope fields (`data_source`, `feed_id`, `run_id`, `source_engine_id`, `symbol_feed_id`, `source_timeframe`, `source_config_hash`, `structural_epoch`), evaluation and required boundaries, mandatory `expected_member_universe`, bound `authoritative_snapshot`, `declared_anchor_payload`, and mandatory `trust_config`.
+     - Completely prevents validating a record against self-copied claims. Replaced "zero risk of regressions" with "avoids modifying existing adapter logic".
+  2. *Phase 1 Trust Model & Limits of Positive Output*:
+     - In §3, established explicit Phase 1 scope as a synthetic offline contract evaluator operating under declared fixture/issuer assumptions.
+     - Clarified that positive `True` output indicates validation under declared offline assumptions, not established live upstream resolution derivation or broker certification.
+     - Specified fail-closed rejection on missing trust config or snapshot binding (`trust_config=None` rejects, never silently permits).
+  3. *Mandatory Prerequisites Before Any Positive Result*:
+     - In §4, established strict prerequisite ordering: no member can emit `True` unless scope matches context, member is active in snapshot eligible set, engine `is_unresolved == False`, boundaries are valid, prefix hash matches declared anchor, prices are finite floats, timestamps are canonical UTC with `Z`, and no conflicting or later demoting records exist.
+  4. *Strictly Immutable Result Type & Permutation Invariance*:
+     - In §2.3, defined `SourceResolutionResult` with `MappingProxyType[str, bool]`, deterministically sorted tuple of diagnostics, and `FrozenSet[str]`. Output is invariant under input record permutations.
+  5. *Tightened Phase 1-Only File Allowlist & Selected Cases*:
+     - In §6 and §7, restricted initial increment strictly to 4 files (`src/aladeen/strategy/source_resolution.py`, `tests/test_source_resolution_authority.py`, proposal, `status.md`).
+     - Selected 21 pure contract cases for Phase 1; deferred Phase 3 integration suite to separately approved milestone.
+- **Verification Summary**:
+  - Authoritative established offline test suite: **740 / 740 passed** in 22.26s (executed at commit `422db59` / verified at HEAD `f175007`).
+  - Core strategy engine purity: **0 diff** against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`.
+  - Matcher logic purity: **0 diff** against `7285a1d16a4413c051c4ecd032a53c49683f1600`.
+- **Safety Boundary Maintained**:
+  - Pure offline read-only documentation and specification. Zero MT5 live trading calls, zero order execution, zero account modification.
+  - Zero candidate arbitration, zero usage ledger writes, zero final signal publication, zero automated trading, zero runtime preprocessor code.
+  - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.

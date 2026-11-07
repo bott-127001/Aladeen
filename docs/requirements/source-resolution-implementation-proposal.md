@@ -1,4 +1,4 @@
-# Milestone 38 Implementation Proposal: Source-Resolution Authority Architecture & Verification Plan
+# Milestone 38 Implementation Proposal: Source-Resolution Authority Architecture & Verification Plan (Revised — HANDOFF-134)
 
 **Status**: Documentation-Only Implementation Proposal (Awaiting Review & Approval Before Implementation)  
 **Accepted Requirements Baseline**: Commit `8ea1ec2fdd8e9b699f4dbbc86d71a10a6e2a3e44` (Milestone 37 / HANDOFF-132)  
@@ -12,180 +12,202 @@
 
 Milestone 37 established the formal requirements, canonical record definitions, scope-isolated identifiers, deterministic serialization rules, and acceptance inventory for upstream source-resolution authority (`docs/requirements/source-resolution-authority.md`).
 
-The objective of Milestone 38 is to provide a comprehensive, documentation-only implementation proposal detailing:
-1. **Component Boundary & Placement Evaluation**: Analysis of standalone evaluator vs. embedded preprocessor placement options.
-2. **Trusted Offline Inputs vs. Caller Claims**: Formal classification of verified snapshot state vs. caller-supplied offline metadata.
-3. **Blocked Upstream Contracts**: Explicit non-goals preserving safety boundaries and preventing premature heuristic runtime expansion.
-4. **Selected Acceptance Cases**: Phased scheduling of the 33 accepted test cases (`SRC-RES-01` through `SRC-RES-25`, `SRC-INT-01` through `SRC-INT-04`, `FP-CTRL-01` through `FP-CTRL-04`).
-5. **Exact File Allowlist**: Explicitly bounded set of files permitted for creation/modification, maintaining zero diff against core strategy engines and matcher baselines.
+The objective of Milestone 38 (HANDOFF-134 Revision) is to provide an exact, bounded implementation proposal establishing:
+1. **Component Boundary & Placement**: Approved standalone evaluator (`SourceResolutionEvaluator`) with an independent, immutable evaluation context (`SourceResolutionRequestContext`).
+2. **Phase 1 Trust Model & Limits of Positive Output**: Explicit synthetic offline contract scope with clear non-claims regarding live upstream resolution derivation.
+3. **Mandatory Safety Prerequisites**: Strict gating requiring all scope, temporal, membership, and integrity checks before any `True` outcome is possible.
+4. **Tightened Phase 1 File Allowlist**: Strict 4-file boundary with zero modification to accepted strategy engines, adapter, or matcher.
+5. **Exact Selected Case IDs & Expected Outcomes**: Specific 21-case contract inventory for the initial implementation increment.
 
 ---
 
-## 2. Proposed Component Boundary & Placement Evaluation
+## 2. Component Boundary & Independent Evaluation Context
 
-In accordance with Perplexity's guidance, the placement of the source-resolution evaluator is evaluated under two distinct architectural options:
+### 2.1 Approved Component Placement: Standalone Evaluator (Option B)
+- **Module Path**: `src/aladeen/strategy/source_resolution.py`
+- **Rationale**: Isolates validation logic outside accepted adapter and matcher code, avoids modifying existing adapter logic, and allows isolated contract testing.
+- **Scope Restriction**: Placement approval only. Production adapter integration, runtime service wiring, and automated derivation remain unapproved and deferred.
 
-### Option A: Embedded `SourceResolutionPreprocessor` inside `AuthorityContextBuilder`
-- **Location**: Added directly to `src/aladeen/strategy/activation_adapter.py` (or a sub-module imported by `activation_adapter.py`).
-- **Structure**: Modeled after `CoveragePreprocessor` and `UsagePreprocessor`.
-- **Interface**:
-  ```python
-  class SourceResolutionPreprocessor:
-      def __init__(self, trust_config: TrustConfiguration) -> None:
-          ...
-      def evaluate_source_resolution(
-          self,
-          records: Sequence[SourceResolutionRecord],
-          evaluation_time: datetime,
-          required_boundary: datetime,
-      ) -> Mapping[str, bool]:
-          ...
-  ```
-- **Trade-offs**:
-  - *Advantages*: Integrates symmetrically into the existing tripartite authority pipeline (`CoveragePreprocessor`, `UsagePreprocessor`, `SourceResolutionPreprocessor`) within `AuthorityContextBuilder.build_matching_context()`.
-  - *Disadvantages*: Couples pure source-resolution validation logic to activation adapter structures; increases file complexity in `activation_adapter.py` (already 500+ lines).
+### 2.2 Independent Immutable Evaluation Context (`SourceResolutionRequestContext`)
+A record cannot be validated against claims copied from that record itself. An independent, caller-provided evaluation context must supply the expected scope, boundary requirements, and authoritative snapshot references:
 
-### Option B: Standalone Module `SourceResolutionEvaluator` (Recommended)
-- **Location**: Standalone dedicated module `src/aladeen/strategy/source_resolution.py`.
-- **Structure**: Pure, stateless offline evaluator operating on immutable dataclasses.
-- **Interface**:
-  ```python
-  class SourceResolutionEvaluator:
-      """Pure offline evaluator mapping source resolution records to authoritative tri-state outcomes."""
-      def __init__(self, trust_config: SourceResolutionTrustConfig | None = None) -> None:
-          ...
-      def evaluate_records(
-          self,
-          records: Sequence[SourceResolutionRecord],
-          evaluation_time: datetime,
-          required_boundary: datetime,
-          active_eligible_set: SetDescriptor | None = None,
-      ) -> SourceResolutionResult:
-          ...
-  ```
-- **Return Type**:
-  ```python
-  @dataclass(frozen=True)
-  class SourceResolutionResult:
-      status_map: Mapping[str, bool]             # Maps member_key -> True (RESOLVED) or False (UNRESOLVED_FROZEN)
-      diagnostics: Tuple[SourceDiagnostic, ...]  # Recorded diagnostics (e.g. CONFLICTING, STALE, FUTURE)
-      omitted_keys: FrozenSet[str]               # Keys omitted due to UNKNOWN status, conflicts, or future knowledge
-  ```
-- **Integration**: `AuthorityContextBuilder` can simply import `SourceResolutionEvaluator` (or accept its output `status_map`) without modifying existing core classes.
-- **Trade-offs**:
-  - *Advantages*: Decoupled, 100% independently unit-testable; zero risk of regressions in existing adapter logic; strict single-responsibility principle.
-  - *Disadvantages*: Requires a clean integration seam if `AuthorityContextBuilder` is eventually wired to instantiate it.
+```python
+from dataclasses import dataclass
+from datetime import datetime
+from types import MappingProxyType
+from typing import FrozenSet, Mapping, Sequence, Tuple
+from aladeen.strategy.types import CoordinatorSnapshot
 
-**Architectural Recommendation**: Option B (Standalone module in `src/aladeen/strategy/source_resolution.py`).
+@dataclass(frozen=True)
+class SourceResolutionTrustConfig:
+    """Explicit trust configuration for offline contract evaluation."""
+    allow_synthetic_records: bool = True
+    enforce_microsecond_precision: bool = True
+    require_monotonic_assertions: bool = True
 
----
+@dataclass(frozen=True)
+class SourceResolutionRequestContext:
+    """Independent immutable evaluation context providing expected scope and authoritative evidence."""
+    # 1. Independent Expected Scope (Must NOT be copied from incoming records)
+    expected_data_source: str
+    expected_feed_id: str
+    expected_run_id: str
+    expected_source_engine_id: str
+    expected_symbol_feed_id: str
+    expected_source_timeframe: str
+    expected_source_config_hash: str
+    expected_structural_epoch: int
 
-## 3. Trusted Offline Inputs vs. Caller Claims
+    # 2. Temporal & Evaluation Horizons
+    evaluation_time: datetime
+    required_source_boundary: datetime
 
-The implementation will strictly enforce the 4-tier origin classification established in Milestone 37 (§7):
+    # 3. Authoritative Evidence & Bounds (Mandatory; None strictly prohibited)
+    expected_member_universe: Tuple[str, ...]         # Expected member keys to evaluate
+    authoritative_snapshot: CoordinatorSnapshot       # Bound coordinator snapshot for membership & is_unresolved
+    declared_anchor_payload: bytes                    # Length-prefixed anchor bytes for prefix hash validation
+    trust_config: SourceResolutionTrustConfig         # Mandatory trust config; None strictly rejected fail-closed
+```
 
-| Tier | Category | Concrete Fields | Trust & Validation Boundary |
-|---|---|---|---|
-| **Tier 1** | **Existing Upstream State** | `CoordinatorSnapshot.is_unresolved`, `current_eligible_set`, `transition_history`, `set_id`, `role`, `lower_price`, `upper_price` | Authoritative for structural set geometry and member existence. Cannot be overridden by caller metadata. |
-| **Tier 2** | **Derived Engineering Identity** | `member_key`, `source_config_hash`, `record_id`, `transition_prefix_hash` | Cryptographically and deterministically computed. Recomputed by evaluator to verify integrity; mismatched hashes trigger fail-closed rejection. |
-| **Tier 3** | **Caller-Supplied Offline Metadata** | `assertion_seq`, `evidence_available_time`, `verified_source_boundary`, `required_source_boundary`, `feed_id`, `run_id`, `data_source` | **Untrusted offline claims**. Evaluator validates that $T_{\text{avail}} \le T_{\text{eval}}$, $T_{\text{verified}} \ge T_{\text{req}}$, timestamps are timezone-aware UTC with microseconds preserved, prices are finite floats, and sequence numbers are monotonic. |
-| **Tier 4** | **Missing / Blocked Upstream Contracts** | Continuous live tick certification, multi-process cursor sync | **Blocked**. Absent from offline evaluation. |
+### 2.3 Evaluator Interface & Strictly Immutable Result Type
+```python
+@dataclass(frozen=True)
+class SourceResolutionResult:
+    """Strictly immutable result container invariant under input record permutations."""
+    status_map: MappingProxyType[str, bool]           # Immutable mapping (types.MappingProxyType)
+    diagnostics: Tuple[SourceDiagnostic, ...]         # Deterministically sorted tuple of diagnostics
+    omitted_keys: FrozenSet[str]                      # Immutable frozenset of omitted/unknown keys
 
-### Deterministic Fail-Closed Validation Rules:
-1. **Timestamp Normalization**: Naive timestamps (`tzinfo is None`) are rejected with diagnostic `UNVALIDATED_TIMEZONE_REJECTED` $\rightarrow$ maps to omitted key (`UNKNOWN`).
-2. **Price Canonicalization**: Prices must be strictly of type `float` and finite (`math.isfinite(price) == True`). Non-finite floats (`NaN`, `Inf`) or non-float types trigger `INVALID_PRICE_GEOMETRY` $\rightarrow$ maps to omitted key.
-3. **Anchor & Prefix Hashing**: Hashes recomputed on candidate records using length-prefixed anchor bytes and canonical JSON. Mismatch triggers `ALTERED_TRANSITION_HISTORY_PREFIX` $\rightarrow$ maps to omitted key.
-4. **Scope Mismatch**: Cross-symbol, cross-feed, cross-run, cross-timeframe, or cross-epoch mismatches fail closed with appropriate diagnostics $\rightarrow$ omitted keys.
+class SourceResolutionEvaluator:
+    """Pure offline evaluator validating source resolution records against independent request context."""
+    def evaluate_records(
+        self,
+        request: SourceResolutionRequestContext,
+        records: Sequence[SourceResolutionRecord],
+    ) -> SourceResolutionResult:
+        ...
+```
+
+- **Permutation Invariance**: Input records may arrive in any sequence. The evaluator sorts and evaluates deterministically, producing identical `status_map`, `diagnostics`, and `omitted_keys` across repeated runs and permutations.
 
 ---
 
-## 4. Blocked Upstream Contracts (Explicit Non-Goals)
+## 3. Phase 1 Trust Model & Limits of Positive Output
 
-To preserve architectural safety boundaries and prevent premature heuristic creep:
-1. **`SRC-GAP-01` (Multi-Process Cursor Sync)**: No inter-process communication, shared memory locks, or distributed cursor tracking will be written. The evaluator operates purely in-memory in the current process.
+### 3.1 Explicit Phase 1 Trust Scope
+- **Synthetic Offline Contract Evaluator**: Phase 1 is strictly an offline synthetic contract evaluator verifying that supplied record payloads conform to canonical specifications, match independent context expectations, and satisfy snapshot invariants under declared fixture/issuer assumptions.
+- **Limits of Positive Output (`True`)**:
+  - A `True` result emitted in `status_map` indicates **validation under declared offline contract assumptions**.
+  - It does **not** establish live upstream resolution derivation, live tick certification, or operational multi-candle broker execution authority.
+- **Fail-Closed Missing Trust Binding**:
+  - If `request.trust_config is None` or `request.authoritative_snapshot is None`, the evaluator strictly rejects fail-closed with diagnostic `TRUST_CONFIGURATION_MISSING` or `AUTHORITATIVE_SNAPSHOT_MISSING`. All keys in `expected_member_universe` are omitted (`UNKNOWN`). Permissive defaults are strictly forbidden.
+
+---
+
+## 4. Mandatory Prerequisites Before ANY Positive Result (`True`)
+
+A member key can **NEVER** emit `True` in `status_map` unless **ALL** of the following mandatory prerequisites are satisfied simultaneously:
+
+1. **Independent Scope Match**:
+   - `record.data_source == request.expected_data_source`
+   - `record.feed_id == request.expected_feed_id`
+   - `record.run_id == request.expected_run_id`
+   - `record.source_engine_id == request.expected_source_engine_id`
+   - `record.symbol_feed_id == request.expected_symbol_feed_id`
+   - `record.source_timeframe == request.expected_source_timeframe`
+   - `record.source_config_hash == request.expected_source_config_hash`
+   - `record.structural_epoch == request.expected_structural_epoch`
+   Any scope mismatch emits diagnostic (e.g. `SCOPE_MISMATCH_FEED`, `SCOPE_MISMATCH_ENGINE`) and omits the key.
+
+2. **Mandatory Authoritative Membership Evidence**:
+   - `member_key` exists in `request.expected_member_universe`.
+   - `member_key` is active in `request.authoritative_snapshot.current_eligible_set`.
+   - Missing membership evidence immediately omits the key.
+
+3. **Authoritative Engine Resolution State**:
+   - Upstream engine snapshot reports `request.authoritative_snapshot.is_unresolved == False`.
+   - If `is_unresolved == True`, the member immediately maps to `False` (`UNRESOLVED_FROZEN`) or is omitted.
+
+4. **Temporal Horizon Validity**:
+   - Evaluation completed on or before evaluation time: `record.evidence_available_time <= request.evaluation_time` ($T_{\text{avail}} \le T_{\text{eval}}$).
+   - Calculation verified through required boundary: `record.verified_source_boundary >= request.required_source_boundary` ($T_{\text{verified}} \ge T_{\text{req}}$).
+   - Stale or future records omit the key.
+
+5. **Transition History Prefix Cryptographic Integrity**:
+   - The evaluator recomputes the prefix hash chain from `request.declared_anchor_payload` across transitions `0..record.transition_prefix_index` from `request.authoritative_snapshot.transition_history`.
+   - Recomputed hash strictly matches `record.transition_prefix_hash`. Mismatch emits `ALTERED_TRANSITION_HISTORY_PREFIX` and omits the key.
+
+6. **Single Deterministic Serialization & Formatting Integrity**:
+   - `record.record_id` strictly matches `format_source_resolution_record_id(...)` incorporating full 9-component stream scope, `assertion_seq`, and canonical UTC `verified_iso`.
+   - Prices must be strictly finite Python `float` values (`math.isfinite(price) == True`), serialized with `repr(price)`. Non-finite floats or silent coercion reject fail-closed.
+   - Timestamps must be timezone-aware UTC, formatted with `Z`, preserving microseconds losslessly.
+
+7. **Absence of Conflicting or Superseding Notices**:
+   - No contradictory duplicate payload under the same `record_id` (`CONFLICTING_RECORD_PAYLOAD_IMMUTABILITY`).
+   - No causally later `UNRESOLVED_FROZEN` notice within the stream ($assertion\_seq_{\text{new}} > assertion\_seq_{\text{old}}$).
+
+If any prerequisite fails, the member key cannot emit `True`. It maps to `False` (if explicitly unresolved/frozen) or is omitted from `status_map` (`UNKNOWN`).
+
+---
+
+## 5. Blocked Upstream Contracts (Explicit Non-Goals)
+
+The implementation strictly preserves safety boundaries by excluding:
+1. **`SRC-GAP-01` (Multi-Process Cursor Sync)**: No inter-process communication, shared memory locks, or distributed cursor tracking. Evaluator runs purely in-memory in the current process.
 2. **`SRC-GAP-02` (Real-Time Live MT5 Ingestion)**: No live socket connections or polling loops to MT5 terminals. All inputs are offline pre-recorded batches or synthetic fixtures.
 3. **`SRC-GAP-03` (Persistent Cross-Restart Database Ledger)**: No SQLite, JSON, or filesystem database writes for source-resolution records. State lives strictly in-memory during evaluation.
-4. **`SRC-GAP-04` (Live Broker Execution)**: Zero trade placement, order execution, or account modification calls.
+4. **`SRC-GAP-04` (Live Broker Execution)**: Zero trade placement, order execution, or account modification calls (strictly prohibited by `AGENTS.md`).
 
 ---
 
-## 5. Selected Acceptance Cases & Phased Implementation Plan
+## 6. Phase 1 Selected Case IDs & Expected Outcomes (21 Contract Items)
 
-The 33 acceptance cases from Milestone 37 are organized into three sequential verification phases:
+Phase 1 focuses on pure contract validation in `tests/test_source_resolution_authority.py`, covering 21 distinct contract items:
 
-### Phase 1: Core Resolution Contracts & Scope Isolation (12 Cases)
-- `SRC-RES-01`: Valid `RESOLVED` record $\rightarrow$ `True` in `status_map`.
-- `SRC-RES-02`: Valid `UNRESOLVED_FROZEN` record $\rightarrow$ `False` in `status_map`.
-- `SRC-RES-03`: Missing record for member $\rightarrow$ omitted key (`UNKNOWN`).
-- `SRC-RES-04`: Future authority ($T_{\text{avail}} > T_{\text{eval}}$) $\rightarrow$ omitted key.
-- `SRC-RES-05`: Cross-symbol mismatch (`GBPUSD` vs `EURUSD`) $\rightarrow$ omitted key.
-- `SRC-RES-06`: Cross-timeframe mismatch (`H4` vs `D1`) $\rightarrow$ omitted key.
-- `SRC-RES-07`: Cross-engine mismatch $\rightarrow$ omitted key.
-- `SRC-RES-08`: Cross-run mismatch $\rightarrow$ omitted key.
-- `SRC-RES-09`: Identical duplicate records $\rightarrow$ deduplicated idempotently.
-- `SRC-RES-10`: Contradictory duplicate records $\rightarrow$ diagnostic and omitted key.
-- `SRC-RES-13`: Stale resolution boundary ($T_{\text{verified}} < T_{\text{req}}$) $\rightarrow$ omitted key.
-- `SRC-RES-14`: Unknown establishment time $\rightarrow$ omitted key.
+| Case ID | Contract Description | Mandatory Input Condition | Expected Output |
+|---|---|---|---|
+| `SRC-RES-03` | Missing record | Member in universe, no record supplied | Omitted from `status_map` (`UNKNOWN`) |
+| `SRC-RES-04` | Future authority | $T_{\text{avail}} > T_{\text{eval}}$ | Omitted from `status_map` (`UNKNOWN`), `FUTURE_EVIDENCE` diagnostic |
+| `SRC-RES-05` | Cross-symbol mismatch | `record.symbol_feed_id != expected` | Omitted from `status_map` (`UNKNOWN`), `SCOPE_MISMATCH_SYMBOL` |
+| `SRC-RES-06` | Cross-timeframe mismatch | `record.source_timeframe != expected` | Omitted from `status_map` (`UNKNOWN`), `SCOPE_MISMATCH_TIMEFRAME` |
+| `SRC-RES-07` | Cross-engine mismatch | `record.source_engine_id != expected` | Omitted from `status_map` (`UNKNOWN`), `SCOPE_MISMATCH_ENGINE` |
+| `SRC-RES-08` | Cross-run mismatch | `record.run_id != expected` | Omitted from `status_map` (`UNKNOWN`), `SCOPE_MISMATCH_RUN` |
+| `SRC-RES-13` | Stale resolution boundary | $T_{\text{verified}} < T_{\text{req}}$ | Omitted from `status_map` (`UNKNOWN`), `STALE_RESOLUTION_BOUNDARY` |
+| `SRC-RES-14` | Unknown establishment time | Member establishment time missing | Omitted from `status_map` (`UNKNOWN`) |
+| `SRC-RES-15` | Cross-feed mismatch | `record.feed_id != expected` | Omitted from `status_map` (`UNKNOWN`), `SCOPE_MISMATCH_FEED` |
+| `SRC-RES-16` | Config hash mismatch | `record.source_config_hash != expected` | Omitted from `status_map` (`UNKNOWN`), `SCOPE_MISMATCH_CONFIG` |
+| `SRC-RES-17` | Prefix hash mismatch | `record.transition_prefix_hash` corrupted | Omitted from `status_map` (`UNKNOWN`), `ALTERED_TRANSITION_HISTORY_PREFIX` |
+| `SRC-RES-19` | Conflicting payload on same ID | Differing payload on identical `record_id` | Omitted from `status_map` (`UNKNOWN`), `CONFLICTING_RECORD_PAYLOAD_IMMUTABILITY` |
+| `SRC-RES-20` | Altered prefix extension | Prefix recomputation mismatch | Omitted from `status_map` (`UNKNOWN`), `ALTERED_TRANSITION_HISTORY_PREFIX` |
+| `SRC-RES-24` | Stream isolation | Two streams differing only in config/epoch | Distinct `record_id`s, strictly isolated evaluations |
+| `SRC-RES-25` | Canonical serialization determinism | Distinct float prices $\rightarrow$ distinct hashes; repeat equality; NaN/Inf reject | Deterministic canonical JSON and SHA-256 hashes |
+| `SRC-RES-09` | Identical duplicate records | Duplicate identical records | Idempotent deduplication, no error |
+| `SRC-RES-10` | Contradictory duplicate records | Conflicting states at equal sequence | Omitted from `status_map` (`UNKNOWN`), `CONFLICTING_SOURCE_RESOLUTION_AUTHORITY` |
+| `SRC-RES-21` | Ordered vs unordered conflict | Differing sequence follows order; unordered omits | Causal sequence precedence or omission |
+| `SRC-RES-23` | Receipt diagnostic sequence | Monotonic sequence separates receipt from prefix | Correct sequence ordering |
+| `SRC-RES-02` | Valid unresolved record | Valid record with `UNRESOLVED_FROZEN` | Maps to `False` in `status_map` |
+| `SRC-RES-18` | Later unresolved notice | Later unresolved notice with unchanged $T_{\text{verified}}$ | Demotes stream to `False` in `status_map` |
+| `SRC-RES-22` | Later unresolved at same boundary | Distinct `assertion_seq` at same boundary | Demotes stream to `False` in `status_map` |
+| `SRC-RES-01` | Fully verified positive record | All 8 mandatory prerequisites satisfied | Maps to `True` in `status_map` (under declared offline contract assumptions) |
 
-### Phase 2: Lifecycle, Chaining, Serialization & Conflict Invariants (13 Cases)
-- `SRC-RES-11`: Member isolation (`TJL1` does not authorize `TJL2`).
-- `SRC-RES-12`: Superseded member from predecessor set loses `RESOLVED` status upon successor set creation.
-- `SRC-RES-15`: Cross-feed mismatch $\rightarrow$ omitted key.
-- `SRC-RES-16`: Configuration hash mismatch $\rightarrow$ omitted key.
-- `SRC-RES-17`: Rewritten transition prefix hash mismatch $\rightarrow$ omitted key.
-- `SRC-RES-18`: Later unresolved notice with unchanged $T_{\text{verified}}$ demotes stream to `UNRESOLVED_FROZEN`.
-- `SRC-RES-19`: Conflicting payload on immutable `record_id` $\rightarrow$ diagnostic `CONFLICTING_RECORD_PAYLOAD_IMMUTABILITY`.
-- `SRC-RES-20`: Altered transition history prefix $\rightarrow$ diagnostic `ALTERED_TRANSITION_HISTORY_PREFIX`.
-- `SRC-RES-21`: Ordered vs. unordered conflict reconciliation (equal availability).
-- `SRC-RES-22`: Later unresolved assertion sharing boundary demotes state to `UNRESOLVED_FROZEN`.
-- `SRC-RES-23`: Assertion sequence order separates receipt diagnostic from transition index.
-- `SRC-RES-24`: Stream isolation across differing config hash or epoch under identical sequence and boundary.
-- `SRC-RES-25`: Canonical lossless price and timestamp serialization: distinct finite float prices produce distinct tokens/hashes; repeat equality; non-finite float rejection.
-
-### Phase 3: Integration Scenarios & Negative False-Positive Controls (8 Cases)
-- `SRC-INT-01`: Clean 3-way authority (Valid Source Resolution + COMPLETE Coverage + UNUSED Usage) $\rightarrow$ valid candidate.
-- `SRC-INT-02`: Clean Coverage + Clean Usage, but `UNRESOLVED_FROZEN` Source Resolution $\rightarrow$ `BLOCKED`, 0 candidates.
-- `SRC-INT-03`: Clean Coverage + Clean Usage, but `UNKNOWN` Source Resolution $\rightarrow$ `BLOCKED`, 0 candidates.
-- `SRC-INT-04`: Replacement lifecycle: Set 1 replaced by Set 2 $\rightarrow$ Set 1 rejected at Gate 2, Set 2 evaluated under fresh resolution authority.
-- `FP-CTRL-01`: Current-set presence alone rejects fail-closed when engine `is_unresolved = True`.
-- `FP-CTRL-02`: Valid geometry alone rejects fail-closed without upstream resolution record.
-- `FP-CTRL-03`: Closed bar alone rejects fail-closed under `BLOCKED_BY_UNRESOLVED_STATE`.
-- `FP-CTRL-04`: Cursor equality alone rejects fail-closed when engine `is_unresolved = True`.
+*Note*: Remaining integration cases (`SRC-INT-01`..`04`) and negative controls (`FP-CTRL-01`..`04`) are deferred to Phase 3.
 
 ---
 
-## 6. Exact File Allowlist
+## 7. Tightened Phase 1-Only File Allowlist
 
-To strictly enforce scope control and strategy integrity, implementation is constrained to the following allowlist:
+The file boundary for the initial Phase 1 increment is strictly restricted to 4 files:
 
 | File Path | Permitted Action | Description |
 |---|---|---|
-| `src/aladeen/strategy/source_resolution.py` | **Create** | Standalone pure offline evaluator, typed record dataclasses, length-prefixed formatters, canonical JSON serializer, and prefix hasher. |
-| `tests/test_source_resolution_authority.py` | **Create** | Unit and contract test suite covering Phase 1 and Phase 2 acceptance contracts (`SRC-RES-01` through `SRC-RES-25`). |
-| `tests/test_source_resolution_integration.py` | **Create** (Phase 3) | Integration and control test suite covering `SRC-INT-01`..`04` and `FP-CTRL-01`..`04`. |
+| `src/aladeen/strategy/source_resolution.py` | **Create** | Standalone pure offline evaluator, immutable request/result containers, canonical formatters, and prefix hasher. |
+| `tests/test_source_resolution_authority.py` | **Create** | Isolated contract and unit test suite verifying Phase 1 selected cases. |
 | `docs/requirements/source-resolution-implementation-proposal.md` | **Create / Update** | This implementation proposal document. |
-| `docs/development/status.md` | **Append Only** | Development and review tracking entries for Milestones 38+. |
+| `docs/development/status.md` | **Append Only** | Tracking entries for Milestones 38+. |
 
 ### Strictly Prohibited Files (Zero Diff Invariants):
-- **Core Strategy Engines (0 Diff against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`)**:
-  - `src/aladeen/strategy/engine.py`
-  - `src/aladeen/strategy/choch_detector.py`
-  - `src/aladeen/strategy/iss_engine.py`
-  - `src/aladeen/strategy/tjl_coordinator.py`
-  - `src/aladeen/strategy/activation_engine.py`
-  - `src/aladeen/strategy/activation_adapter.py`
-  - `src/aladeen/strategy/types.py`
-  - `src/aladeen/strategy/validator.py`
-- **Confirmation Matcher Logic (0 Diff against `7285a1d16a4413c051c4ecd032a53c49683f1600`)**:
-  - `src/aladeen/strategy/confirmation_pair_matcher.py`
-
----
-
-## 7. Submission Checklist for Perplexity Approval
-
-Before writing any runtime or test code:
-- [x] Complete component boundary and placement evaluation (Standalone Option B recommended).
-- [x] Full input provenance classification distinguishing verified snapshot state from caller metadata.
-- [x] Explicitly enumerated blocked contracts (`SRC-GAP-01` through `04`).
-- [x] Phased scheduling for all 33 acceptance items.
-- [x] Exact file allowlist with zero-diff invariants on core strategy and matcher baselines.
+- `tests/test_source_resolution_integration.py` (Reserved for separately approved Phase 3 work).
+- `src/aladeen/strategy/activation_adapter.py` (Zero modifications; no builder wiring or adapter imports in Phase 1).
+- `src/aladeen/strategy/confirmation_pair_matcher.py` (Zero diff against `7285a1d16a4413c051c4ecd032a53c49683f1600`).
+- Core strategy engines (`engine.py`, `choch_detector.py`, `iss_engine.py`, `tjl_coordinator.py`, `activation_engine.py`, `types.py`, `validator.py`) (Zero diff against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`).
+- Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
