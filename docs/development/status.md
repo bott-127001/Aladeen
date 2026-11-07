@@ -3522,3 +3522,41 @@ Last Updated: 2026-11-07 (Milestone 33 Interleaved Chronological Schedules & Spl
   - Pure in-memory read-only calculation layer. Zero MT5 live trading calls, zero order execution, zero account modification.
   - Zero candidate arbitration, zero usage ledger writes, zero final signal publication, zero automated trading.
   - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
+
+## 64. Milestone 36 — Explicit Future Authority Cases, Decisive Conflict Control, and Isolated Interval Binding (HANDOFF-124)
+- **Active Branch**: `feature/confirmation-monitor`
+- **Parent Commit**: `880af1586b4be40265bcc723edfa4095ac9e3145` (HANDOFF-123)
+- **Accepted Milestone 35 Requirements Baseline**: `ef71efdb67e56fb063803e10ba7332d53e112b16` (HANDOFF-119)
+- **Accepted Milestone 34 Requirements Baseline**: `7285a1d16a4413c051c4ecd032a53c49683f1600` (HANDOFF-113)
+- **Requirements Baseline Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d`
+- **Scope**: Implements all 4 negative-test closeout items directed by Perplexity in HANDOFF-123 review:
+  1. *Explicit Future-Usage Cases (`tests/test_source_candidate_authority_boundaries.py`)*:
+     - In `test_missing_or_future_usage_at_registration_blocks_candidates`: Added explicit future-usage case where record exists with `available_time > evaluation_time` (`available_time = t0 + 1h`, `eval_time = t0`), resolves `UNKNOWN`, synchronizes into engine, price print does not transition `INACTIVE_INELIGIBLE` activation, and matcher rejects with `UNKNOWN_USAGE`, producing zero candidates. Missing and future subcases are separately identifiable.
+     - In `test_missing_or_future_usage_at_evaluation_blocks_candidates`: Added explicit future-usage case at evaluation where record exists with `available_time > eval_time` (`available_time = eval_time + 1h`), resolving member usage to `UNKNOWN`. Real activation (`UNUSED`) against context (`UNKNOWN` member) rejects specifically with `CONTEXT_MISMATCH` without mutating historical records.
+  2. *Completed Future-Coverage Path Through Matching (`tests/test_source_candidate_authority_boundaries.py`)*:
+     - In `test_missing_or_future_coverage_at_evaluation_blocks_candidates`: Composed future-coverage context and evaluated through `ConfirmationMatcher.match()`, asserting `res.status == ConfirmationMatchStatus.REJECTED`, `ConfirmationRejectionReason.INCOMPLETE_COVERAGE in res.rejection_reasons`, and `res.candidate_record is None`.
+  3. *Decisive Conflict-Isolation Control Comparison (`tests/test_source_candidate_authority_binding.py`)*:
+     - In `_setup_authority_pipeline`: Processed observation `OBS_02_TJL2` touching TJL2 inside `[1.2000, 1.2050]`, placing both TJL1 and TJL2 into `PENDING_ACTIVATION`.
+     - In `test_case_5_conflicting_authority_isolated_to_affected_entity`:
+       * *Valid Control*: Evaluated under clean authority for both TJL1 and TJL2 (`UNUSED`), showing both match cleanly with confirmed candidate records (`res_tjl1_clean.status == MATCHED`, `res_tjl2_clean.status == MATCHED`).
+       * *Decisive Conflict Test*: Kept activation records and evidence unchanged, introduced conflicting TJL2 authority (`lvl2` resolves `UNKNOWN` with `CONFLICTING_IDENTITY`). TJL1 matches cleanly with candidate (`res_tjl1.status == MATCHED`), while TJL2 is specifically rejected with `(ConfirmationRejectionReason.CONTEXT_MISMATCH,)` solely due to conflicting authority (not pre-existing ineligibility).
+  4. *Isolated Interval-Binding Assertion (`tests/test_source_candidate_authority_binding.py`)*:
+     - In `test_case_4_request_binding_rejects_cross_context_reuse`: Requested an expanded interval end that remains valid at the evaluation boundary (`expanded_end = eval_time` at `10:30 UTC <= 10:30 UTC`, but `> required_interval_end` at `10:00 UTC`). Asserted specifically `Expanded interval reuse rejected: requested end.*> authority validated end`, isolating the authority-result interval binding check from the generic evaluation boundary check.
+- **Verification Summary**:
+  - 6 Focused Modular Integration Files: **13 / 13 passed** in 0.72s (`pytest tests/test_source_candidate_authority_*.py -v`).
+  - Established offline repository test suite: **739 / 739 passed** in 9.31s (`pytest tests/ --ignore=... -q`).
+  - Dedicated regression suite: **15 / 15 passed** in 0.64s (`tests/test_authority_handoff_118_regressions.py`).
+  - Main authority builder suite: **60 / 60 passed** in 0.65s (`tests/test_authority_context_builder.py`).
+  - Core strategy engine purity: **0 diff** against `3f6689c194c95ca3761833f8831bb8a3f5b4740d` across tracked repository paths (`src/aladeen/strategy/engine.py`, `choch_detector.py`, `iss_engine.py`, `tjl_coordinator.py`, `activation_engine.py`, `activation_adapter.py`, `types.py`, `validator.py`).
+  - Matcher logic purity: **0 diff** against accepted Milestone 34 baseline `7285a1d16a4413c051c4ecd032a53c49683f1600` on `src/aladeen/strategy/confirmation_pair_matcher.py`.
+- **File Line Lengths (< 710 lines each)**:
+  - `tests/test_source_candidate_authority_binding.py`: **527 lines**
+  - `tests/test_source_candidate_authority_boundaries.py`: **688 lines**
+  - `tests/test_source_candidate_authority_chain.py`: **572 lines**
+  - `tests/test_source_candidate_authority_equality.py`: **350 lines**
+  - `tests/test_source_candidate_authority_rearm.py`: **401 lines**
+  - `tests/test_source_candidate_authority_replacement.py`: **618 lines**
+- **Safety Boundary Maintained**:
+  - Pure in-memory read-only calculation layer. Zero MT5 live trading calls, zero order execution, zero account modification.
+  - Zero candidate arbitration, zero usage ledger writes, zero final signal publication, zero automated trading.
+  - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.

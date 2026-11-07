@@ -78,33 +78,31 @@ def load_choch_fixture(name: str = "choch_bearish_basic_end_to_end") -> Dict[str
     return data["fixtures"][name]
 
 
-def build_synthesized_daily_source_candles(
-    raw_fixture_candles: List[Dict[str, Any]],
-    start_date: datetime = datetime(2026, 10, 1, 0, 0, tzinfo=timezone.utc),
-) -> List[StrategyCandle]:
-    daily_candles: List[StrategyCandle] = []
-    day_step = timedelta(days=1)
-    for i, c in enumerate(raw_fixture_candles):
-        open_time = start_date + (day_step * i)
-        close_time = start_date + (day_step * (i + 1))
-        daily_candles.append(
-            StrategyCandle(
-                index=i,
-                open_time=open_time,
-                open=float(c["open"]),
-                high=float(c["high"]),
-                low=float(c["low"]),
-                close=float(c["close"]),
-                is_forming=bool(c["is_forming"]),
-                bar_status=str(c["bar_status"]),
-                close_time=close_time,
-            )
+def build_synthesized_daily_source_candles(raw: List[Dict[str, Any]], start_date: datetime = datetime(2026, 10, 1, 0, 0, tzinfo=timezone.utc)) -> List[StrategyCandle]:
+    step = timedelta(days=1)
+    return [
+        StrategyCandle(
+            index=i, open_time=start_date + (step * i), open=float(c["open"]), high=float(c["high"]),
+            low=float(c["low"]), close=float(c["close"]), is_forming=bool(c["is_forming"]),
+            bar_status=str(c["bar_status"]), close_time=start_date + (step * (i + 1)),
         )
-    return daily_candles
+        for i, c in enumerate(raw)
+    ]
 
 
 class TestSourceCandidateAuthorityBoundaries:
     """Authority boundary negative tests."""
+
+    @staticmethod
+    def _build_context(builder, auth, members, eval_time, t0, t_1000, src_res=None):
+        ctx, _ = builder.build_matching_context(
+            authority_result=auth, base_members=members, domain_session_id="SESS_01", revision_id="REV_01",
+            expected_price_basis=PRICE_BASIS, expected_confirmation_config_id=CONF_CFG,
+            matching_sequence_domain=DEFAULT_DOMAIN, evaluation_time=eval_time, expected_timeframe="H1",
+            expected_interval_start=t0, expected_interval_end=t_1000,
+            source_resolution_status=src_res or {m: True for m in members},
+        )
+        return ctx
 
     def _setup_pipeline(self) -> Dict[str, Any]:
         """Prepare source, touched activation, and confirmed evidence."""
@@ -232,48 +230,12 @@ class TestSourceCandidateAuthorityBoundaries:
         data = self._setup_pipeline()
         cset = data["cset"]
         t0 = data["t0"]
+        lvl1 = cset.tjl1_zone.level_id
+        mem_key_tjl1 = format_member_key("SET_1", "TJL1")
         builder = AuthorityContextBuilder(trust_config=DEFAULT_TRUST)
         matcher = ConfirmationMatcher()
-
-        # 1. Registration with MISSING usage records -> resolves UNKNOWN
-        auth_no_usg_reg = builder.validate_and_build(
-            coverage_records=(),
-            usage_records=(),
-            evaluation_time=t0,
-            target_feed_id=FEED_ID,
-            target_sequence_domain=DEFAULT_DOMAIN,
-            target_timeframe="H1",
-            target_confirmation_config_id=CONF_CFG,
-            required_interval_start=t0,
-            required_interval_end=t0,
-            physical_levels=(cset.tjl1_zone.level_id,),
-        )
-        assert auth_no_usg_reg.resolved_usage_statuses[cset.tjl1_zone.level_id] == UsageEvidenceStatus.UNKNOWN
-
-        # Synchronize using UNKNOWN usage
-        act_engine_unknown = ActivationEngine(
-            ActivationEngineConfig(
-                engine_id="ENGINE_EURUSD_D1",
-                symbol=FEED_ID,
-                source_timeframe="D1",
-                sequence_domain=DEFAULT_DOMAIN,
-                price_basis=PRICE_BASIS,
-            )
-        )
-        synchronizer = TJLSynchronizer(engine=act_engine_unknown)
-        snap_unknown = synchronizer.sync(data["snap_tjl"], sequence_ref_start=1001, usage_evidence=auth_no_usg_reg.resolved_usage_statuses)
-        mem_key_tjl1 = format_member_key("SET_1", "TJL1")
-        act_unknown = snap_unknown.active_activations[mem_key_tjl1]
-        assert act_unknown.usage_evidence_status == UsageEvidenceStatus.UNKNOWN
-
-        # Touch event processed: because member is INACTIVE_INELIGIBLE due to UNKNOWN usage, touch does NOT activate it
         p_touch = ExactPricePrint("OBS_01", 1.1825, PRICE_BASIS, datetime(2026, 10, 11, 7, 30, tzinfo=timezone.utc), DEFAULT_DOMAIN, 1003)
-        snap_touched_unknown = act_engine_unknown.process_event(p_touch)
-        act_touched_unknown = snap_touched_unknown.active_activations[mem_key_tjl1]
-        assert act_touched_unknown.state == ActivationState.INACTIVE_INELIGIBLE
-        assert act_touched_unknown.usage_evidence_status == UsageEvidenceStatus.UNKNOWN
 
-        # Matcher evaluation with valid coverage certificate
         cov_rec = ProposedFeedCoverageRecord(
             record_id="COV_1000",
             schema_version="v1",
@@ -289,6 +251,29 @@ class TestSourceCandidateAuthorityBoundaries:
             available_time=data["t_1000"],
             revision_seq=1,
         )
+
+        # 1. Missing usage at registration -> resolves UNKNOWN
+        auth_no_usg = builder.validate_and_build(
+            coverage_records=(),
+            usage_records=(),
+            evaluation_time=t0,
+            target_feed_id=FEED_ID,
+            target_sequence_domain=DEFAULT_DOMAIN,
+            target_timeframe="H1",
+            target_confirmation_config_id=CONF_CFG,
+            required_interval_start=t0,
+            required_interval_end=t0,
+            physical_levels=(lvl1,),
+        )
+        assert auth_no_usg.resolved_usage_statuses[lvl1] == UsageEvidenceStatus.UNKNOWN
+
+        eng_missing = ActivationEngine(ActivationEngineConfig("ENGINE_EURUSD_D1", FEED_ID, "D1", DEFAULT_DOMAIN, PRICE_BASIS))
+        snap_missing = TJLSynchronizer(engine=eng_missing).sync(data["snap_tjl"], 1001, auth_no_usg.resolved_usage_statuses)
+        snap_touched_missing = eng_missing.process_event(p_touch)
+        act_missing = snap_touched_missing.active_activations[mem_key_tjl1]
+        assert act_missing.state == ActivationState.INACTIVE_INELIGIBLE
+        assert act_missing.usage_evidence_status == UsageEvidenceStatus.UNKNOWN
+
         auth_eval = builder.validate_and_build(
             coverage_records=(cov_rec,),
             usage_records=(),
@@ -299,33 +284,57 @@ class TestSourceCandidateAuthorityBoundaries:
             target_confirmation_config_id=CONF_CFG,
             required_interval_start=t0,
             required_interval_end=data["t_1000"],
-            physical_levels=(cset.tjl1_zone.level_id,),
+            physical_levels=(lvl1,),
         )
-        synthetic_source_res = {m_k: True for m_k in snap_touched_unknown.current_members}
-        ctx, _ = builder.build_matching_context(
-            authority_result=auth_eval,
-            base_members=snap_touched_unknown.current_members,
-            domain_session_id="SESS_01",
-            revision_id="REV_01",
-            expected_price_basis=PRICE_BASIS,
-            expected_confirmation_config_id=CONF_CFG,
-            matching_sequence_domain=DEFAULT_DOMAIN,
-            evaluation_time=data["eval_time"],
-            expected_timeframe="H1",
-            expected_interval_start=t0,
-            expected_interval_end=data["t_1000"],
-            source_resolution_status=synthetic_source_res,
-        )
+        ctx_missing = self._build_context(builder, auth_eval, snap_touched_missing.current_members, data["eval_time"], t0, data["t_1000"])
+        res_missing = matcher.match(act_missing, data["evidence"], ctx_missing)
+        assert res_missing.status == ConfirmationMatchStatus.REJECTED
+        assert ConfirmationRejectionReason.UNKNOWN_USAGE in res_missing.rejection_reasons
+        assert res_missing.candidate_record is None
 
-        res = matcher.match(act_touched_unknown, data["evidence"], ctx)
-        assert res.status == ConfirmationMatchStatus.REJECTED
-        assert ConfirmationRejectionReason.UNKNOWN_USAGE in res.rejection_reasons
-        assert res.candidate_record is None
+        # 2. Future usage at registration (available_time > evaluation_time) -> resolves UNKNOWN
+        fut_usg_reg = ProposedUsageEvidenceRecord(
+            record_id="USG_FUT_REG",
+            schema_version="v1",
+            issuer_id="UPSTREAM_TRADE_LEDGER_OFFLINE",
+            level_id=lvl1,
+            status=UsageEvidenceStatus.UNUSED,
+            established_time=t0,
+            available_time=t0 + timedelta(hours=1),
+            provenance_ref="LEDGER_FUT_01",
+        )
+        auth_fut_usg_reg = builder.validate_and_build(
+            coverage_records=(),
+            usage_records=(fut_usg_reg,),
+            evaluation_time=t0,
+            target_feed_id=FEED_ID,
+            target_sequence_domain=DEFAULT_DOMAIN,
+            target_timeframe="H1",
+            target_confirmation_config_id=CONF_CFG,
+            required_interval_start=t0,
+            required_interval_end=t0,
+            physical_levels=(lvl1,),
+        )
+        assert auth_fut_usg_reg.resolved_usage_statuses[lvl1] == UsageEvidenceStatus.UNKNOWN
+
+        eng_fut = ActivationEngine(ActivationEngineConfig("ENGINE_EURUSD_D1", FEED_ID, "D1", DEFAULT_DOMAIN, PRICE_BASIS))
+        snap_fut = TJLSynchronizer(engine=eng_fut).sync(data["snap_tjl"], 2001, auth_fut_usg_reg.resolved_usage_statuses)
+        snap_touched_fut = eng_fut.process_event(p_touch)
+        act_fut = snap_touched_fut.active_activations[mem_key_tjl1]
+        assert act_fut.state == ActivationState.INACTIVE_INELIGIBLE
+        assert act_fut.usage_evidence_status == UsageEvidenceStatus.UNKNOWN
+
+        ctx_fut = self._build_context(builder, auth_eval, snap_touched_fut.current_members, data["eval_time"], t0, data["t_1000"])
+        res_fut = matcher.match(act_fut, data["evidence"], ctx_fut)
+        assert res_fut.status == ConfirmationMatchStatus.REJECTED
+        assert ConfirmationRejectionReason.UNKNOWN_USAGE in res_fut.rejection_reasons
+        assert res_fut.candidate_record is None
 
     def test_missing_or_future_usage_at_evaluation_blocks_candidates(self) -> None:
         """Usage resolved UNKNOWN at evaluation disagrees with UNUSED activation, blocking via CONTEXT_MISMATCH."""
         data = self._setup_pipeline()
         cset = data["cset"]
+        lvl1 = cset.tjl1_zone.level_id
         t0 = data["t0"]
         eval_time = data["eval_time"]
         builder = AuthorityContextBuilder(trust_config=DEFAULT_TRUST)
@@ -348,7 +357,7 @@ class TestSourceCandidateAuthorityBoundaries:
             revision_seq=1,
         )
 
-        # Authority evaluated without usage records -> member becomes UNKNOWN
+        # 1. Missing usage at evaluation -> resolves UNKNOWN member usage
         auth_no_usg = builder.validate_and_build(
             coverage_records=(cov_rec,),
             usage_records=(),
@@ -359,28 +368,42 @@ class TestSourceCandidateAuthorityBoundaries:
             target_confirmation_config_id=CONF_CFG,
             required_interval_start=t0,
             required_interval_end=data["t_1000"],
-            physical_levels=(cset.tjl1_zone.level_id,),
+            physical_levels=(lvl1,),
         )
-        ctx, _ = builder.build_matching_context(
-            authority_result=auth_no_usg,
-            base_members=data["snap_act_touched"].current_members,
-            domain_session_id="SESS_01",
-            revision_id="REV_01",
-            expected_price_basis=PRICE_BASIS,
-            expected_confirmation_config_id=CONF_CFG,
-            matching_sequence_domain=DEFAULT_DOMAIN,
-            evaluation_time=eval_time,
-            expected_timeframe="H1",
-            expected_interval_start=t0,
-            expected_interval_end=data["t_1000"],
-            source_resolution_status=synthetic_source_res,
-        )
+        ctx_missing = self._build_context(builder, auth_no_usg, data["snap_act_touched"].current_members, eval_time, t0, data["t_1000"], synthetic_source_res)
+        res_missing = matcher.match(data["act_rec_tjl1"], data["evidence"], ctx_missing)
+        assert res_missing.status == ConfirmationMatchStatus.REJECTED
+        assert ConfirmationRejectionReason.CONTEXT_MISMATCH in res_missing.rejection_reasons
+        assert res_missing.candidate_record is None
 
-        # Real activation (with UNUSED) evaluated against context (with UNKNOWN member) -> CONTEXT_MISMATCH
-        res = matcher.match(data["act_rec_tjl1"], data["evidence"], ctx)
-        assert res.status == ConfirmationMatchStatus.REJECTED
-        assert ConfirmationRejectionReason.CONTEXT_MISMATCH in res.rejection_reasons
-        assert res.candidate_record is None
+        # 2. Future usage at evaluation (available_time > eval_time) -> resolves UNKNOWN member usage
+        fut_usg_eval = ProposedUsageEvidenceRecord(
+            record_id="USG_FUT_EVAL",
+            schema_version="v1",
+            issuer_id="UPSTREAM_TRADE_LEDGER_OFFLINE",
+            level_id=lvl1,
+            status=UsageEvidenceStatus.UNUSED,
+            established_time=t0,
+            available_time=eval_time + timedelta(hours=1),
+            provenance_ref="LEDGER_FUT_EVAL",
+        )
+        auth_fut_usg = builder.validate_and_build(
+            coverage_records=(cov_rec,),
+            usage_records=(fut_usg_eval,),
+            evaluation_time=eval_time,
+            target_feed_id=FEED_ID,
+            target_sequence_domain=DEFAULT_DOMAIN,
+            target_timeframe="H1",
+            target_confirmation_config_id=CONF_CFG,
+            required_interval_start=t0,
+            required_interval_end=data["t_1000"],
+            physical_levels=(lvl1,),
+        )
+        ctx_fut = self._build_context(builder, auth_fut_usg, data["snap_act_touched"].current_members, eval_time, t0, data["t_1000"], synthetic_source_res)
+        res_fut = matcher.match(data["act_rec_tjl1"], data["evidence"], ctx_fut)
+        assert res_fut.status == ConfirmationMatchStatus.REJECTED
+        assert ConfirmationRejectionReason.CONTEXT_MISMATCH in res_fut.rejection_reasons
+        assert res_fut.candidate_record is None
 
     def test_missing_or_future_coverage_at_evaluation_blocks_candidates(self) -> None:
         """Missing or future coverage certificate rejects fail-closed with INCOMPLETE_COVERAGE."""
@@ -418,20 +441,7 @@ class TestSourceCandidateAuthorityBoundaries:
         )
         assert auth_no_cov.resolved_coverage_status == CoverageStatus.INCOMPLETE
 
-        ctx_no_cov, _ = builder.build_matching_context(
-            authority_result=auth_no_cov,
-            base_members=data["snap_act_touched"].current_members,
-            domain_session_id="SESS_01",
-            revision_id="REV_01",
-            expected_price_basis=PRICE_BASIS,
-            expected_confirmation_config_id=CONF_CFG,
-            matching_sequence_domain=DEFAULT_DOMAIN,
-            evaluation_time=eval_time,
-            expected_timeframe="H1",
-            expected_interval_start=t0,
-            expected_interval_end=data["t_1000"],
-            source_resolution_status=synthetic_source_res,
-        )
+        ctx_no_cov = self._build_context(builder, auth_no_cov, data["snap_act_touched"].current_members, eval_time, t0, data["t_1000"], synthetic_source_res)
         res_no_cov = matcher.match(data["act_rec_tjl1"], data["evidence"], ctx_no_cov)
         assert res_no_cov.status == ConfirmationMatchStatus.REJECTED
         assert ConfirmationRejectionReason.INCOMPLETE_COVERAGE in res_no_cov.rejection_reasons
@@ -466,6 +476,12 @@ class TestSourceCandidateAuthorityBoundaries:
             physical_levels=(cset.tjl1_zone.level_id,),
         )
         assert auth_fut_cov.resolved_coverage_status == CoverageStatus.INCOMPLETE
+
+        ctx_fut_cov = self._build_context(builder, auth_fut_cov, data["snap_act_touched"].current_members, eval_time, t0, data["t_1000"], synthetic_source_res)
+        res_fut_cov = matcher.match(data["act_rec_tjl1"], data["evidence"], ctx_fut_cov)
+        assert res_fut_cov.status == ConfirmationMatchStatus.REJECTED
+        assert ConfirmationRejectionReason.INCOMPLETE_COVERAGE in res_fut_cov.rejection_reasons
+        assert res_fut_cov.candidate_record is None
 
     def test_later_arriving_certificate_cannot_authorize_earlier_evaluation(self) -> None:
         """Certificate available at 10:00 UTC fails closed when evaluated at 09:30 UTC."""
@@ -583,39 +599,9 @@ class TestSourceCandidateAuthorityBoundaries:
         )
 
         # Boundary A: Unknown usage status rejects as UNKNOWN_USAGE
-        mem_unknown_usage = SourceMemberReference(
-            engine_id="ENGINE_EURUSD_D1",
-            symbol="FEED_EURUSD_D1",
-            source_timeframe="D1",
-            set_id="SET_1",
-            role="TJL1",
-            side="HIGH",
-            lower_edge=1.1350,
-            upper_edge=1.1400,
-            is_line=False,
-            direction=Direction.DOWNWARD,
-            level_id=lvl,
-            eligibility_available_time=datetime(2026, 10, 1, 0, 0, tzinfo=timezone.utc),
-            usage_evidence_status=UsageEvidenceStatus.UNKNOWN,
-        )
-        act_unknown_usage = ActivationRecord(
-            activation_id=format_activation_id("ENGINE_EURUSD_D1", "D1", "FEED_EURUSD_D1", "SET_1", "TJL1", 1),
-            engine_id="ENGINE_EURUSD_D1",
-            symbol="FEED_EURUSD_D1",
-            source_timeframe="D1",
-            confirmation_timeframe="H1",
-            set_id="SET_1",
-            role="TJL1",
-            level_id=lvl,
-            lower_edge=1.1350,
-            upper_edge=1.1400,
-            state=ActivationState.PENDING_ACTIVATION,
-            first_touch_time=datetime(2026, 10, 1, 8, 0, tzinfo=timezone.utc),
-            first_touch_price=1.1375,
-            trigger_observation_id="OBS_01",
-            generation_seq=1,
-            usage_evidence_status=UsageEvidenceStatus.UNKNOWN,
-        )
+        from dataclasses import replace
+        mem_unknown_usage = replace(mem_valid, usage_evidence_status=UsageEvidenceStatus.UNKNOWN)
+        act_unknown_usage = replace(act_valid, usage_evidence_status=UsageEvidenceStatus.UNKNOWN)
         ctx_unknown_usage = MatchingContext(
             domain_session_id="SESS_01",
             revision_id="REV_01",

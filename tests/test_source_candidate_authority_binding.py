@@ -174,12 +174,17 @@ class TestSourceCandidateAuthorityBinding:
         synchronizer = TJLSynchronizer(engine=act_engine)
         snap_sync = synchronizer.sync(snap_tjl, sequence_ref_start=1001, usage_evidence=auth_reg.resolved_usage_statuses)
 
-        # Boundary 3: Exact price touch
+        # Boundary 3: Exact price touches for both TJL1 and TJL2
         p_touch = ExactPricePrint("OBS_01", 1.1825, PRICE_BASIS, datetime(2026, 10, 11, 7, 30, tzinfo=timezone.utc), DEFAULT_DOMAIN, 1003)
-        snap_touched = act_engine.process_event(p_touch)
+        act_engine.process_event(p_touch)
+        p_touch_tjl2 = ExactPricePrint("OBS_02_TJL2", 1.2025, PRICE_BASIS, datetime(2026, 10, 11, 7, 45, tzinfo=timezone.utc), DEFAULT_DOMAIN, 1004)
+        snap_touched = act_engine.process_event(p_touch_tjl2)
         mem_key_tjl1 = format_member_key("SET_1", "TJL1")
+        mem_key_tjl2 = format_member_key("SET_1", "TJL2_A_PLUS")
         act_rec_tjl1 = snap_touched.active_activations[mem_key_tjl1]
+        act_rec_tjl2 = snap_touched.active_activations[mem_key_tjl2]
         assert act_rec_tjl1.state == ActivationState.PENDING_ACTIVATION
+        assert act_rec_tjl2.state == ActivationState.PENDING_ACTIVATION
 
         # Boundary 5: Confirmation detector completes at 10:00 UTC
         fix_choch = load_choch_fixture("choch_bearish_basic_end_to_end")
@@ -235,6 +240,7 @@ class TestSourceCandidateAuthorityBinding:
             "eval_time": datetime(2026, 10, 11, 10, 30, tzinfo=timezone.utc),
             "snap_touched": snap_touched,
             "act_rec_tjl1": act_rec_tjl1,
+            "act_rec_tjl2": act_rec_tjl2,
             "evidence": evidence,
         }
 
@@ -334,9 +340,9 @@ class TestSourceCandidateAuthorityBinding:
                 source_resolution_status=synthetic_source_res,
             )
 
-        # 4D: Expanded interval request
-        expanded_end = eval_time + timedelta(hours=1)
-        with pytest.raises(ValueError, match="expected_interval_end.*cannot exceed evaluation_time|Expanded interval reuse rejected"):
+        # 4D: Expanded interval request that remains valid at evaluation boundary (<= eval_time)
+        expanded_end = eval_time  # 10:30 UTC <= eval_time (10:30 UTC), but > required_interval_end (10:00 UTC)
+        with pytest.raises(ValueError, match="Expanded interval reuse rejected: requested end.*> authority validated end"):
             builder.build_matching_context(
                 authority_result=auth_res,
                 base_members=data["snap_touched"].current_members,
@@ -381,7 +387,7 @@ class TestSourceCandidateAuthorityBinding:
             revision_seq=1,
         )
 
-        # TJL1 has clean, valid UNUSED record
+        # 1. Clean authority control: both TJL1 and TJL2 are in PENDING_ACTIVATION and match cleanly
         usg_tjl1 = ProposedUsageEvidenceRecord(
             record_id="USG_TJL1_CLEAN",
             schema_version="v1",
@@ -392,8 +398,51 @@ class TestSourceCandidateAuthorityBinding:
             available_time=t0,
             provenance_ref="LEDGER_001",
         )
+        usg_tjl2_clean = ProposedUsageEvidenceRecord(
+            record_id="USG_TJL2_CLEAN",
+            schema_version="v1",
+            issuer_id="UPSTREAM_TRADE_LEDGER_OFFLINE",
+            level_id=lvl2,
+            status=UsageEvidenceStatus.UNUSED,
+            established_time=t0,
+            available_time=t0,
+            provenance_ref="LEDGER_002_CLEAN",
+        )
+        auth_clean = builder.validate_and_build(
+            coverage_records=(cov_rec,),
+            usage_records=(usg_tjl1, usg_tjl2_clean),
+            evaluation_time=eval_time,
+            target_feed_id=FEED_ID,
+            target_sequence_domain=DEFAULT_DOMAIN,
+            target_timeframe="H1",
+            target_confirmation_config_id=CONF_CFG,
+            required_interval_start=t0,
+            required_interval_end=t_1000,
+            physical_levels=(lvl1, lvl2),
+        )
+        ctx_clean, _ = builder.build_matching_context(
+            authority_result=auth_clean,
+            base_members=data["snap_touched"].current_members,
+            domain_session_id="SESS_01",
+            revision_id="REV_01",
+            expected_price_basis=PRICE_BASIS,
+            expected_confirmation_config_id=CONF_CFG,
+            matching_sequence_domain=DEFAULT_DOMAIN,
+            evaluation_time=eval_time,
+            expected_timeframe="H1",
+            expected_interval_start=t0,
+            expected_interval_end=t_1000,
+            source_resolution_status=synthetic_source_res,
+            active_activations=data["snap_touched"].active_activations,
+        )
+        res_tjl1_clean = matcher.match(data["act_rec_tjl1"], data["evidence"], ctx_clean)
+        res_tjl2_clean = matcher.match(data["act_rec_tjl2"], data["evidence"], ctx_clean)
+        assert res_tjl1_clean.status == ConfirmationMatchStatus.MATCHED
+        assert res_tjl1_clean.candidate_record is not None
+        assert res_tjl2_clean.status == ConfirmationMatchStatus.MATCHED
+        assert res_tjl2_clean.candidate_record is not None
 
-        # TJL2 has contradictory conflicting assertions under same record ID
+        # 2. Conflicting authority test: keep activation and evidence unchanged, introduce conflicting TJL2 authority
         usg_tjl2_conflict_a = ProposedUsageEvidenceRecord(
             record_id="USG_TJL2_CONFLICT",
             schema_version="v1",
@@ -414,7 +463,6 @@ class TestSourceCandidateAuthorityBinding:
             available_time=t0,
             provenance_ref="LEDGER_002B",
         )
-
         auth_res = builder.validate_and_build(
             coverage_records=(cov_rec,),
             usage_records=(usg_tjl1, usg_tjl2_conflict_a, usg_tjl2_conflict_b),
@@ -472,14 +520,8 @@ class TestSourceCandidateAuthorityBinding:
         assert res_tjl1.candidate_record.entry_reference_price == 1.0850
         assert res_tjl1.candidate_record.provenance_type == EvidenceProvenanceType.DETECTOR_CONFIRMED
 
-        # TJL2 activation rejects fail-closed with zero candidates
-        mem_key_tjl2 = format_member_key("SET_1", "TJL2_A_PLUS")
-        act_rec_tjl2 = data["snap_touched"].active_activations[mem_key_tjl2]
-        res_tjl2 = matcher.match(act_rec_tjl2, data["evidence"], matching_ctx)
+        # TJL2 is decisively rejected solely due to CONTEXT_MISMATCH from conflicting authority
+        res_tjl2 = matcher.match(data["act_rec_tjl2"], data["evidence"], matching_ctx)
         assert res_tjl2.status == ConfirmationMatchStatus.REJECTED
         assert res_tjl2.candidate_record is None
-        assert (
-            ConfirmationRejectionReason.UNKNOWN_USAGE in res_tjl2.rejection_reasons
-            or ConfirmationRejectionReason.CONTEXT_MISMATCH in res_tjl2.rejection_reasons
-            or ConfirmationRejectionReason.PRE_ACTIVATION_CONFIRMATION in res_tjl2.rejection_reasons
-        )
+        assert res_tjl2.rejection_reasons == (ConfirmationRejectionReason.CONTEXT_MISMATCH,)
