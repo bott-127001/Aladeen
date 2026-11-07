@@ -1,4 +1,4 @@
-# Milestone 38 Implementation Proposal: Source-Resolution Authority Architecture & Verification Plan (Revised — HANDOFF-135)
+# Milestone 38 Implementation Proposal: Source-Resolution Authority Architecture & Verification Plan (Revised — HANDOFF-136)
 
 **Status**: Documentation-Only Implementation Proposal (Awaiting Review & Approval Before Implementation)  
 **Accepted Requirements Baseline**: Commit `8ea1ec2fdd8e9b699f4dbbc86d71a10a6e2a3e44` (Milestone 37 / HANDOFF-132)  
@@ -12,13 +12,13 @@
 
 Milestone 37 established the formal requirements, canonical record definitions, scope-isolated identifiers, deterministic serialization rules, and acceptance inventory for upstream source-resolution authority (`docs/requirements/source-resolution-authority.md`).
 
-The objective of Milestone 38 (HANDOFF-135 Revision) is to provide an exact, bounded implementation proposal establishing:
-1. **Concrete Evidence Composition & Observation Binding**: Concrete composition of `CoordinatorSnapshot` and `TJLSnapshot` with observation metadata in an immutable evidence bundle.
-2. **Independent Immutable Evaluation Context**: Definition of `SourceResolutionRequestContext` and strictly immutable, permutation-invariant `SourceResolutionResult`.
-3. **Phase 1 Trust Model & Positive Output Limits**: Explicit synthetic offline contract scope with clear non-claims regarding live upstream resolution derivation.
-4. **Complete Positive Authorization Gate & Deterministic Precedence**: Exhaustive 12-gate prerequisite pipeline and clear distinction between `False` (valid unresolved) and omitted/`UNKNOWN` (invalid/mismatched/stale/conflicting).
-5. **As-Of Evidence Selection & Historical Invariance**: Temporal filtering ensuring future assertions cannot rewrite or demote historical evaluations.
-6. **Reconciled Full 25-Case Inventory**: All 25 resolution contracts (`SRC-RES-01` through `SRC-RES-25`) including member isolation and predecessor supersession, plus supporting structural assertions.
+The objective of Milestone 38 (HANDOFF-136 Revision) is to provide an exact, bounded implementation proposal establishing:
+1. **Concrete Per-Assertion Evidence Composition & As-Of Binding**: Association of each assertion sequence with an immutable `SourceResolutionEvidenceBundle` composing `CoordinatorSnapshot` and `TJLSnapshot` with explicit temporal and boundary provenance.
+2. **Independent Immutable Evaluation Context**: Definition of `SourceResolutionRequestContext` containing multiple historical evidence bundles and strictly immutable, permutation-invariant `SourceResolutionResult`.
+3. **Phase 1 Trust Model & Limits of Positive Output**: Explicit synthetic offline contract scope with clear non-claims regarding live upstream resolution derivation.
+4. **Unambiguous Frozen-vs-Stale Precedence & Positive Gate**: Clear distinction between `False` (valid as-of freeze applicable to required boundary), `True` (all 12 mandatory prerequisites met), and omitted/`UNKNOWN` (stale `RESOLVED`, mismatched, corrupt, or unproven freeze).
+5. **Reconciled As-Of Evidence Selection & Historical Decision Invariance**: Temporal filtering over records and evidence bundles, with historical decision invariance over `status_map` and `omitted_keys`.
+6. **Reconciled Full 25-Case Contract Inventory**: All 25 resolution contracts (`SRC-RES-01` through `SRC-RES-25`) including member isolation and predecessor supersession, plus supporting structural assertions.
 7. **Tightened Phase 1 File Allowlist**: Strict 4-file boundary with zero modification to accepted strategy engines, adapter, or matcher.
 
 ---
@@ -30,12 +30,12 @@ The objective of Milestone 38 (HANDOFF-135 Revision) is to provide an exact, bou
 - **Rationale**: Isolates validation logic outside accepted adapter and matcher code, avoids modifying existing adapter logic, and allows isolated contract testing.
 - **Scope Restriction**: Placement approval only. Production adapter integration, runtime service wiring, and automated derivation remain unapproved and deferred.
 
-### 2.2 Concrete Upstream Evidence Composition (`SourceResolutionEvidenceBundle`)
+### 2.2 Concrete Per-Assertion Evidence Composition (`SourceResolutionEvidenceBundle`)
 Upstream state contracts span distinct engine layers:
 - `CoordinatorSnapshot` (`aladeen.strategy.coordinator`) provides coordinator-level resolution state (`is_unresolved`, `unresolved_diagnostic`).
 - `TJLSnapshot` (`aladeen.strategy.tjl_coordinator`) provides structural member identity, active sets (`current_eligible_set`), transition history (`transition_history`), and `structural_epoch`.
 
-Neither class is modified with new fields. Instead, the offline evaluation framework composes them into an immutable evidence bundle with explicit observation binding:
+Neither class is modified with new fields. Instead, the offline evaluation framework composes them into an immutable evidence bundle bound to a specific assertion sequence with explicit temporal and boundary metadata:
 
 ```python
 from dataclasses import dataclass
@@ -47,14 +47,18 @@ from aladeen.strategy.tjl_coordinator import TJLSnapshot
 
 @dataclass(frozen=True)
 class SourceResolutionEvidenceBundle:
-    """Concrete composition of upstream observations and bound context."""
+    """Concrete composition of upstream observations and bound context for an assertion."""
+    assertion_seq: int                          # Assertion sequence binding this bundle to a specific observation
     coordinator_snapshot: CoordinatorSnapshot   # Coordinator observation (aladeen.strategy.coordinator)
     tjl_snapshot: TJLSnapshot                   # TJL observation (aladeen.strategy.tjl_coordinator)
     observation_feed_id: str                    # Common observation binding
     observation_symbol: str
     observation_timeframe: str
     observation_run_id: str
-    observation_time: datetime
+    observation_time: datetime                  # Timestamp when observation was taken (T_obs)
+    evidence_available_time: datetime           # Timestamp when evidence became available (T_avail_obs)
+    verified_source_boundary: datetime          # Verified-through boundary of this observation
+    attempted_source_boundary: datetime | None  # Boundary attempted during calculation (provenance for freeze)
 ```
 
 #### Observation Binding & Mismatch Rejection:
@@ -99,10 +103,10 @@ class SourceResolutionRequestContext:
     required_source_boundary: datetime
 
     # 3. Authoritative Evidence & Bounds (Mandatory; None strictly prohibited)
-    expected_member_universe: Tuple[str, ...]                  # Expected member keys to evaluate
-    evidence_bundle: SourceResolutionEvidenceBundle            # Concrete composition of upstream observations
-    declared_anchor_payload: bytes                             # Length-prefixed anchor bytes for prefix hash validation
-    trust_config: SourceResolutionTrustConfig                  # Mandatory trust config; None strictly rejected fail-closed
+    expected_member_universe: Tuple[str, ...]                          # Expected member keys to evaluate
+    evidence_bundles: Tuple[SourceResolutionEvidenceBundle, ...]       # Sequence of historical evidence bundles
+    declared_anchor_payload: bytes                                     # Length-prefixed anchor bytes for prefix hash validation
+    trust_config: SourceResolutionTrustConfig                          # Mandatory trust config; None strictly rejected fail-closed
 ```
 
 ### 2.4 Evaluator Interface & Deep Defensive Immutability
@@ -139,31 +143,32 @@ class SourceResolutionEvaluator:
   - A `True` result emitted in `status_map` indicates **validation under declared offline contract assumptions**.
   - It does **not** establish live upstream resolution derivation, live tick certification, or operational multi-candle broker execution authority.
 - **Fail-Closed Missing Trust Binding**:
-  - If `request.trust_config is None` or `request.evidence_bundle is None`, the evaluator strictly rejects fail-closed with diagnostic `TRUST_CONFIGURATION_MISSING` or `EVIDENCE_BUNDLE_MISSING`. All keys in `expected_member_universe` are omitted (`UNKNOWN`). Permissive defaults are strictly forbidden.
+  - If `request.trust_config is None` or `request.evidence_bundles` is empty, the evaluator strictly rejects fail-closed with diagnostic `TRUST_CONFIGURATION_MISSING` or `EVIDENCE_BUNDLE_MISSING`. All keys in `expected_member_universe` are omitted (`UNKNOWN`). Permissive defaults are strictly forbidden.
 
 ---
 
-## 4. Complete Positive Authorization Gate & Deterministic Precedence
+## 4. Positive Authorization Gate & Frozen-vs-Stale Precedence
 
 ### 4.1 Exhaustive 12-Point Positive Authorization Gate
 A member key can **NEVER** emit `True` in `status_map` unless **ALL** 12 of the following mandatory prerequisites are satisfied simultaneously:
 
 1. **Independent Scope Match**:
    `record.data_source == request.expected_data_source`, `record.feed_id == request.expected_feed_id`, `record.run_id == request.expected_run_id`, `record.source_engine_id == request.expected_source_engine_id`, `record.symbol_feed_id == request.expected_symbol_feed_id`, `record.source_timeframe == request.expected_source_timeframe`, `record.source_config_hash == request.expected_source_config_hash`, `record.structural_epoch == request.expected_structural_epoch`.
-2. **Observation Binding Match**: Evidence bundle attributes match request context expectations across symbol, feed, timeframe, run, and epoch.
+2. **Observation Binding Match**: Evidence bundle matching `record.assertion_seq` exists and its attributes match request context expectations across symbol, feed, timeframe, run, and epoch.
 3. **Canonical Anchor Validation**: `request.declared_anchor_payload` strictly equals the canonical anchor recomputed from expected context via `format_transition_anchor_payload(...)`. Arbitrary or mismatched anchor bytes are rejected fail-closed.
 4. **Record Resolution State**: `record.resolution_state == SourceResolutionState.RESOLVED`.
 5. **Known Member Establishment Time**: Active member establishment time is known (`eligibility_available_time is not None`) and occurred on or before verified boundary ($T_{\text{est}} \le T_{\text{verified}}$). Missing establishment time rejects fail-closed (`SRC-RES-14`).
-6. **Active Member Geometry & Level Identity**: Set ID, role, member key, physical level ID, and zone geometry (`lower_price`, `upper_price`) in record strictly agree with the active member in `evidence_bundle.tjl_snapshot.current_eligible_set`.
+6. **Active Member Geometry & Level Identity**: Set ID, role, member key, physical level ID, and zone geometry (`lower_price`, `upper_price`) in record strictly agree with the active member in `bound_bundle.tjl_snapshot.current_eligible_set`.
 7. **Member Isolation & Predecessor Supersession**: Resolution for member A (`TJL1`) strictly isolates from member B (`TJL2`) (`SRC-RES-11`). Superseded member from predecessor set loses `RESOLVED` status upon successor set creation (`SRC-RES-12`).
 8. **Authoritative Engine Resolution State**:
-   `evidence_bundle.coordinator_snapshot.is_unresolved == False` AND `evidence_bundle.tjl_snapshot.is_unresolved == False`.
+   `bound_bundle.coordinator_snapshot.is_unresolved == False` AND `bound_bundle.tjl_snapshot.is_unresolved == False`.
 9. **Temporal Horizons & Declared Schedule Provenance**:
    - `record.evidence_available_time <= request.evaluation_time` ($T_{\text{avail}} \le T_{\text{eval}}$).
+   - `bound_bundle.evidence_available_time <= request.evaluation_time`.
    - `record.verified_source_boundary >= request.required_source_boundary` ($T_{\text{verified}} \ge T_{\text{req}}$).
    - Required boundary retains its declared offline schedule/collection provenance.
 10. **Transition History Prefix Cryptographic Integrity**:
-    The evaluator recomputes the prefix hash chain from the verified canonical anchor across transitions `0..record.transition_prefix_index` from `evidence_bundle.tjl_snapshot.transition_history`. Recomputed hash strictly matches `record.transition_prefix_hash` (`SRC-RES-20`).
+    The evaluator recomputes the prefix hash chain from the verified canonical anchor across transitions `0..record.transition_prefix_index` from `bound_bundle.tjl_snapshot.transition_history`. Recomputed hash strictly matches `record.transition_prefix_hash` (`SRC-RES-20`).
 11. **Single Deterministic Serialization & Formatting Integrity**:
     - `record.record_id` strictly matches `format_source_resolution_record_id(...)` incorporating full 9-component stream scope, `assertion_seq`, and canonical UTC `verified_iso`.
     - Prices must be strictly finite Python `float` values (`math.isfinite(price) == True`), serialized with `repr(price)` (`SRC-RES-25`). Non-finite floats or silent coercion reject fail-closed.
@@ -172,26 +177,44 @@ A member key can **NEVER** emit `True` in `status_map` unless **ALL** 12 of the 
     - No contradictory duplicate payload under the same `record_id` (`CONFLICTING_RECORD_PAYLOAD_IMMUTABILITY`).
     - No causally later `UNRESOLVED_FROZEN` notice within the stream available *as of evaluation time* ($assertion\_seq_{\text{new}} > assertion\_seq_{\text{old}}$).
 
-### 4.2 Deterministic Precedence: `False` vs. Omission (`UNKNOWN`)
-To prevent invalid records from becoming authoritative merely by carrying an unresolved label:
-- **`False` (`UNRESOLVED_FROZEN`)**: Emitted **only** when evidence is valid, matches scope, verified boundary meets or freezes at known point, and is available as-of evaluation time with `is_unresolved == True` or `resolution_state == UNRESOLVED_FROZEN`.
-- **Omission from `status_map` (`UNKNOWN`)**: Emitted for missing records, scope mismatches, observation mismatches, corrupt hashes, non-finite prices, naive timestamps, stale horizons ($T_{\text{verified}} < T_{\text{req}}$), future availability ($T_{\text{avail}} > T_{\text{eval}}$), or unordered conflicting payloads.
+### 4.2 Unambiguous Precedence: `False` vs. Omission (`UNKNOWN`)
+To prevent invalid records from becoming authoritative merely by carrying an unresolved label, the evaluator strictly enforces three mutually exclusive categories:
+
+1. **Stale `RESOLVED` Record $\rightarrow$ Omission (`UNKNOWN`)**:
+   - The record claims `RESOLVED`, but its verified boundary is prior to the required boundary ($T_{\text{verified}} < T_{\text{req}}$).
+   - Because resolution has not been established through the required horizon, it cannot authorize the candidate.
+   - Outcome: **Omitted from `status_map`** with diagnostic `STALE_RESOLUTION_BOUNDARY` (`SRC-RES-13`).
+2. **Valid As-Of `UNRESOLVED_FROZEN` Observation $\rightarrow$ `False`**:
+   - The record and its bound evidence bundle prove an active upstream freeze applicable to the required boundary:
+     * The observation was available on or before evaluation time ($T_{\text{avail}} \le T_{\text{eval}}$ and $T_{\text{avail\_obs}} \le T_{\text{eval}}$).
+     * The freeze occurs at or before the required boundary ($T_{\text{verified}} \le T_{\text{req}}$) with active freeze provenance covering the requirement ($T_{\text{attempted}} \ge T_{\text{req}}$, or freeze occurred while evaluating through the required horizon with `coordinator_snapshot.is_unresolved == True` or `tjl_snapshot.is_unresolved == True`).
+     * Scope, observation binding, and formatting are valid.
+   - Even though $T_{\text{verified}}$ remains frozen at the earlier completed candle, the freeze is causally proven to apply to the evaluation window.
+   - Outcome: **Deterministically maps to `False` in `status_map`** (`SRC-RES-02`, `SRC-RES-18`, `SRC-RES-22`).
+3. **Unresolved Label Without Validated Applicability/Binding $\rightarrow$ Omission (`UNKNOWN`)**:
+   - A record carries `UNRESOLVED_FROZEN`, but lacks a valid as-of bound evidence bundle, fails scope comparisons, has corrupt hashes, naive timestamps, non-finite prices, or an unproven freeze boundary.
+   - Outcome: **Omitted from `status_map`** with appropriate diagnostic. An invalid record NEVER becomes authoritative merely by carrying an `UNRESOLVED_FROZEN` label.
 
 ---
 
-## 5. As-Of Evidence Selection & Historical Invariance
+## 5. As-Of Evidence Selection & Historical Decision Invariance
 
-### 5.1 As-Of Selection Pipeline
-Before sorting, deduplicating, or evaluating causal sequences, the evaluator applies strict as-of temporal filtering:
+### 5.1 As-Of Selection Pipeline (Records & Evidence Bundles)
+Before sorting, deduplicating, or evaluating causal sequences, the evaluator applies strict as-of temporal filtering to both assertion records and evidence bundles:
 $$\text{Eligible Records} = \{ r \in \text{records} \mid r.\text{evidence\_available\_time} \le \text{request}.\text{evaluation\_time} \}$$
+$$\text{Eligible Bundles} = \{ b \in \text{request}.\text{evidence\_bundles} \mid b.\text{evidence\_available\_time} \le \text{request}.\text{evaluation\_time} \}$$
 
-- Records with $r.\text{evidence\_available\_time} > \text{request}.\text{evaluation\_time}$ are categorized as future knowledge. They emit diagnostic `FUTURE_EVIDENCE` and are strictly excluded from affecting resolution or membership decisions as of $T_{\text{eval}}$.
+- Any record with $r.\text{evidence\_available\_time} > \text{request}.\text{evaluation\_time}$ is excluded from the evaluation window as future knowledge. It emits diagnostic `FUTURE_EVIDENCE` and cannot affect resolution or membership decisions as of $T_{\text{eval}}$.
+- Any record whose bound evidence bundle is missing or has $b.\text{evidence\_available\_time} > \text{request}.\text{evaluation\_time}$ cannot be verified as-of $T_{\text{eval}}$ and is omitted (`UNKNOWN`). Missing historical evidence never falls back to a later or latest snapshot.
 
-### 5.2 Historical-Result Invariance
-- If a resolved assertion is available at $T=10$, and an unresolved assertion is available at $T=15$:
-  - Evaluation as-of $T=12$ evaluates **only** the $T=10$ assertion (maps to `True`). The $T=15$ notice does NOT exist as-of $T=12$ and cannot rewrite historical authority.
-  - Evaluation as-of $T=16$ evaluates both assertions; the later assertion at $T=15$ demotes the stream to `False`.
-- **Invariance Invariant**: Adding future assertions ($T_{\text{avail}} > T_{\text{eval}}$) produces byte-identical `status_map`, `diagnostics`, and `omitted_keys` for evaluations at $T_{\text{eval}}$.
+### 5.2 Historical Decision Invariance
+- If a resolved assertion (with bound bundle) is available at $T=10$, and an unresolved assertion (with bound bundle) becomes available at $T=15$:
+  - Evaluation as-of $T=12$ selects **only** the $T=10$ observation (maps to `True`). The $T=15$ notice does NOT exist as-of $T=12$ and cannot rewrite historical authority.
+  - Evaluation as-of $T=16$ selects both observations; the later assertion at $T=15$ demotes the stream to `False`.
+- **Invariance Invariant**:
+  - **Decision Invariance**: Ingesting future records ($T_{\text{avail}} > T_{\text{eval}}$) leaves `status_map` and `omitted_keys` strictly **byte-identical** as-of $T_{\text{eval}}$.
+  - **Diagnostic Reporting**: `diagnostics` deterministically appends diagnostics for the excluded future inputs in sorted order.
+  - **Full Result Invariance**: Repeated evaluation and input permutation under the *same* input collection produce byte-identical `status_map`, `omitted_keys`, and `diagnostics`.
 
 ---
 
@@ -212,7 +235,7 @@ Phase 1 implements and tests all 25 resolution contracts under `tests/test_sourc
 | Case ID | Contract Description | Mandatory Input Condition | Expected Output |
 |---|---|---|---|
 | `SRC-RES-01` | Fully verified positive record | All 12 mandatory prerequisites satisfied | Maps to `True` in `status_map` (under declared offline contract assumptions) |
-| `SRC-RES-02` | Valid unresolved record | Valid record with `UNRESOLVED_FROZEN` | Maps to `False` in `status_map` |
+| `SRC-RES-02` | Valid unresolved record | Valid record with `UNRESOLVED_FROZEN` and freeze provenance | Maps to `False` in `status_map` |
 | `SRC-RES-03` | Missing record | Member in universe, no record supplied | Omitted from `status_map` (`UNKNOWN`) |
 | `SRC-RES-04` | Future authority | $T_{\text{avail}} > T_{\text{eval}}$ | Omitted from `status_map` (`UNKNOWN`), `FUTURE_EVIDENCE` diagnostic |
 | `SRC-RES-05` | Cross-symbol mismatch | `record.symbol_feed_id != expected` | Omitted from `status_map` (`UNKNOWN`), `SCOPE_MISMATCH_SYMBOL` |
@@ -223,7 +246,7 @@ Phase 1 implements and tests all 25 resolution contracts under `tests/test_sourc
 | `SRC-RES-10` | Contradictory duplicate records | Conflicting states at equal sequence | Omitted from `status_map` (`UNKNOWN`), `CONFLICTING_SOURCE_RESOLUTION_AUTHORITY` |
 | `SRC-RES-11` | Member isolation | Resolution for `TJL1` does not authorize `TJL2` | `TJL1` $\rightarrow$ `True`, `TJL2` $\rightarrow$ omitted (`UNKNOWN`) |
 | `SRC-RES-12` | Predecessor set supersession | Member from predecessor set loses resolved status | Predecessor member $\rightarrow$ omitted (`UNKNOWN`) |
-| `SRC-RES-13` | Stale resolution boundary | $T_{\text{verified}} < T_{\text{req}}$ | Omitted from `status_map` (`UNKNOWN`), `STALE_RESOLUTION_BOUNDARY` |
+| `SRC-RES-13` | Stale resolution boundary | $T_{\text{verified}} < T_{\text{req}}$ on `RESOLVED` claim | Omitted from `status_map` (`UNKNOWN`), `STALE_RESOLUTION_BOUNDARY` |
 | `SRC-RES-14` | Unknown establishment time | Member establishment time missing | Omitted from `status_map` (`UNKNOWN`) |
 | `SRC-RES-15` | Cross-feed mismatch | `record.feed_id != expected` | Omitted from `status_map` (`UNKNOWN`), `SCOPE_MISMATCH_FEED` |
 | `SRC-RES-16` | Config hash mismatch | `record.source_config_hash != expected` | Omitted from `status_map` (`UNKNOWN`), `SCOPE_MISMATCH_CONFIG` |
@@ -241,7 +264,7 @@ Phase 1 implements and tests all 25 resolution contracts under `tests/test_sourc
 In addition to the 25 numbered cases, `tests/test_source_resolution_authority.py` will include dedicated supporting assertions:
 - `test_missing_trust_config_fails_closed`: `trust_config=None` omits all keys with `TRUST_CONFIGURATION_MISSING`.
 - `test_evidence_bundle_mismatch_fails_closed`: Snapshot observation mismatch emits `EVIDENCE_OBSERVATION_MISMATCH`.
-- `test_historical_as_of_invariance`: Ingesting future assertions does not alter historical evaluation outputs.
+- `test_historical_decision_invariance`: Ingesting future assertions leaves `status_map` and `omitted_keys` byte-identical, with future diagnostics appended.
 - `test_deep_defensive_immutability`: Mutating returned dictionaries or nested containers raises errors or leaves result unaffected.
 - `test_permutation_invariance`: Permuting input record ordering produces byte-identical `status_map`, `diagnostics`, and `omitted_keys`.
 

@@ -3903,3 +3903,32 @@ Last Updated: 2026-11-07 (Milestone 33 Interleaved Chronological Schedules & Spl
   - Pure offline read-only documentation and specification. Zero MT5 live trading calls, zero order execution, zero account modification.
   - Zero candidate arbitration, zero usage ledger writes, zero final signal publication, zero automated trading, zero runtime preprocessor code.
   - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
+
+## 76. Milestone 38 — Per-Assertion Evidence Bundles, Frozen Precedence & Decision Invariance (HANDOFF-136)
+- **Active Branch**: `feature/confirmation-monitor`
+- **Parent Commit**: `9c2d82cdecdb8ac512125db7067eac911182d4bf` (HANDOFF-135)
+- **Accepted Milestone 37 Requirements Baseline**: `8ea1ec2fdd8e9b699f4dbbc86d71a10a6e2a3e44` (HANDOFF-132)
+- **Accepted Milestone 36 Baseline**: `600925471e1fc56d01ba6621ed86f728d7eb76a0` (HANDOFF-125)
+- **Accepted Milestone 35 Requirements Baseline**: `ef71efdb67e56fb063803e10ba7332d53e112b16` (HANDOFF-119)
+- **Accepted Milestone 34 Requirements Baseline**: `7285a1d16a4413c051c4ecd032a53c49683f1600` (HANDOFF-113)
+- **Requirements Baseline Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d`
+- **Scope**: Implements all 3 corrections directed in Perplexity's review of HANDOFF-135:
+  1. *Per-Assertion Evidence Bundles & As-Of Binding*:
+     - In `docs/requirements/source-resolution-implementation-proposal.md` (§2.2, §2.3), bound each `SourceResolutionEvidenceBundle` directly to `assertion_seq` with `evidence_available_time`, `verified_source_boundary`, and `attempted_source_boundary`.
+     - In `SourceResolutionRequestContext`, updated `evidence_bundles` to a sequence of historical bundles, enforcing as-of eligibility on both records and bundles. Missing as-of evidence produces omission (`UNKNOWN`) without falling back to latest snapshots.
+  2. *Unambiguous Frozen-versus-Stale Precedence*:
+     - In §4.2, explicitly distinguished three mutually exclusive branches:
+       * Stale `RESOLVED` ($T_{	ext{verified}} < T_{	ext{req}}$) $ightarrow$ omitted with `STALE_RESOLUTION_BOUNDARY`.
+       * Valid as-of `UNRESOLVED_FROZEN` proving active freeze applicable to required boundary ($T_{	ext{attempted}} \ge T_{	ext{req}}$ or freeze during required window) $ightarrow$ deterministically maps to `False`.
+       * Unresolved label without validated applicability/binding $ightarrow$ omitted (`UNKNOWN`).
+  3. *Reconciled Historical Decision Invariance*:
+     - In §5.2, resolved the diagnostic contradiction: adding future records ($T_{	ext{avail}} > T_{	ext{eval}}$) leaves `status_map` and `omitted_keys` strictly byte-identical, while diagnostics deterministically appends future exclusion notices in sorted order.
+     - Full result byte-identity preserved under repeated evaluation and input permutation for identical inputs.
+- **Verification Summary**:
+  - Authoritative established offline test suite: **740 / 740 passed** in 22.26s (executed at commit `422db59` / verified at HEAD `9c2d82c`).
+  - Core strategy engine purity: **0 diff** against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`.
+  - Matcher logic purity: **0 diff** against `7285a1d16a4413c051c4ecd032a53c49683f1600`.
+- **Safety Boundary Maintained**:
+  - Pure offline read-only documentation and specification. Zero MT5 live trading calls, zero order execution, zero account modification.
+  - Zero candidate arbitration, zero usage ledger writes, zero final signal publication, zero automated trading, zero runtime preprocessor code.
+  - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
