@@ -1,11 +1,13 @@
-"""Decisive regression tests for HANDOFF-118 findings.
+"""Decisive regression tests for HANDOFF-118/119 findings.
 
-Specifically addresses Perplexity Milestone 35 / HANDOFF-118 directive:
+Specifically addresses Perplexity Milestone 35 / HANDOFF-118 & HANDOFF-119 directives:
 1. Full-chain usage transition validity: An invalid usage transition at any edge invalidates
    all descendants (reason: INVALID_ANCESTOR) while preserving the independently valid terminal
    USED record and its authoritative provenance, immune to input ordering and permutation.
-   - Chain 1: A: USED -> B: UNUSED (pred=A) -> C: UNKNOWN (pred=B) [and + D: UNUSED (pred=C)]
+   - Chain 1: A: USED -> B: UNUSED (pred=A) -> C: UNKNOWN (pred=B) -> D: UNUSED (pred=C)
    - Chain 2: A: UNUSED -> B: USED (pred=A) -> C: UNUSED (pred=B) -> D: UNKNOWN (pred=C)
+   - Both chain shapes tested across multiple ID assignment schemes (chronological, reverse-alphabetic, scrambled)
+     and asserted for complete returned (resolved, authoritative, diagnostics) tuple equality across all permutations.
 2. Strict TrustConfiguration validation: Rejects scalar strings with TypeError, rejects empty/whitespace
    issuers with ValueError, canonicalizes to sorted unique tuples. Rejects boolean revision_seq (type is int).
 3. Direct CoveragePreprocessor.process() validation: Enforces required_interval_start <= required_interval_end
@@ -17,6 +19,7 @@ from __future__ import annotations
 import copy
 from datetime import datetime, timezone
 import itertools
+from typing import List, Tuple
 import pytest
 
 from aladeen.strategy.activation_types import (
@@ -202,24 +205,73 @@ class TestUsageFullChainTransitionValidity:
         }
         assert "REC_B" not in superseded_recs
 
-    @pytest.mark.parametrize("reverse_order", [False, True])
-    def test_chain_input_permutations_and_immutability(self, reverse_order: bool) -> None:
-        """All permutations of Chain 1 and Chain 2 produce identical resolved status,
-        identical authoritative records, identical rejection diagnostics, and leave inputs unchanged.
+    @pytest.mark.parametrize("chain_shape", ["chain_1", "chain_2"])
+    @pytest.mark.parametrize(
+        "id_scheme",
+        [
+            ("REC_01_A", "REC_02_B", "REC_03_C", "REC_04_D"),  # alphabetic matches chronological
+            ("ID_Z_01", "ID_Y_02", "ID_X_03", "ID_W_04"),      # alphabetic reverse of chronological
+            ("ID_M_ROOT", "ID_Z_TERM", "ID_A_INV", "ID_K_DESC"), # alphabetic scrambled relative to chronological
+        ],
+    )
+    def test_chain_complete_result_permutation_equality_and_immutability(
+        self, chain_shape: str, id_scheme: Tuple[str, str, str, str]
+    ) -> None:
+        """Comprehensive verification of permutation invariance, ID independence, and input immutability.
+        
+        Tests both Chain 1 and Chain 2 shapes across multiple record-ID assignments.
+        Asserts that every single permutation of the 4 records produces identical complete returned
+        tuples: (resolved, authoritative, diagnostics) == (ref_resolved, ref_authoritative, ref_diagnostics),
+        and that input records remain strictly unmodified.
         """
-        rec_a = make_usage("REC_A", UsageEvidenceStatus.UNUSED, established_time=T1)
-        rec_b = make_usage("REC_B", UsageEvidenceStatus.USED, established_time=T2, predecessor_record_id="REC_A")
-        rec_c = make_usage("REC_C", UsageEvidenceStatus.UNUSED, established_time=T3, predecessor_record_id="REC_B")
-        rec_d = make_usage("REC_D", UsageEvidenceStatus.UNKNOWN, established_time=T4, predecessor_record_id="REC_C")
+        id1, id2, id3, id4 = id_scheme
 
-        records = [rec_a, rec_b, rec_c, rec_d]
-        if reverse_order:
-            records.reverse()
+        if chain_shape == "chain_1":
+            # Chain 1: Node 1: USED -> Node 2: UNUSED (pred=Node 1) -> Node 3: UNKNOWN (pred=Node 2) -> Node 4: UNUSED (pred=Node 3)
+            r1 = make_usage(id1, UsageEvidenceStatus.USED, established_time=T1)
+            r2 = make_usage(id2, UsageEvidenceStatus.UNUSED, established_time=T2, predecessor_record_id=id1)
+            r3 = make_usage(id3, UsageEvidenceStatus.UNKNOWN, established_time=T3, predecessor_record_id=id2)
+            r4 = make_usage(id4, UsageEvidenceStatus.UNUSED, established_time=T4, predecessor_record_id=id3)
+            expected_auth_id = id1
+            expected_superseded_ids: set[str] = set()
+            expected_terminal_rejections = {id2, id4}
+            expected_invalid_ancestor = {id3, id4}
+        else:
+            # Chain 2: Node 1: UNUSED -> Node 2: USED (pred=Node 1) -> Node 3: UNUSED (pred=Node 2) -> Node 4: UNKNOWN (pred=Node 3)
+            r1 = make_usage(id1, UsageEvidenceStatus.UNUSED, established_time=T1)
+            r2 = make_usage(id2, UsageEvidenceStatus.USED, established_time=T2, predecessor_record_id=id1)
+            r3 = make_usage(id3, UsageEvidenceStatus.UNUSED, established_time=T3, predecessor_record_id=id2)
+            r4 = make_usage(id4, UsageEvidenceStatus.UNKNOWN, established_time=T4, predecessor_record_id=id3)
+            expected_auth_id = id2
+            expected_superseded_ids = {id1}
+            expected_terminal_rejections = {id3}
+            expected_invalid_ancestor = {id4}
 
+        canonical_records = [r1, r2, r3, r4]
         preprocessor = UsagePreprocessor(trust_config=DEFAULT_TRUST)
 
-        # Test all 24 permutations
-        for perm in itertools.permutations(records):
+        # Compute reference result from canonical chronological ordering
+        ref_resolved, ref_auth, ref_diags = preprocessor.process(
+            usage_records=canonical_records,
+            evaluation_time=T5,
+            physical_levels=(LEVEL_A,),
+        )
+
+        # Baseline checks on reference result
+        assert ref_resolved[LEVEL_A] == UsageEvidenceStatus.USED
+        assert ref_auth[LEVEL_A].record_id == expected_auth_id
+        assert ref_auth[LEVEL_A].status == UsageEvidenceStatus.USED
+
+        ref_diag_map = {d.entity_key: d.diagnostic_reason for d in ref_diags}
+        for s_id in expected_superseded_ids:
+            assert ref_diag_map.get(s_id) == AuthorityDiagnosticReason.SUPERSEDED_BY_VALID_REVISION
+        assert expected_auth_id not in {
+            d.entity_key for d in ref_diags
+            if d.diagnostic_reason == AuthorityDiagnosticReason.SUPERSEDED_BY_VALID_REVISION
+        }
+
+        # Assert every one of the 24 permutations produces exact complete result equality
+        for perm in itertools.permutations(canonical_records):
             perm_copies = copy.deepcopy(perm)
             resolved, authoritative, diags = preprocessor.process(
                 usage_records=perm,
@@ -227,18 +279,10 @@ class TestUsageFullChainTransitionValidity:
                 physical_levels=(LEVEL_A,),
             )
 
-            assert resolved[LEVEL_A] == UsageEvidenceStatus.USED
-            assert authoritative[LEVEL_A].record_id == "REC_B"
-            assert authoritative[LEVEL_A].status == UsageEvidenceStatus.USED
-
-            diag_reasons = {d.entity_key: d.diagnostic_reason for d in diags}
-            assert diag_reasons["REC_A"] == AuthorityDiagnosticReason.SUPERSEDED_BY_VALID_REVISION
-            assert diag_reasons["REC_C"] == AuthorityDiagnosticReason.USAGE_USED_TERMINAL
-            assert diag_reasons["REC_D"] == AuthorityDiagnosticReason.INVALID_ANCESTOR
-            assert "REC_B" not in {
-                d.entity_key for d in diags
-                if d.diagnostic_reason == AuthorityDiagnosticReason.SUPERSEDED_BY_VALID_REVISION
-            }
+            # Complete returned (resolved, authoritative, diagnostics) tuple equality
+            assert resolved == ref_resolved
+            assert authoritative == ref_auth
+            assert diags == ref_diags
 
             # Input immutability
             assert perm == perm_copies

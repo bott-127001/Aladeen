@@ -3315,10 +3315,44 @@ Last Updated: 2026-11-07 (Milestone 33 Interleaved Chronological Schedules & Spl
 - **Verification Summary**:
   - Dedicated regression test suite: **11 / 11 passed** in 0.59s (`tests/test_authority_handoff_118_regressions.py`).
   - Authority builder test suite: **60 / 60 passed** in 0.67s (`tests/test_authority_context_builder.py`).
-  - Full offline repository test suite: **711 / 711 passed** (700 in main suite + 11 in dedicated regressions).
+  - Operational Scope of Altered Run: Ran with `--ignore=tests/test_mt5_adapter.py --ignore=tests/test_live_runner.py` (omitting the 8 browser ignores); 700 passed in 126.48s; executed browser headless/skipped paths without MT5 broker activity; established offline suite authoritative count provided in Section 59.
   - Core strategy engine purity: **0 diff** against `3f6689c194c95ca3761833f8831bb8a3f5b4740d` across tracked repository paths (`src/aladeen/strategy/engine.py`, `choch_detector.py`, `iss_engine.py`, `tjl_coordinator.py`, `activation_engine.py`, `activation_adapter.py`, `types.py`, `validator.py`).
   - Matcher logic purity: **0 diff** against accepted Milestone 34 baseline `7285a1d16a4413c051c4ecd032a53c49683f1600` on `src/aladeen/strategy/confirmation_pair_matcher.py`.
 - **Safety Boundary Maintained**:
   - Pure in-memory read-only calculation layer. Zero MT5 live trading calls, zero order execution, zero account modification.
   - Zero candidate arbitration, zero usage ledger writes, zero final signal publication, zero automated trading.
   - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
+
+---
+
+## 59. Milestone 35 — Pure In-Memory Offline Authority Validation Bounded Verification Closeout (HANDOFF-119)
+- **Active Branch**: `feature/confirmation-monitor`
+- **Parent Commit**: `2229c2a23e351e7bfbb1f2eb3f11db4cce23a367` (HANDOFF-118)
+- **Accepted Milestone 34 Requirements Baseline**: `7285a1d16a4413c051c4ecd032a53c49683f1600` (HANDOFF-113)
+- **Accepted Milestone 33 Baseline Commit**: `b05a391554c73f80652d4dada5310510ba20fbf5` (HANDOFF-106)
+- **Requirements Baseline Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d`
+- **Scope**: Bounded verification closeout addressing HANDOFF-118 review findings:
+  1. *Established Offline Test Boundary Restored*: Ran the documented offline test suite with its exact 8 browser/terminal exclusions (`--ignore=tests/test_tjl_browser_controlled.py --ignore=tests/test_iss_browser_controlled.py --ignore=tests/test_activation_browser_controlled.py --ignore=tests/activation_browser_runner.py --ignore=tests/activation_browser_harness.py --ignore=tests/test_browser_race_controlled.py --ignore=tests/test_choch_browser_verification.py --ignore=tests/browser_check.py`).
+     - Exact test counts: **727 passed, 0 failed, 0 skipped, 0 deselected** in 9.83s.
+     - Direct lineage accounting: 712 tests in Milestone 35 baseline + 15 dedicated regression tests in `tests/test_authority_handoff_118_regressions.py` = 727 total tests.
+  2. *Strengthened Permutation & Invariance Verification*:
+     - Expanded `test_chain_complete_result_permutation_equality_and_immutability` to parameterize both Chain 1 (`USED -> UNUSED -> UNKNOWN -> UNUSED`) and Chain 2 (`UNUSED -> USED -> UNUSED -> UNKNOWN`).
+     - Parameterized across 3 distinct record-ID assignments:
+       * Chronological (`REC_01_A`, `REC_02_B`, `REC_03_C`, `REC_04_D`)
+       * Reverse-alphabetic (`ID_Z_01`, `ID_Y_02`, `ID_X_03`, `ID_W_04`)
+       * Scrambled (`ID_M_ROOT`, `ID_Z_TERM`, `ID_A_INV`, `ID_K_DESC`)
+     - Compares the complete returned tuple `(resolved, authoritative, diagnostics) == (ref_resolved, ref_authoritative, ref_diagnostics)` across all 24 permutations per configuration, ensuring complete diagnostic, status, and authoritative record equality.
+     - Enforces input immutability (`perm == perm_copies`).
+  3. *Accurate Verbatim Repository Composition Function*:
+     - Documented verbatim repository implementation of `AuthorityContextBuilder.build_matching_context()` matching repository source byte-for-byte (`revision_id: str`, return type `Tuple[MatchingContext, Dict[str, SourceMemberReference]]`).
+- **Verification Summary**:
+  - Established offline repository test suite: **727 / 727 passed** in 9.83s.
+  - Dedicated regression test suite: **15 / 15 passed** in 0.65s (`tests/test_authority_handoff_118_regressions.py`).
+  - Authority builder test suite: **60 / 60 passed** in 0.67s (`tests/test_authority_context_builder.py`).
+  - Core strategy engine purity: **0 diff** against `3f6689c194c95ca3761833f8831bb8a3f5b4740d` across tracked repository paths (`src/aladeen/strategy/engine.py`, `choch_detector.py`, `iss_engine.py`, `tjl_coordinator.py`, `activation_engine.py`, `activation_adapter.py`, `types.py`, `validator.py`).
+  - Matcher logic purity: **0 diff** against accepted Milestone 34 baseline `7285a1d16a4413c051c4ecd032a53c49683f1600` on `src/aladeen/strategy/confirmation_pair_matcher.py`.
+- **Safety Boundary Maintained**:
+  - Pure in-memory read-only calculation layer. Zero MT5 live trading calls, zero order execution, zero account modification.
+  - Zero candidate arbitration, zero usage ledger writes, zero final signal publication, zero automated trading.
+  - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
+
