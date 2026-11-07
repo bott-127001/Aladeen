@@ -3356,3 +3356,59 @@ Last Updated: 2026-11-07 (Milestone 33 Interleaved Chronological Schedules & Spl
   - Zero candidate arbitration, zero usage ledger writes, zero final signal publication, zero automated trading.
   - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
 
+
+---
+
+## 60. Milestone 36 — Authority-Backed Offline Integration Proof Implementation (HANDOFF-120)
+- **Active Branch**: `feature/confirmation-monitor`
+- **Parent Commit**: `ef71efdb67e56fb063803e10ba7332d53e112b16` (Milestone 35 Accepted Baseline / HANDOFF-119)
+- **Accepted Milestone 34 Requirements Baseline**: `7285a1d16a4413c051c4ecd032a53c49683f1600` (HANDOFF-113)
+- **Accepted Milestone 33 Baseline Commit**: `b05a391554c73f80652d4dada5310510ba20fbf5` (HANDOFF-106)
+- **Requirements Baseline Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d`
+- **Scope**: Bounded, test-first integration proof connecting the accepted pure in-memory authority layer (`AuthorityContextBuilder`, `CoveragePreprocessor`, `UsagePreprocessor`) to the offline source-to-candidate chains. Replaces directly supplied usage/coverage flags in the integration harness with explicit in-memory authority records evaluated at chronological boundaries.
+- **Key Deliverables in HANDOFF-120**:
+  1. *End-to-End Genuine Chain with Authority Resolution (Case 1)*:
+     - `TJLCoordinator` processes daily candles on declared daily timeline to produce genuine D1 level set `SET_1`.
+     - `TJLSynchronizer` synchronizes to `ActivationEngine`.
+     - `ExactPricePrint` inside zone transitions activation to `PENDING_ACTIVATION`.
+     - `MSMChochCoordinator` confirms CHOCH at candle 9 close (10:00 UTC).
+     - Confirming candle envelope and adapted `ConfirmationEvidenceRecord` constructed.
+     - In-memory authority records (`ProposedFeedCoverageRecord`, `ProposedUsageEvidenceRecord`) evaluated through `AuthorityContextBuilder.validate_and_build()` and `build_matching_context()`.
+     - `ConfirmationMatcher.match()` matches activation and evidence with `MATCHED` and exact canonical candidate identity.
+  2. *Missing or Future Authority Produces Zero Candidates (Case 2)*:
+     - Missing coverage -> `INCOMPLETE` -> blocks with `INCOMPLETE_COVERAGE` (0 candidates).
+     - Future coverage (`available_time > eval_time`) -> filtered -> `INCOMPLETE` -> blocks with `INCOMPLETE_COVERAGE` (0 candidates).
+     - Missing usage -> `UNKNOWN` -> blocks with `UNKNOWN_USAGE` / `CONTEXT_MISMATCH` (0 candidates).
+     - Future usage (`available_time > eval_time`) -> filtered -> `UNKNOWN` -> blocks with zero candidates.
+  3. *Point-in-Time Availability Boundary (Case 3)*:
+     - Later-arriving certificate (`available_time = 10:00 UTC`) evaluated at `09:30 UTC` is not available and resolves `INCOMPLETE` (fails closed).
+     - Evaluated at `10:30 UTC` (after availability), resolves `COMPLETE`.
+  4. *Request Binding Compatibility Enforcement (Case 4)*:
+     - Cross-config reuse (`CONF_CFG_DIFFERENT`) raises `ValueError`.
+     - Cross-domain reuse (different run_id) raises `ValueError`.
+     - Timeframe mismatch (`M15` vs `H1`) raises `ValueError`.
+     - Expanded interval request raises `ValueError`.
+  5. *Conflicting Authority Isolated to Affected Entity (Case 5)*:
+     - Contradictory usage records on `TJL2` isolate `TJL2` as `UNKNOWN`, while clean `TJL1` resolves `UNUSED`.
+     - `TJL1` matches cleanly; `TJL2` rejects fail-closed with zero candidates.
+  6. *Replacement and Rearm Physical-Level Usage & Terminal History (Case 6)*:
+     - Level marked `USED` remains permanently `USED`.
+     - Successor attempting reset from `USED` to `UNUSED` is rejected with `USAGE_USED_TERMINAL`.
+     - Activation with terminal `USED` history is preserved and blocks composition if authority resolves `UNUSED`.
+  7. *Deterministic Equality & Input Immutability (Case 7)*:
+     - Repeated evaluations produce identical `AuthorityBuildResult` and identical `ConfirmationMatchResult`.
+     - Strict input immutability verified (`inputs == input_copies`).
+- **Verification Summary**:
+  - Focused integration proof suite: **7 / 7 passed** in 0.66s (`tests/test_source_candidate_authority_integration.py`).
+  - Established offline repository test suite: **734 / 734 passed** in 12.47s (727 from Milestone 35 baseline + 7 new integration tests).
+  - Dedicated regression suite: **15 / 15 passed** in 0.65s (`tests/test_authority_handoff_118_regressions.py`).
+  - Main authority builder suite: **60 / 60 passed** in 0.67s (`tests/test_authority_context_builder.py`).
+  - Core strategy engine purity: **0 diff** against `3f6689c194c95ca3761833f8831bb8a3f5b4740d` across tracked repository paths (`src/aladeen/strategy/engine.py`, `choch_detector.py`, `iss_engine.py`, `tjl_coordinator.py`, `activation_engine.py`, `activation_adapter.py`, `types.py`, `validator.py`).
+  - Matcher logic purity: **0 diff** against accepted Milestone 34 baseline `7285a1d16a4413c051c4ecd032a53c49683f1600` on `src/aladeen/strategy/confirmation_pair_matcher.py`.
+- **Remaining Synthetic Assumptions**:
+  - Source resolution mapping `source_resolution_status={m_k: True}` remains explicit labeled synthetic input.
+  - Price prints and synthetic candle timeline mappings remain explicit synthetic fixture preparation.
+- **Safety Boundary Maintained**:
+  - Pure in-memory read-only calculation layer. Zero MT5 live trading calls, zero order execution, zero account modification.
+  - Zero candidate arbitration, zero usage ledger writes, zero final signal publication, zero automated trading.
+  - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
