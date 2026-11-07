@@ -3280,3 +3280,45 @@ Last Updated: 2026-11-07 (Milestone 33 Interleaved Chronological Schedules & Spl
   - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
 
 
+
+---
+
+## 58. Milestone 35 — Pure In-Memory Offline Authority Validation Implementation (HANDOFF-118)
+- **Active Branch**: `feature/confirmation-monitor`
+- **Parent Commit**: `24312d0105778a5ba5cc2d110ecfcb3ef73a456e` (HANDOFF-117)
+- **Accepted Milestone 34 Requirements Baseline**: `7285a1d16a4413c051c4ecd032a53c49683f1600` (HANDOFF-113)
+- **Accepted Milestone 33 Baseline Commit**: `b05a391554c73f80652d4dada5310510ba20fbf5` (HANDOFF-106)
+- **Requirements Baseline Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d`
+- **Scope**: Pure in-memory offline authority domain types, modularized preprocessors (`CoveragePreprocessor`, `UsagePreprocessor`), pipeline orchestrator and context composer (`AuthorityContextBuilder`), and comprehensive synthetic test suite. Zero live MT5 broker calls, zero filesystem ledger writes, zero database operations, zero network ingestion, zero candidate ranking/arbitration, zero final signal publication.
+- **Key Deliverables in HANDOFF-118 (Resolving Findings 1-3)**:
+  1. *Full-Chain Ancestor Transition Validity & Descendant Invalidation (Finding 1)*:
+     - In `validate_usage_chain()`, the complete ancestor path from root to current candidate `[root, ..., node, ..., rec]` is traversed in topological order.
+     - Every edge and every ancestor transition is validated. If any node attempts an illegal reset from `USED` to `UNUSED`, that node is rejected with `USAGE_USED_TERMINAL`.
+     - Crucially, any downstream node following an invalid transition is rejected with `AuthorityDiagnosticReason.INVALID_ANCESTOR`. Descendants can never validate merely because their own status is non-UNUSED.
+     - Invalid descendants are excluded from `valid_usage_ids`, completely preventing them from entering the supersession loop and retiring prior valid records.
+     - The independently valid terminal `USED` fact in the ancestry is preserved (`valid_used_rec`), ensuring `levels_with_terminal_used` and `authoritative_used_by_level` correctly retain the terminal `USED` record as the authoritative usage record for the level.
+  2. *Strict TrustConfiguration & ProposedFeedCoverageRecord Validation (Finding 2)*:
+     - `TrustConfiguration.__post_init__()` strictly rejects scalar strings/bytes (`isinstance(..., (str, bytes))` raises `TypeError`), preventing silent decomposition into character tuples.
+     - Requires non-empty, non-whitespace string elements (raises `ValueError` on empty/blank or non-string items).
+     - Canonicalizes trust declarations to sorted tuples of unique, stripped strings (`tuple(sorted(set(...)))`), ensuring exact trust declaration equality is consistent across identical configurations.
+     - `ProposedFeedCoverageRecord.__post_init__()` rejects boolean revision sequences (`type(self.revision_seq) is not int or self.revision_seq < 1` raises `ValueError`, stopping `revision_seq=True`).
+  3. *Public Direct-Call Interval Boundary Validation on CoveragePreprocessor (Finding 3)*:
+     - `CoveragePreprocessor.process()` directly validates `required_interval_start <= required_interval_end` (raises `ValueError`) and `required_interval_end <= evaluation_time` (raises `ValueError`), ensuring direct callers outside the orchestrator cannot obtain coverage for an inverted or future interval request.
+  4. *Dedicated Decisive Regression Test Suite (`tests/test_authority_handoff_118_regressions.py`)*:
+     - 11 dedicated regression tests covering:
+       * Chain 1 (`A: USED -> B: UNUSED -> C: UNKNOWN` and extended with `D: UNUSED`).
+       * Chain 2 (`A: UNUSED -> B: USED -> C: UNUSED -> D: UNKNOWN`).
+       * Input permutations and input immutability across all 24 ordering permutations.
+       * `TrustConfiguration` scalar rejection, empty element rejection, and canonical sorting.
+       * `ProposedFeedCoverageRecord` boolean rejection.
+       * Direct public calls to `CoveragePreprocessor.process()` with inverted intervals and future interval ends.
+- **Verification Summary**:
+  - Dedicated regression test suite: **11 / 11 passed** in 0.59s (`tests/test_authority_handoff_118_regressions.py`).
+  - Authority builder test suite: **60 / 60 passed** in 0.67s (`tests/test_authority_context_builder.py`).
+  - Full offline repository test suite: **711 / 711 passed** (700 in main suite + 11 in dedicated regressions).
+  - Core strategy engine purity: **0 diff** against `3f6689c194c95ca3761833f8831bb8a3f5b4740d` across tracked repository paths (`src/aladeen/strategy/engine.py`, `choch_detector.py`, `iss_engine.py`, `tjl_coordinator.py`, `activation_engine.py`, `activation_adapter.py`, `types.py`, `validator.py`).
+  - Matcher logic purity: **0 diff** against accepted Milestone 34 baseline `7285a1d16a4413c051c4ecd032a53c49683f1600` on `src/aladeen/strategy/confirmation_pair_matcher.py`.
+- **Safety Boundary Maintained**:
+  - Pure in-memory read-only calculation layer. Zero MT5 live trading calls, zero order execution, zero account modification.
+  - Zero candidate arbitration, zero usage ledger writes, zero final signal publication, zero automated trading.
+  - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.

@@ -59,14 +59,35 @@ class TrustConfiguration:
     """Explicitly declared trust boundaries for offline authority sources.
 
     Defaults to empty collections: trusted issuers must be explicitly supplied.
-    Defensively converts caller inputs to immutable tuples.
+    Strictly validates issuer strings, rejects scalar strings, and canonicalizes to sorted tuples.
     """
     trusted_usage_issuers: Tuple[str, ...] = ()
     trusted_coverage_issuers: Tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "trusted_usage_issuers", tuple(self.trusted_usage_issuers))
-        object.__setattr__(self, "trusted_coverage_issuers", tuple(self.trusted_coverage_issuers))
+        if isinstance(self.trusted_usage_issuers, (str, bytes)):
+            raise TypeError(
+                f"trusted_usage_issuers must be a collection of strings, got scalar {type(self.trusted_usage_issuers).__name__}"
+            )
+        if isinstance(self.trusted_coverage_issuers, (str, bytes)):
+            raise TypeError(
+                f"trusted_coverage_issuers must be a collection of strings, got scalar {type(self.trusted_coverage_issuers).__name__}"
+            )
+
+        usage_set: Set[str] = set()
+        for iss in self.trusted_usage_issuers:
+            if not isinstance(iss, str) or not iss.strip():
+                raise ValueError(f"trusted_usage_issuers elements must be non-empty strings, got {iss!r}")
+            usage_set.add(iss.strip())
+
+        coverage_set: Set[str] = set()
+        for iss in self.trusted_coverage_issuers:
+            if not isinstance(iss, str) or not iss.strip():
+                raise ValueError(f"trusted_coverage_issuers elements must be non-empty strings, got {iss!r}")
+            coverage_set.add(iss.strip())
+
+        object.__setattr__(self, "trusted_usage_issuers", tuple(sorted(usage_set)))
+        object.__setattr__(self, "trusted_coverage_issuers", tuple(sorted(coverage_set)))
 
 
 @dataclass(frozen=True)
@@ -147,8 +168,8 @@ class ProposedFeedCoverageRecord:
             raise ValueError(f"confirmation_config_id must be non-empty string, got {self.confirmation_config_id!r}")
         if not isinstance(self.status, CoverageStatus):
             raise TypeError(f"status must be CoverageStatus enum, got {type(self.status).__name__}")
-        if not isinstance(self.revision_seq, int) or self.revision_seq < 1:
-            raise ValueError(f"revision_seq must be positive integer >= 1, got {self.revision_seq!r}")
+        if type(self.revision_seq) is not int or self.revision_seq < 1:
+            raise ValueError(f"revision_seq must be positive integer >= 1 (bool not permitted), got {self.revision_seq!r}")
         if self.supersedes_record_id is not None:
             if not isinstance(self.supersedes_record_id, str) or not self.supersedes_record_id.strip():
                 raise ValueError("supersedes_record_id must be non-empty string when provided")

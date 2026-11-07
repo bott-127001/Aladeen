@@ -7,8 +7,8 @@ Scope & Design Boundary:
 - Admissibility check precedes duplicate grouping to prevent poisoning from untrusted records.
 - Conflicting admissible identities fail closed as UNKNOWN on affected levels without restoring predecessor UNUSED.
 - Direct predecessor link validity check precedes fork detection to prevent cross-level fork contamination.
-- Recursive ancestor chain validation back to root.
-- Multi-hop terminal usage preservation (USED fact permanently terminal on StableLevelId).
+- Complete ancestor transition semantics: validates every edge in ancestor chain; invalid ancestor invalidates all descendants.
+- Preserves independently valid terminal USED fact and its audit record across invalid descendant chains.
 - Canonical future diagnostics and idempotent diagnostic deduplication.
 """
 
@@ -176,39 +176,50 @@ class UsagePreprocessor:
 
         def validate_usage_chain(
             rec: ProposedUsageEvidenceRecord,
-        ) -> Tuple[bool, Optional[AuthorityDiagnosticReason], Optional[str], bool]:
+        ) -> Tuple[bool, Optional[AuthorityDiagnosticReason], Optional[str], bool, Optional[ProposedUsageEvidenceRecord]]:
             visited: Set[str] = {rec.record_id}
+            chain: List[ProposedUsageEvidenceRecord] = [rec]
             curr = rec
-            has_used_ancestor = (rec.status == UsageEvidenceStatus.USED)
 
             while curr.predecessor_record_id is not None:
                 p_id = curr.predecessor_record_id
                 if p_id in visited:
-                    return False, AuthorityDiagnosticReason.CYCLIC_PREDECESSOR_LINK, f"Cyclic usage chain involving {p_id}", False
+                    return False, AuthorityDiagnosticReason.CYCLIC_PREDECESSOR_LINK, f"Cyclic usage chain involving {p_id}", False, None
                 visited.add(p_id)
 
                 if p_id in forked_usage_predecessors:
-                    return False, AuthorityDiagnosticReason.AMBIGUOUS_FORK, f"Usage ancestor {p_id} has ambiguous forks", False
+                    return False, AuthorityDiagnosticReason.AMBIGUOUS_FORK, f"Usage ancestor {p_id} has ambiguous forks", False, None
 
                 pred = coalesced_usage.get(p_id)
                 if pred is None:
-                    return False, AuthorityDiagnosticReason.UNKNOWN_PREDECESSOR, f"Usage predecessor {p_id} unknown or unavailable at {eval_time.isoformat()}", False
+                    return False, AuthorityDiagnosticReason.UNKNOWN_PREDECESSOR, f"Usage predecessor {p_id} unknown or unavailable at {eval_time.isoformat()}", False, None
 
                 if pred.level_id != curr.level_id:
-                    return False, AuthorityDiagnosticReason.WRONG_SCOPE_SUPERSEDED, f"Usage level {curr.level_id} mismatches predecessor {pred.level_id}", False
+                    return False, AuthorityDiagnosticReason.WRONG_SCOPE_SUPERSEDED, f"Usage level {curr.level_id} mismatches predecessor {pred.level_id}", False, None
 
                 if curr.established_time < pred.established_time:
-                    return False, AuthorityDiagnosticReason.INVALID_USAGE_TRANSITION, f"Usage established {curr.established_time.isoformat()} < predecessor {pred.established_time.isoformat()}", False
+                    return False, AuthorityDiagnosticReason.INVALID_USAGE_TRANSITION, f"Usage established {curr.established_time.isoformat()} < predecessor {pred.established_time.isoformat()}", False, None
 
-                if pred.status == UsageEvidenceStatus.USED:
-                    has_used_ancestor = True
-
+                chain.append(pred)
                 curr = pred
 
-            if has_used_ancestor and rec.status == UsageEvidenceStatus.UNUSED:
-                return False, AuthorityDiagnosticReason.USAGE_USED_TERMINAL, f"Level {rec.level_id} has USED in ancestry; cannot reset to UNUSED in {rec.record_id}", True
+            # Walk path from root to rec to validate every edge transition semantics
+            path = list(reversed(chain))
+            ancestor_ever_used = False
+            last_valid_used_rec: Optional[ProposedUsageEvidenceRecord] = None
 
-            return True, None, None, has_used_ancestor
+            for i, node in enumerate(path):
+                if ancestor_ever_used and node.status == UsageEvidenceStatus.UNUSED:
+                    if node is rec:
+                        return False, AuthorityDiagnosticReason.USAGE_USED_TERMINAL, f"Level {rec.level_id} has USED in ancestry; cannot reset to UNUSED in {rec.record_id}", True, last_valid_used_rec
+                    else:
+                        return False, AuthorityDiagnosticReason.INVALID_ANCESTOR, f"Ancestor {node.record_id} in chain for {rec.record_id} attempted invalid reset from USED to UNUSED", True, last_valid_used_rec
+
+                if node.status == UsageEvidenceStatus.USED:
+                    ancestor_ever_used = True
+                    last_valid_used_rec = node
+
+            return True, None, None, ancestor_ever_used, last_valid_used_rec
 
         valid_usage_ids: Set[str] = set()
         superseded_usage_ids: Set[str] = set()
@@ -217,14 +228,17 @@ class UsagePreprocessor:
 
         for rid in sorted(coalesced_usage.keys()):
             u = coalesced_usage[rid]
-            is_valid, reason, msg, has_used = validate_usage_chain(u)
-            if has_used and is_valid:
-                levels_with_terminal_used.add(u.level_id)
-                if u.status == UsageEvidenceStatus.USED:
-                    authoritative_used_by_level[u.level_id] = u
+            is_valid, reason, msg, has_used, valid_used_rec = validate_usage_chain(u)
+            if valid_used_rec is not None:
+                levels_with_terminal_used.add(valid_used_rec.level_id)
+                authoritative_used_by_level[valid_used_rec.level_id] = valid_used_rec
 
             if is_valid:
                 valid_usage_ids.add(rid)
+                if has_used:
+                    levels_with_terminal_used.add(u.level_id)
+                    if u.status == UsageEvidenceStatus.USED:
+                        authoritative_used_by_level[u.level_id] = u
             else:
                 if reason == AuthorityDiagnosticReason.AMBIGUOUS_FORK:
                     levels_with_ambiguous_fork.add(u.level_id)

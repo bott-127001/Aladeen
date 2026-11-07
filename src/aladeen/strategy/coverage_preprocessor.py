@@ -49,6 +49,17 @@ class CoveragePreprocessor:
         req_start = validate_and_normalize_timestamp(required_interval_start, "required_interval_start")
         req_end = validate_and_normalize_timestamp(required_interval_end, "required_interval_end")
 
+        if req_start > req_end:
+            raise ValueError(
+                f"required_interval_start ({req_start.isoformat()}) "
+                f"cannot be after required_interval_end ({req_end.isoformat()})"
+            )
+        if req_end > eval_time:
+            raise ValueError(
+                f"required_interval_end ({req_end.isoformat()}) "
+                f"cannot exceed evaluation_time ({eval_time.isoformat()})"
+            )
+
         diagnostics: List[AuthorityDiagnosticEntry] = []
 
         # Step 1: Availability filter with order-invariant grouped future diagnostics
