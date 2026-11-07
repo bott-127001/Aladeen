@@ -3444,3 +3444,42 @@ Last Updated: 2026-11-07 (Milestone 33 Interleaved Chronological Schedules & Spl
   - Zero candidate arbitration, zero usage ledger writes, zero final signal publication, zero automated trading.
   - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
 
+## 62. Milestone 36 — Genuine Replacement Integration, Rearm History Invariance, and Modular Suite Split (HANDOFF-122)
+- **Active Branch**: `feature/confirmation-monitor`
+- **Parent Commit**: `4e6e4c6978b7348c5c4c719a4f93a75ff4542055` (HANDOFF-121)
+- **Accepted Milestone 35 Requirements Baseline**: `ef71efdb67e56fb063803e10ba7332d53e112b16` (HANDOFF-119)
+- **Accepted Milestone 34 Requirements Baseline**: `7285a1d16a4413c051c4ecd032a53c49683f1600` (HANDOFF-113)
+- **Requirements Baseline Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d`
+- **Scope**: Implements all 4 refinements directed by Perplexity in HANDOFF-121 review:
+  1. *Honest Separation of Genuine Replacement vs Synthetic Contract*:
+     - In genuine replacement integration (`test_genuine_replacement_integration`), uses genuine source fixture candles (`tjl_06_pullback_t2_replacement_and_cancellation_intent`), synchronizes SET_1 at candle 9 and SET_2 at candle 16 through `TJLSynchronizer.sync()`, asserting cancellation of SET_1 members and non-revival. Explicitly compares physical level IDs between SET_1 and SET_2 (`lvl1_s1 != lvl1_s2`, `lvl2_s1 != lvl2_s2`) and documents honestly that physical level persistence is unproven on this genuine fixture.
+     - Separately provides an explicitly labeled synthetic contract (`test_synthetic_same_level_replacement_contract`) adhering to the `tjl_07b` specification, demonstrating that if an incoming set shares a physical level ID with an outgoing set, the physical level's `USED` status is retained and any illegal reset to `UNUSED` is rejected.
+  2. *Rearm Terminal Predecessor Equality & Immutability*:
+     - Asserts `snap_rearmed.terminal_activations[-1] == hist_gen1` after retouch.
+     - Asserts `act_engine.get_snapshot().terminal_activations[-1] == hist_gen1` after evaluation.
+     - Asserts repeated matching leaves engine snapshot and match result completely unchanged (`snap_after == snap_before`, `res_repeat == res_rearm`).
+     - Labels schedule honestly as 'lifecycle composition with precomputed detector evidence'.
+  3. *Separate Synthetic Activation-History Consistency*:
+     - Separated synthetic terminal `USED` consistency test (`test_synthetic_activation_terminal_used_consistency_contract`) into a labeled synthetic contract test.
+  4. *Modular Split into Smaller Files (< 710 lines each)*:
+     - Split test suite into 6 retrievable files:
+       * `tests/test_source_candidate_authority_chain.py` (572 lines)
+       * `tests/test_source_candidate_authority_boundaries.py` (702 lines)
+       * `tests/test_source_candidate_authority_binding.py` (485 lines)
+       * `tests/test_source_candidate_authority_rearm.py` (401 lines)
+       * `tests/test_source_candidate_authority_replacement.py` (604 lines)
+       * `tests/test_source_candidate_authority_equality.py` (350 lines)
+- **Verification Summary**:
+  - 6 Focused Integration Modules: **13 / 13 passed** in 0.69s (`pytest tests/test_source_candidate_authority_*.py`).
+  - Established offline repository test suite: **739 / 739 passed** in 10.15s (727 Milestone 35 baseline - 1 baseline boundary + 13 modular tests).
+  - Dedicated regression suite: **15 / 15 passed** in 0.66s (`tests/test_authority_handoff_118_regressions.py`).
+  - Main authority builder suite: **60 / 60 passed** in 0.67s (`tests/test_authority_context_builder.py`).
+  - Core strategy engine purity: **0 diff** against `3f6689c194c95ca3761833f8831bb8a3f5b4740d` across tracked repository paths (`src/aladeen/strategy/engine.py`, `choch_detector.py`, `iss_engine.py`, `tjl_coordinator.py`, `activation_engine.py`, `activation_adapter.py`, `types.py`, `validator.py`).
+  - Matcher logic purity: **0 diff** against accepted Milestone 34 baseline `7285a1d16a4413c051c4ecd032a53c49683f1600` on `src/aladeen/strategy/confirmation_pair_matcher.py`.
+- **Remaining Synthetic Assumptions**:
+  - Source resolution mapping `source_resolution_status={m_k: True}` remains explicit labeled synthetic input.
+  - Price prints and synthetic candle timeline mappings remain explicit synthetic fixture preparation.
+- **Safety Boundary Maintained**:
+  - Pure in-memory read-only calculation layer. Zero MT5 live trading calls, zero order execution, zero account modification.
+  - Zero candidate arbitration, zero usage ledger writes, zero final signal publication, zero automated trading.
+  - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
