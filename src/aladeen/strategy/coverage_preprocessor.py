@@ -5,8 +5,11 @@ Scope & Design Boundary:
 - Pure in-memory validation of feed coverage certification records.
 - Implements Steps 1-5 of the Milestone 34 preprocessing pipeline for coverage.
 - Admissibility check precedes duplicate grouping to prevent poisoning from untrusted/out-of-scope records.
+- Conflicting admissible identities fail closed as UNCERTAIN on the target scope.
+- Link validity check precedes fork detection to prevent invalid links from creating false forks.
 - Recursive ancestor chain validation back to root.
 - Restricts interval uncertainty to intersection with the required interval.
+- Canonical future diagnostics and idempotent diagnostic deduplication.
 """
 
 from __future__ import annotations
@@ -47,23 +50,27 @@ class CoveragePreprocessor:
         req_end = validate_and_normalize_timestamp(required_interval_end, "required_interval_end")
 
         diagnostics: List[AuthorityDiagnosticEntry] = []
-        emitted_future_rids: Set[str] = set()
 
-        # Step 1: Availability filter
+        # Step 1: Availability filter with order-invariant grouped future diagnostics
+        future_by_id: Dict[str, List[ProposedFeedCoverageRecord]] = {}
         visible_coverage: List[ProposedFeedCoverageRecord] = []
+
         for cov in coverage_records:
             if cov.available_time > eval_time:
-                if cov.record_id not in emitted_future_rids:
-                    emitted_future_rids.add(cov.record_id)
-                    diagnostics.append(
-                        AuthorityDiagnosticEntry(
-                            entity_key=cov.record_id,
-                            diagnostic_reason=AuthorityDiagnosticReason.RECORD_NOT_YET_AVAILABLE,
-                            message=f"Coverage record {cov.record_id} available at {cov.available_time.isoformat()} > eval_time {eval_time.isoformat()}",
-                        )
-                    )
+                future_by_id.setdefault(cov.record_id, []).append(cov)
             else:
                 visible_coverage.append(cov)
+
+        for rid in sorted(future_by_id.keys()):
+            group = future_by_id[rid]
+            min_avail = min(c.available_time for c in group)
+            diagnostics.append(
+                AuthorityDiagnosticEntry(
+                    entity_key=rid,
+                    diagnostic_reason=AuthorityDiagnosticReason.RECORD_NOT_YET_AVAILABLE,
+                    message=f"Coverage record {rid} available at {min_avail.isoformat()} > eval_time {eval_time.isoformat()}",
+                )
+            )
 
         # Step 2: Admissibility validation precedes duplicate grouping
         admissible_records: List[ProposedFeedCoverageRecord] = []
@@ -136,10 +143,13 @@ class CoveragePreprocessor:
         for cov in admissible_records:
             coverage_by_id.setdefault(cov.record_id, []).append(cov)
 
+        has_scope_conflicting_identity = False
         coalesced_coverage: Dict[str, ProposedFeedCoverageRecord] = {}
+
         for rid in sorted(coverage_by_id.keys()):
             group = coverage_by_id[rid]
             if any(c != group[0] for c in group[1:]):
+                has_scope_conflicting_identity = True
                 diagnostics.append(
                     AuthorityDiagnosticEntry(
                         entity_key=rid,
@@ -151,10 +161,25 @@ class CoveragePreprocessor:
             coalesced_coverage[rid] = group[0]
 
         # Step 3: Complete Predecessor Chain Validation & Fork Rejection
+        # Finding 3: Validate link validity before adding to claimed_predecessors
         claimed_predecessors: Dict[str, List[ProposedFeedCoverageRecord]] = {}
         for rid, cov in coalesced_coverage.items():
-            if cov.supersedes_record_id:
-                claimed_predecessors.setdefault(cov.supersedes_record_id, []).append(cov)
+            pred_id = cov.supersedes_record_id
+            if pred_id:
+                pred = coalesced_coverage.get(pred_id)
+                if pred is None:
+                    continue
+                if (
+                    cov.feed_id != pred.feed_id
+                    or cov.sequence_domain != pred.sequence_domain
+                    or cov.timeframe != pred.timeframe
+                    or cov.confirmation_config_id != pred.confirmation_config_id
+                    or cov.issuer_id != pred.issuer_id
+                ):
+                    continue
+                if cov.revision_seq <= pred.revision_seq:
+                    continue
+                claimed_predecessors.setdefault(pred_id, []).append(cov)
 
         forked_predecessors: Set[str] = set()
         for pred_id, claimants in claimed_predecessors.items():
@@ -180,7 +205,7 @@ class CoveragePreprocessor:
 
         valid_coverage_ids: Set[str] = set()
         superseded_coverage_ids: Set[str] = set()
-        has_scope_wide_anomaly = bool(forked_predecessors)
+        has_scope_wide_anomaly = bool(forked_predecessors) or has_scope_conflicting_identity
 
         def validate_coverage_chain(
             rec: ProposedFeedCoverageRecord,
@@ -284,7 +309,7 @@ class CoveragePreprocessor:
         resolved_cov_status = CoverageStatus.INCOMPLETE
         authoritative_cov_rec: Optional[ProposedFeedCoverageRecord] = None
 
-        if has_intersecting_conflict or has_relevant_uncertainty:
+        if has_intersecting_conflict or has_relevant_uncertainty or has_scope_conflicting_identity:
             resolved_cov_status = CoverageStatus.UNCERTAIN
         else:
             covering_candidates = [
@@ -305,5 +330,12 @@ class CoveragePreprocessor:
             else:
                 resolved_cov_status = CoverageStatus.INCOMPLETE
 
-        diagnostics.sort(key=lambda d: (d.entity_key, d.diagnostic_reason.value, d.message))
-        return resolved_cov_status, authoritative_cov_rec, tuple(diagnostics)
+        # Idempotent diagnostic deduplication and canonical sorting
+        unique_diags: Dict[Tuple[str, str, str], AuthorityDiagnosticEntry] = {}
+        for d in diagnostics:
+            key = (d.entity_key, d.diagnostic_reason.value, d.message)
+            if key not in unique_diags:
+                unique_diags[key] = d
+        sorted_diags = sorted(unique_diags.values(), key=lambda d: (d.entity_key, d.diagnostic_reason.value, d.message))
+
+        return resolved_cov_status, authoritative_cov_rec, tuple(sorted_diags)

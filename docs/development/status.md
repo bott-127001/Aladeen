@@ -3148,6 +3148,50 @@ Last Updated: 2026-11-07 (Milestone 33 Interleaved Chronological Schedules & Spl
 
 ---
 
+## 57. Milestone 35 — Pure In-Memory Offline Authority Validation Implementation (HANDOFF-117)
+- **Active Branch**: `feature/confirmation-monitor`
+- **Parent Commit**: `44ddccd99e2c7db556431add4c2dbb4a5760ebf4` (HANDOFF-116)
+- **Accepted Milestone 34 Requirements Baseline**: `7285a1d16a4413c051c4ecd032a53c49683f1600` (HANDOFF-113)
+- **Accepted Milestone 33 Baseline Commit**: `b05a391554c73f80652d4dada5310510ba20fbf5` (HANDOFF-106)
+- **Requirements Baseline Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d`
+- **Scope**: Pure in-memory offline authority domain types, modularized preprocessors (`CoveragePreprocessor`, `UsagePreprocessor`), pipeline orchestrator and context composer (`AuthorityContextBuilder`), and comprehensive synthetic test suite. Zero live MT5 broker calls, zero filesystem ledger writes, zero database operations, zero network ingestion, zero candidate ranking/arbitration, zero final signal publication.
+- **Key Deliverables in HANDOFF-117 (Resolving Findings 1-4)**:
+  1. *Mandatory, Non-Bypassable Request Binding in Composition (Finding 1)*:
+     - `expected_timeframe`, `expected_interval_start`, and `expected_interval_end` are mandatory arguments in `build_matching_context()`.
+     - Builder checks:
+       * Exact trust declaration equality (`authority_result.trust_config == self._trust_config`).
+       * Exact configuration binding (`expected_confirmation_config_id == authority_result.target_confirmation_config_id`).
+       * Exact domain and feed binding (`matching_sequence_domain == authority_result.target_sequence_domain` and feed ID match).
+       * Exact evaluation boundary match (`eval_time == authority_result.evaluation_time`).
+       * Mandatory timeframe match (`expected_timeframe == authority_result.target_timeframe`).
+       * Mandatory interval validation (`start <= end`, `end <= eval_time`, containment within bound interval).
+       * Activation confirmation timeframe match (`act.confirmation_timeframe == authority_result.target_timeframe`).
+       * Activation immutable metadata consistency (`level_id`, `symbol`, `source_timeframe`, and terminal `USED` status vs `UNUSED`).
+     - Clear distinction between builder checks and downstream matcher checks documented.
+  2. *Affected-Entity Conflicting Identity Barriers (Finding 2)*:
+     - In usage processing: conflicting admissible identities mark both the conflicting records' levels and their claimed predecessors' levels in `levels_with_conflicting_identity`. Affected levels fail closed as `UNKNOWN` (blocking candidates) with `CONFLICTING_IDENTITY` diagnostic; group removal cannot manufacture clean authority or restore predecessor `UNUSED`. Unrelated levels are preserved.
+     - In coverage processing: conflicting admissible identities set `has_scope_conflicting_identity = True`. Scope fails closed as `CoverageStatus.UNCERTAIN`; group removal cannot restore older `COMPLETE` certificates.
+  3. *Predecessor-Link Validity Preceding Fork Detection (Finding 3)*:
+     - Direct edge `(pred, succ)` is validated for existence, matching physical level (`pred.level_id == succ.level_id`), causal monotonicity (`succ.established_time >= pred.established_time`), and scope/revision monotonicity before joining `claimed_usage_predecessors` or `claimed_predecessors`.
+     - Invalid links (e.g. wrong-level claimant referencing another level's predecessor, or lower revision) are rejected without creating false forks or contaminating valid predecessors.
+  4. *Order-Invariant Future-Record Diagnostics & Idempotent Deduplication (Finding 4)*:
+     - Future-record diagnostics are grouped by `record_id` and canonicalized by minimum timestamp before diagnostic emission, eliminating input-order sensitivity.
+     - All diagnostics across preprocessors and builder are deduplicated via unique identity key `(entity_key, diagnostic_reason.value, message)` and canonically sorted.
+     - Full result equality (`res_perm == res_base`) asserted across all input permutations.
+- **Verification Summary**:
+  - Focused authority test suite: **60 / 60 passed** in 0.74s (`tests/test_authority_context_builder.py`).
+  - Full offline repository test suite: **712 / 712 passed** in 14.42s.
+  - Core strategy engine purity: **0 diff** against `3f6689c194c95ca3761833f8831bb8a3f5b4740d` across tracked repository paths (`src/aladeen/strategy/engine.py`, `choch_detector.py`, `iss_engine.py`, `tjl_coordinator.py`, `activation_engine.py`, `activation_adapter.py`, `types.py`, `validator.py`).
+  - Matcher logic purity: **0 diff** against accepted Milestone 34 baseline `7285a1d16a4413c051c4ecd032a53c49683f1600` on `src/aladeen/strategy/confirmation_pair_matcher.py`.
+- **Safety Boundary Maintained**:
+  - Pure in-memory read-only calculation layer. Zero MT5 live trading calls, zero order execution, zero account modification.
+  - Zero candidate arbitration, zero usage ledger writes, zero final signal publication, zero automated trading.
+  - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
+
+
+
+---
+
 ## 56. Milestone 35 — Pure In-Memory Offline Authority Validation Implementation & Modularization (HANDOFF-116)
 - **Active Branch**: `feature/confirmation-monitor`
 - **Parent Commit**: `b6a409496518465a89e7855c07212c54fa823d31` (HANDOFF-115)
@@ -3191,4 +3235,48 @@ Last Updated: 2026-11-07 (Milestone 33 Interleaved Chronological Schedules & Spl
   - Pure in-memory read-only calculation layer. Zero MT5 live trading calls, zero order execution, zero account modification.
   - Zero candidate arbitration, zero usage ledger writes, zero final signal publication, zero automated trading.
   - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
+
+
+---
+
+## 57. Milestone 35 — Pure In-Memory Offline Authority Validation Implementation (HANDOFF-117)
+- **Active Branch**: `feature/confirmation-monitor`
+- **Parent Commit**: `44ddccd99e2c7db556431add4c2dbb4a5760ebf4` (HANDOFF-116)
+- **Accepted Milestone 34 Requirements Baseline**: `7285a1d16a4413c051c4ecd032a53c49683f1600` (HANDOFF-113)
+- **Accepted Milestone 33 Baseline Commit**: `b05a391554c73f80652d4dada5310510ba20fbf5` (HANDOFF-106)
+- **Requirements Baseline Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d`
+- **Scope**: Pure in-memory offline authority domain types, modularized preprocessors (`CoveragePreprocessor`, `UsagePreprocessor`), pipeline orchestrator and context composer (`AuthorityContextBuilder`), and comprehensive synthetic test suite. Zero live MT5 broker calls, zero filesystem ledger writes, zero database operations, zero network ingestion, zero candidate ranking/arbitration, zero final signal publication.
+- **Key Deliverables in HANDOFF-117 (Resolving Findings 1-4)**:
+  1. *Mandatory, Non-Bypassable Request Binding in Composition (Finding 1)*:
+     - `expected_timeframe`, `expected_interval_start`, and `expected_interval_end` are mandatory arguments in `build_matching_context()`.
+     - Builder checks:
+       * Exact trust declaration equality (`authority_result.trust_config == self._trust_config`).
+       * Exact configuration binding (`expected_confirmation_config_id == authority_result.target_confirmation_config_id`).
+       * Exact domain and feed binding (`matching_sequence_domain == authority_result.target_sequence_domain` and feed ID match).
+       * Exact evaluation boundary match (`eval_time == authority_result.evaluation_time`).
+       * Mandatory timeframe match (`expected_timeframe == authority_result.target_timeframe`).
+       * Mandatory interval validation (`start <= end`, `end <= eval_time`, containment within bound interval).
+       * Activation confirmation timeframe match (`act.confirmation_timeframe == authority_result.target_timeframe`).
+       * Activation immutable metadata consistency (`level_id`, `symbol`, `source_timeframe`, and terminal `USED` status vs `UNUSED`).
+     - Clear distinction between builder checks and downstream matcher checks documented.
+  2. *Affected-Entity Conflicting Identity Barriers (Finding 2)*:
+     - In usage processing: conflicting admissible identities mark both the conflicting records' levels and their claimed predecessors' levels in `levels_with_conflicting_identity`. Affected levels fail closed as `UNKNOWN` (blocking candidates) with `CONFLICTING_IDENTITY` diagnostic; group removal cannot manufacture clean authority or restore predecessor `UNUSED`. Unrelated levels are preserved.
+     - In coverage processing: conflicting admissible identities set `has_scope_conflicting_identity = True`. Scope fails closed as `CoverageStatus.UNCERTAIN`; group removal cannot restore older `COMPLETE` certificates.
+  3. *Predecessor-Link Validity Preceding Fork Detection (Finding 3)*:
+     - Direct edge `(pred, succ)` is validated for existence, matching physical level (`pred.level_id == succ.level_id`), causal monotonicity (`succ.established_time >= pred.established_time`), and scope/revision monotonicity before joining `claimed_usage_predecessors` or `claimed_predecessors`.
+     - Invalid links (e.g. wrong-level claimant referencing another level's predecessor, or lower revision) are rejected without creating false forks or contaminating valid predecessors.
+  4. *Order-Invariant Future-Record Diagnostics & Idempotent Deduplication (Finding 4)*:
+     - Future-record diagnostics are grouped by `record_id` and canonicalized by minimum timestamp before diagnostic emission, eliminating input-order sensitivity.
+     - All diagnostics across preprocessors and builder are deduplicated via unique identity key `(entity_key, diagnostic_reason.value, message)` and canonically sorted.
+     - Full result equality (`res_perm == res_base`) asserted across all input permutations.
+- **Verification Summary**:
+  - Focused authority test suite: **60 / 60 passed** in 0.74s (`tests/test_authority_context_builder.py`).
+  - Full offline repository test suite: **712 / 712 passed** in 14.42s.
+  - Core strategy engine purity: **0 diff** against `3f6689c194c95ca3761833f8831bb8a3f5b4740d` across tracked repository paths (`src/aladeen/strategy/engine.py`, `choch_detector.py`, `iss_engine.py`, `tjl_coordinator.py`, `activation_engine.py`, `activation_adapter.py`, `types.py`, `validator.py`).
+  - Matcher logic purity: **0 diff** against accepted Milestone 34 baseline `7285a1d16a4413c051c4ecd032a53c49683f1600` on `src/aladeen/strategy/confirmation_pair_matcher.py`.
+- **Safety Boundary Maintained**:
+  - Pure in-memory read-only calculation layer. Zero MT5 live trading calls, zero order execution, zero account modification.
+  - Zero candidate arbitration, zero usage ledger writes, zero final signal publication, zero automated trading.
+  - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
+
 

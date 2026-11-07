@@ -4,9 +4,14 @@ Scope & Design Boundary:
 -------------------------
 - Pure in-memory orchestration of CoveragePreprocessor and UsagePreprocessor.
 - Strictly binds AuthorityBuildResult to validated request metadata.
-- Composition requires exact compatible binding; rejects cross-config, cross-domain,
-  earlier-time, or expanded-interval context reuse.
-- Rejects any silent repair or contradiction of immutable activation metadata.
+- Composition requires complete, mandatory request binding:
+  * Exact trust declaration matching (authority_result.trust_config == builder._trust_config).
+  * Exact feed and sequence domain binding.
+  * Exact confirmation timeframe and configuration binding.
+  * Exact evaluation boundary matching.
+  * Mandatory required interval matching with validity checks.
+- Rejects cross-config, cross-domain, earlier/mismatched time, or expanded-interval reuse.
+- Rejects any disagreement with immutable activation metadata (timeframe, geometry, terminal usage).
 - Zero database writes, zero filesystem IO, zero live broker interaction.
 """
 
@@ -99,9 +104,14 @@ class AuthorityContextBuilder:
             physical_levels=physical_levels,
         )
 
-        # Combine all diagnostics deterministically
-        combined_diagnostics = list(cov_diagnostics) + list(usage_diagnostics)
-        combined_diagnostics.sort(key=lambda d: (d.entity_key, d.diagnostic_reason.value, d.message))
+        # Combine all diagnostics deterministically without duplicates
+        combined_raw = list(cov_diagnostics) + list(usage_diagnostics)
+        unique_diags: Dict[Tuple[str, str, str], AuthorityDiagnosticEntry] = {}
+        for d in combined_raw:
+            key = (d.entity_key, d.diagnostic_reason.value, d.message)
+            if key not in unique_diags:
+                unique_diags[key] = d
+        sorted_diags = sorted(unique_diags.values(), key=lambda d: (d.entity_key, d.diagnostic_reason.value, d.message))
 
         return AuthorityBuildResult(
             evaluation_time=eval_time,
@@ -114,7 +124,7 @@ class AuthorityContextBuilder:
             trust_config=self._trust_config,
             resolved_coverage_status=cov_status,
             resolved_usage_statuses=resolved_usage,
-            diagnostics=tuple(combined_diagnostics),
+            diagnostics=tuple(sorted_diags),
             authoritative_coverage_record=auth_cov_rec,
             authoritative_usage_records=auth_usage_map,
         )
@@ -129,21 +139,33 @@ class AuthorityContextBuilder:
         expected_confirmation_config_id: str,
         matching_sequence_domain: SequenceDomain,
         evaluation_time: datetime,
+        expected_timeframe: str,
+        expected_interval_start: datetime,
+        expected_interval_end: datetime,
         source_resolution_status: Optional[Mapping[str, bool]] = None,
-        expected_timeframe: Optional[str] = None,
-        expected_interval_start: Optional[datetime] = None,
-        expected_interval_end: Optional[datetime] = None,
         active_activations: Optional[Mapping[str, ActivationRecord]] = None,
     ) -> Tuple[MatchingContext, Dict[str, SourceMemberReference]]:
         """Map resolved authority into accepted MatchingContext and updated member references.
 
-        Strictly enforces request binding compatibility between caller context and AuthorityBuildResult.
-        Rejects cross-config, cross-domain, earlier/mismatched time, or expanded-interval reuse.
-        Rejects any disagreement with immutable activation metadata.
+        Enforces mandatory request binding compatibility between caller context and AuthorityBuildResult:
+        - Exact trust configuration equality (authority_result.trust_config == self._trust_config).
+        - Exact confirmation configuration and sequence domain match.
+        - Exact feed ID match.
+        - Exact evaluation boundary match.
+        - Mandatory confirmation timeframe match.
+        - Mandatory required interval validation and containment check.
+        - Rejects any disagreement with immutable activation metadata.
         """
         eval_time = validate_and_normalize_timestamp(evaluation_time, "evaluation_time")
 
-        # Strict Request Binding Validation
+        # 1. Exact Trust Declaration Check
+        if authority_result.trust_config != self._trust_config:
+            raise ValueError(
+                f"Cross-trust reuse rejected: authority result trust_config ({authority_result.trust_config}) "
+                f"!= builder trust_config ({self._trust_config})"
+            )
+
+        # 2. Strict Request Binding Validation: Config, Domain, Feed, Boundary
         if expected_confirmation_config_id != authority_result.target_confirmation_config_id:
             raise ValueError(
                 f"Cross-config reuse rejected: context config {expected_confirmation_config_id!r} "
@@ -168,29 +190,40 @@ class AuthorityContextBuilder:
                 f"!= authority bound time {authority_result.evaluation_time.isoformat()}"
             )
 
-        if expected_timeframe is not None and expected_timeframe != authority_result.target_timeframe:
+        # 3. Mandatory Timeframe Binding
+        if not isinstance(expected_timeframe, str) or not expected_timeframe.strip():
+            raise ValueError(f"expected_timeframe must be non-empty string, got {expected_timeframe!r}")
+        if expected_timeframe != authority_result.target_timeframe:
             raise ValueError(
-                f"Timeframe mismatch: expected {expected_timeframe!r} "
+                f"Timeframe mismatch: context expected {expected_timeframe!r} "
                 f"!= authority bound timeframe {authority_result.target_timeframe!r}"
             )
 
-        if expected_interval_start is not None:
-            norm_exp_start = validate_and_normalize_timestamp(expected_interval_start, "expected_interval_start")
-            if norm_exp_start < authority_result.required_interval_start:
-                raise ValueError(
-                    f"Expanded interval reuse rejected: requested start {norm_exp_start.isoformat()} "
-                    f"< authority validated start {authority_result.required_interval_start.isoformat()}"
-                )
+        # 4. Mandatory Required Interval Validation
+        norm_exp_start = validate_and_normalize_timestamp(expected_interval_start, "expected_interval_start")
+        norm_exp_end = validate_and_normalize_timestamp(expected_interval_end, "expected_interval_end")
+        if norm_exp_start > norm_exp_end:
+            raise ValueError(
+                f"expected_interval_start ({norm_exp_start.isoformat()}) "
+                f"cannot be after expected_interval_end ({norm_exp_end.isoformat()})"
+            )
+        if norm_exp_end > eval_time:
+            raise ValueError(
+                f"expected_interval_end ({norm_exp_end.isoformat()}) "
+                f"cannot exceed evaluation_time ({eval_time.isoformat()})"
+            )
+        if norm_exp_start < authority_result.required_interval_start:
+            raise ValueError(
+                f"Expanded interval reuse rejected: requested start {norm_exp_start.isoformat()} "
+                f"< authority validated start {authority_result.required_interval_start.isoformat()}"
+            )
+        if norm_exp_end > authority_result.required_interval_end:
+            raise ValueError(
+                f"Expanded interval reuse rejected: requested end {norm_exp_end.isoformat()} "
+                f"> authority validated end {authority_result.required_interval_end.isoformat()}"
+            )
 
-        if expected_interval_end is not None:
-            norm_exp_end = validate_and_normalize_timestamp(expected_interval_end, "expected_interval_end")
-            if norm_exp_end > authority_result.required_interval_end:
-                raise ValueError(
-                    f"Expanded interval reuse rejected: requested end {norm_exp_end.isoformat()} "
-                    f"> authority validated end {authority_result.required_interval_end.isoformat()}"
-                )
-
-        # Update member usage evidence status based on resolved physical level usage
+        # 5. Update member usage evidence status based on resolved physical level usage
         updated_members: Dict[str, SourceMemberReference] = {}
         for m_k, mem in base_members.items():
             lvl = mem.level_id
@@ -212,9 +245,14 @@ class AuthorityContextBuilder:
             )
             updated_members[m_k] = updated_mem
 
-        # Immutable activation metadata consistency check (blocks rather than silently repairing)
+        # 6. Immutable activation metadata consistency check (blocks rather than silently repairing)
         if active_activations is not None:
             for act_k, act in active_activations.items():
+                if act.confirmation_timeframe != authority_result.target_timeframe:
+                    raise ValueError(
+                        f"Activation {act.activation_id} confirmation_timeframe ({act.confirmation_timeframe!r}) "
+                        f"mismatches authority bound timeframe ({authority_result.target_timeframe!r})"
+                    )
                 mem_k = act.member_key
                 mem = updated_members.get(mem_k)
                 if mem is not None:
@@ -227,14 +265,13 @@ class AuthorityContextBuilder:
                         raise ValueError(
                             f"Activation {act.activation_id} symbol/timeframe contradicts registered member"
                         )
-                    # If an activation already had immutable terminal USED status, authority cannot contradict it to UNUSED
                     if act.usage_evidence_status == UsageEvidenceStatus.USED and mem.usage_evidence_status == UsageEvidenceStatus.UNUSED:
                         raise ValueError(
                             f"Activation {act.activation_id} has immutable terminal USED status; "
                             f"authority resolution UNUSED contradicts immutable activation history"
                         )
 
-        # Source resolution mapping: do not manufacture a True mapping
+        # 7. Source resolution mapping: do not manufacture a True mapping
         src_res: Dict[str, bool] = {}
         if source_resolution_status is not None:
             src_res = dict(source_resolution_status)

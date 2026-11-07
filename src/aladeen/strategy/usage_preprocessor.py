@@ -5,9 +5,11 @@ Scope & Design Boundary:
 - Pure in-memory validation of physical-level usage evidence records.
 - Implements Steps 1-3 of the Milestone 34 preprocessing pipeline for usage.
 - Admissibility check precedes duplicate grouping to prevent poisoning from untrusted records.
+- Conflicting admissible identities fail closed as UNKNOWN on affected levels without restoring predecessor UNUSED.
+- Direct predecessor link validity check precedes fork detection to prevent cross-level fork contamination.
 - Recursive ancestor chain validation back to root.
 - Multi-hop terminal usage preservation (USED fact permanently terminal on StableLevelId).
-- Ambiguous forks fail closed as UNKNOWN; conflicting branches cannot restore UNUSED.
+- Canonical future diagnostics and idempotent diagnostic deduplication.
 """
 
 from __future__ import annotations
@@ -46,33 +48,41 @@ class UsagePreprocessor:
         eval_time = validate_and_normalize_timestamp(evaluation_time, "evaluation_time")
 
         diagnostics: List[AuthorityDiagnosticEntry] = []
-        emitted_future_rids: Set[str] = set()
 
-        # Step 1: Temporal filter (both available_time and established_time <= eval_time)
+        # Step 1: Temporal filter with order-invariant grouped future diagnostics
+        future_avail_by_id: Dict[str, List[ProposedUsageEvidenceRecord]] = {}
+        future_estab_by_id: Dict[str, List[ProposedUsageEvidenceRecord]] = {}
         visible_usage: List[ProposedUsageEvidenceRecord] = []
+
         for usg in usage_records:
             if usg.available_time > eval_time:
-                if usg.record_id not in emitted_future_rids:
-                    emitted_future_rids.add(usg.record_id)
-                    diagnostics.append(
-                        AuthorityDiagnosticEntry(
-                            entity_key=usg.record_id,
-                            diagnostic_reason=AuthorityDiagnosticReason.RECORD_NOT_YET_AVAILABLE,
-                            message=f"Usage record {usg.record_id} available at {usg.available_time.isoformat()} > eval_time {eval_time.isoformat()}",
-                        )
-                    )
+                future_avail_by_id.setdefault(usg.record_id, []).append(usg)
             elif usg.established_time > eval_time:
-                if usg.record_id not in emitted_future_rids:
-                    emitted_future_rids.add(usg.record_id)
-                    diagnostics.append(
-                        AuthorityDiagnosticEntry(
-                            entity_key=usg.record_id,
-                            diagnostic_reason=AuthorityDiagnosticReason.RECORD_NOT_YET_ESTABLISHED,
-                            message=f"Usage record {usg.record_id} established at {usg.established_time.isoformat()} > eval_time {eval_time.isoformat()}",
-                        )
-                    )
+                future_estab_by_id.setdefault(usg.record_id, []).append(usg)
             else:
                 visible_usage.append(usg)
+
+        for rid in sorted(future_avail_by_id.keys()):
+            group = future_avail_by_id[rid]
+            min_avail = min(u.available_time for u in group)
+            diagnostics.append(
+                AuthorityDiagnosticEntry(
+                    entity_key=rid,
+                    diagnostic_reason=AuthorityDiagnosticReason.RECORD_NOT_YET_AVAILABLE,
+                    message=f"Usage record {rid} available at {min_avail.isoformat()} > eval_time {eval_time.isoformat()}",
+                )
+            )
+
+        for rid in sorted(future_estab_by_id.keys()):
+            group = future_estab_by_id[rid]
+            min_estab = min(u.established_time for u in group)
+            diagnostics.append(
+                AuthorityDiagnosticEntry(
+                    entity_key=rid,
+                    diagnostic_reason=AuthorityDiagnosticReason.RECORD_NOT_YET_ESTABLISHED,
+                    message=f"Usage record {rid} established at {min_estab.isoformat()} > eval_time {eval_time.isoformat()}",
+                )
+            )
 
         # Step 2: Admissibility validation precedes duplicate grouping
         admissible_records: List[ProposedUsageEvidenceRecord] = []
@@ -105,10 +115,19 @@ class UsagePreprocessor:
         for usg in admissible_records:
             usage_by_id.setdefault(usg.record_id, []).append(usg)
 
+        levels_with_conflicting_identity: Set[StableLevelId] = set()
         coalesced_usage: Dict[str, ProposedUsageEvidenceRecord] = {}
+
         for rid in sorted(usage_by_id.keys()):
             group = usage_by_id[rid]
             if any(u != group[0] for u in group[1:]):
+                # Finding 2: Retain affected-entity barrier for conflicting admissible identities
+                for u in group:
+                    levels_with_conflicting_identity.add(u.level_id)
+                    if u.predecessor_record_id:
+                        for cand in admissible_records:
+                            if cand.record_id == u.predecessor_record_id:
+                                levels_with_conflicting_identity.add(cand.level_id)
                 diagnostics.append(
                     AuthorityDiagnosticEntry(
                         entity_key=rid,
@@ -120,10 +139,19 @@ class UsagePreprocessor:
             coalesced_usage[rid] = group[0]
 
         # Step 3: Complete Predecessor Chain Validation, Fork Tracking & Multi-Hop Terminal Usage
+        # Finding 3: Link validity check precedes fork detection to prevent cross-level fork contamination
         claimed_usage_predecessors: Dict[str, List[ProposedUsageEvidenceRecord]] = {}
         for rid, u in coalesced_usage.items():
-            if u.predecessor_record_id:
-                claimed_usage_predecessors.setdefault(u.predecessor_record_id, []).append(u)
+            pred_id = u.predecessor_record_id
+            if pred_id:
+                pred = coalesced_usage.get(pred_id)
+                if pred is None:
+                    continue
+                if pred.level_id != u.level_id:
+                    continue
+                if u.established_time < pred.established_time:
+                    continue
+                claimed_usage_predecessors.setdefault(pred_id, []).append(u)
 
         forked_usage_predecessors: Set[str] = set()
         levels_with_ambiguous_fork: Set[StableLevelId] = set()
@@ -133,7 +161,6 @@ class UsagePreprocessor:
                 first_st = claimants[0].status
                 if any(c.status != first_st for c in claimants[1:]):
                     forked_usage_predecessors.add(pred_id)
-                    # Track that the predecessor's level has an ambiguous contradictory fork
                     pred_rec = coalesced_usage.get(pred_id)
                     if pred_rec:
                         levels_with_ambiguous_fork.add(pred_rec.level_id)
@@ -238,6 +265,7 @@ class UsagePreprocessor:
                 | set(active_usage_by_level.keys())
                 | levels_with_terminal_used
                 | levels_with_ambiguous_fork
+                | levels_with_conflicting_identity
             ),
             key=lambda l: (
                 l.symbol_feed_id,
@@ -249,6 +277,18 @@ class UsagePreprocessor:
 
         for lvl in all_target_levels:
             active_for_lvl = active_usage_by_level.get(lvl, [])
+
+            # Finding 2: Conflicting admissible identity barrier
+            if lvl in levels_with_conflicting_identity:
+                resolved_usage[lvl] = UsageEvidenceStatus.UNKNOWN
+                diagnostics.append(
+                    AuthorityDiagnosticEntry(
+                        entity_key=str(lvl),
+                        diagnostic_reason=AuthorityDiagnosticReason.CONFLICTING_IDENTITY,
+                        message=f"Level {lvl} affected by conflicting admissible usage identities; fails closed as UNKNOWN",
+                    )
+                )
+                continue
 
             # 1. Contradictory unlinked assertions among active records -> UNKNOWN
             if active_for_lvl:
@@ -305,5 +345,12 @@ class UsagePreprocessor:
             )
             authoritative_usage_map[lvl] = active_for_lvl[0]
 
-        diagnostics.sort(key=lambda d: (d.entity_key, d.diagnostic_reason.value, d.message))
-        return resolved_usage, authoritative_usage_map, tuple(diagnostics)
+        # Idempotent diagnostic deduplication and canonical sorting
+        unique_diags: Dict[Tuple[str, str, str], AuthorityDiagnosticEntry] = {}
+        for d in diagnostics:
+            key = (d.entity_key, d.diagnostic_reason.value, d.message)
+            if key not in unique_diags:
+                unique_diags[key] = d
+        sorted_diags = sorted(unique_diags.values(), key=lambda d: (d.entity_key, d.diagnostic_reason.value, d.message))
+
+        return resolved_usage, authoritative_usage_map, tuple(sorted_diags)

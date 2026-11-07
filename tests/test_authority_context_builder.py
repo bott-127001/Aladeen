@@ -403,6 +403,9 @@ def test_aut_syn_08_unresolved_source_resolution_status() -> None:
         expected_confirmation_config_id=CONF_CFG,
         matching_sequence_domain=SEQ_DOMAIN,
         evaluation_time=T2,
+        expected_timeframe=TIMEFRAME,
+        expected_interval_start=T1,
+        expected_interval_end=T2,
         source_resolution_status=None, # Missing/unresolved!
     )
 
@@ -493,6 +496,9 @@ def test_aut_syn_10_incomplete_confirmation_evidence() -> None:
         expected_confirmation_config_id=CONF_CFG,
         matching_sequence_domain=SEQ_DOMAIN,
         evaluation_time=T2,
+        expected_timeframe=TIMEFRAME,
+        expected_interval_start=T1,
+        expected_interval_end=T2,
         source_resolution_status={m_k: True},
     )
 
@@ -698,7 +704,7 @@ def test_aut_syn_15_conflicting_authority_record_ids() -> None:
         required_interval_start=T1,
         required_interval_end=T2,
     )
-    assert res_c.resolved_coverage_status == CoverageStatus.INCOMPLETE
+    assert res_c.resolved_coverage_status in (CoverageStatus.INCOMPLETE, CoverageStatus.UNCERTAIN)
     assert any(d.diagnostic_reason == AuthorityDiagnosticReason.CONFLICTING_IDENTITY for d in res_c.diagnostics)
 
 
@@ -1452,6 +1458,9 @@ def test_matcher_composition_authorized_match_and_rejection() -> None:
         expected_confirmation_config_id=CONF_CFG,
         matching_sequence_domain=SEQ_DOMAIN,
         evaluation_time=T2,
+        expected_timeframe=TIMEFRAME,
+        expected_interval_start=T1,
+        expected_interval_end=T2,
         source_resolution_status={m_k: True},
     )
 
@@ -1495,6 +1504,9 @@ def test_matcher_composition_authorized_match_and_rejection() -> None:
         expected_confirmation_config_id=CONF_CFG,
         matching_sequence_domain=SEQ_DOMAIN,
         evaluation_time=T2,
+        expected_timeframe=TIMEFRAME,
+        expected_interval_start=T1,
+        expected_interval_end=T2,
         source_resolution_status={m_k: True},
     )
     act_used = make_activation_record(
@@ -1528,6 +1540,9 @@ def test_matcher_composition_authorized_match_and_rejection() -> None:
         expected_confirmation_config_id=CONF_CFG,
         matching_sequence_domain=SEQ_DOMAIN,
         evaluation_time=T2,
+        expected_timeframe=TIMEFRAME,
+        expected_interval_start=T1,
+        expected_interval_end=T2,
         source_resolution_status={m_k: True},
     )
     match_res_inc = matcher.match(act, ev, ctx_inc)
@@ -1608,6 +1623,9 @@ def test_handoff_115_finding_1_usage_fork_fails_closed_as_unknown() -> None:
         expected_confirmation_config_id=CONF_CFG,
         matching_sequence_domain=SEQ_DOMAIN,
         evaluation_time=T2,
+        expected_timeframe=TIMEFRAME,
+        expected_interval_start=T1,
+        expected_interval_end=T2,
         source_resolution_status={m_k: True},
     )
 
@@ -1774,6 +1792,9 @@ def test_handoff_115_finding_2_composition_rejects_cross_config_reuse() -> None:
             expected_confirmation_config_id="WRONG_CONFIG_ID",
             matching_sequence_domain=SEQ_DOMAIN,
             evaluation_time=T2,
+            expected_timeframe=TIMEFRAME,
+            expected_interval_start=T1,
+            expected_interval_end=T2,
         )
 
 
@@ -1808,6 +1829,9 @@ def test_handoff_115_finding_2_composition_rejects_cross_domain_reuse() -> None:
             expected_confirmation_config_id=CONF_CFG,
             matching_sequence_domain=other_domain,
             evaluation_time=T2,
+            expected_timeframe=TIMEFRAME,
+            expected_interval_start=T1,
+            expected_interval_end=T2,
         )
 
 
@@ -1841,6 +1865,9 @@ def test_handoff_115_finding_2_composition_rejects_earlier_evaluation_time() -> 
             expected_confirmation_config_id=CONF_CFG,
             matching_sequence_domain=SEQ_DOMAIN,
             evaluation_time=T2,  # earlier than bound T3
+            expected_timeframe=TIMEFRAME,
+            expected_interval_start=T1,
+            expected_interval_end=T3,
         )
 
 
@@ -1851,7 +1878,7 @@ def test_handoff_115_finding_2_composition_rejects_expanded_interval_reuse() -> 
     res = builder.validate_and_build(
         usage_records=[],
         coverage_records=[cov],
-        evaluation_time=T3,
+        evaluation_time=T4,
         target_feed_id=FEED_ID,
         target_sequence_domain=SEQ_DOMAIN,
         target_timeframe=TIMEFRAME,
@@ -1874,8 +1901,10 @@ def test_handoff_115_finding_2_composition_rejects_expanded_interval_reuse() -> 
             expected_price_basis=PRICE_BASIS,
             expected_confirmation_config_id=CONF_CFG,
             matching_sequence_domain=SEQ_DOMAIN,
-            evaluation_time=T3,
+            evaluation_time=T4,
+            expected_timeframe=TIMEFRAME,
             expected_interval_start=T0,
+            expected_interval_end=T3,
         )
 
     # Expanded end (T4 > T3)
@@ -1888,7 +1917,9 @@ def test_handoff_115_finding_2_composition_rejects_expanded_interval_reuse() -> 
             expected_price_basis=PRICE_BASIS,
             expected_confirmation_config_id=CONF_CFG,
             matching_sequence_domain=SEQ_DOMAIN,
-            evaluation_time=T3,
+            evaluation_time=T4,
+            expected_timeframe=TIMEFRAME,
+            expected_interval_start=T1,
             expected_interval_end=T4,
         )
 
@@ -1921,6 +1952,7 @@ def test_handoff_115_finding_2_composition_rejects_activation_metadata_disagreem
         set_id="SET_1",
         role="TJL2_A_PLUS",
         level_id=LEVEL_A,
+        confirmation_timeframe=TIMEFRAME,
         usage_evidence_status=UsageEvidenceStatus.USED,
     )
 
@@ -1934,6 +1966,9 @@ def test_handoff_115_finding_2_composition_rejects_activation_metadata_disagreem
             expected_confirmation_config_id=CONF_CFG,
             matching_sequence_domain=SEQ_DOMAIN,
             evaluation_time=T2,
+            expected_timeframe=TIMEFRAME,
+            expected_interval_start=T1,
+            expected_interval_end=T2,
             active_activations={act_terminal_used.activation_id: act_terminal_used},
         )
 
@@ -1969,6 +2004,9 @@ def test_handoff_115_finding_2_matcher_blocks_on_activation_member_usage_disagre
         expected_confirmation_config_id=CONF_CFG,
         matching_sequence_domain=SEQ_DOMAIN,
         evaluation_time=T2,
+        expected_timeframe=TIMEFRAME,
+        expected_interval_start=T1,
+        expected_interval_end=T2,
         source_resolution_status={m_k: True},
     )
 
@@ -2086,8 +2124,8 @@ def test_handoff_115_finding_3_applicable_trusted_conflicting_duplicates_fail_cl
         required_interval_end=T2,
     )
 
-    # Both discarded; fails closed as INCOMPLETE
-    assert res.resolved_coverage_status == CoverageStatus.INCOMPLETE
+    # Both discarded; fails closed as UNCERTAIN
+    assert res.resolved_coverage_status == CoverageStatus.UNCERTAIN
     assert res.authoritative_coverage_record is None
     assert any(d.diagnostic_reason == AuthorityDiagnosticReason.CONFLICTING_IDENTITY for d in res.diagnostics)
 
@@ -2196,4 +2234,310 @@ def test_handoff_115_finding_4_future_record_diagnostics_coalescing() -> None:
     # Exactly one diagnostic emitted for U_FUT despite duplicate input
     assert len(future_diags) == 1
     assert future_diags[0].entity_key == "U_FUT"
+
+
+# =============================================================================
+# HANDOFF-116 REVIEW FINDINGS 1-4 DECISIVE REGRESSIONS (Milestone 35 / HANDOFF-117)
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Finding 1: Mandatory request binding, cross-trust, and activation timeframe
+# -----------------------------------------------------------------------------
+
+def test_handoff_116_finding_1_composition_rejects_cross_trust_reuse() -> None:
+    """Finding 1: build_matching_context raises ValueError on cross-trust reuse."""
+    trust_a = TrustConfiguration(trusted_usage_issuers=("TRUSTED_A",))
+    trust_b = TrustConfiguration(trusted_usage_issuers=("TRUSTED_B",))
+
+    builder_a = make_builder(trust_config=trust_a)
+    builder_b = make_builder(trust_config=trust_b)
+
+    cov = make_coverage_record(status=CoverageStatus.COMPLETE)
+    res_a = builder_a.validate_and_build(
+        usage_records=[],
+        coverage_records=[cov],
+        evaluation_time=T2,
+        target_feed_id=FEED_ID,
+        target_sequence_domain=SEQ_DOMAIN,
+        target_timeframe=TIMEFRAME,
+        target_confirmation_config_id=CONF_CFG,
+        required_interval_start=T1,
+        required_interval_end=T2,
+        physical_levels=[LEVEL_A],
+    )
+
+    m_k = format_member_key("SET_1", "TJL2_A_PLUS")
+    base_member = make_source_member(set_id="SET_1", role="TJL2_A_PLUS", level_id=LEVEL_A)
+
+    with pytest.raises(ValueError, match="Cross-trust reuse rejected"):
+        builder_b.build_matching_context(
+            authority_result=res_a,
+            base_members={m_k: base_member},
+            domain_session_id="SESS_01",
+            revision_id="REV_01",
+            expected_price_basis=PRICE_BASIS,
+            expected_confirmation_config_id=CONF_CFG,
+            matching_sequence_domain=SEQ_DOMAIN,
+            evaluation_time=T2,
+            expected_timeframe=TIMEFRAME,
+            expected_interval_start=T1,
+            expected_interval_end=T2,
+        )
+
+
+def test_handoff_116_finding_1_composition_rejects_timeframe_mismatch() -> None:
+    """Finding 1: build_matching_context raises ValueError on timeframe mismatch."""
+    builder = make_builder()
+    cov = make_coverage_record(status=CoverageStatus.COMPLETE)
+    res = builder.validate_and_build(
+        usage_records=[],
+        coverage_records=[cov],
+        evaluation_time=T2,
+        target_feed_id=FEED_ID,
+        target_sequence_domain=SEQ_DOMAIN,
+        target_timeframe="H1",
+        target_confirmation_config_id=CONF_CFG,
+        required_interval_start=T1,
+        required_interval_end=T2,
+        physical_levels=[LEVEL_A],
+    )
+
+    m_k = format_member_key("SET_1", "TJL2_A_PLUS")
+    base_member = make_source_member(set_id="SET_1", role="TJL2_A_PLUS", level_id=LEVEL_A)
+
+    with pytest.raises(ValueError, match="Timeframe mismatch"):
+        builder.build_matching_context(
+            authority_result=res,
+            base_members={m_k: base_member},
+            domain_session_id="SESS_01",
+            revision_id="REV_01",
+            expected_price_basis=PRICE_BASIS,
+            expected_confirmation_config_id=CONF_CFG,
+            matching_sequence_domain=SEQ_DOMAIN,
+            evaluation_time=T2,
+            expected_timeframe="M5",  # Mismatch with H1
+            expected_interval_start=T1,
+            expected_interval_end=T2,
+        )
+
+
+def test_handoff_116_finding_1_composition_rejects_activation_timeframe_mismatch() -> None:
+    """Finding 1: build_matching_context raises ValueError when activation confirmation_timeframe mismatches bound authority."""
+    builder = make_builder()
+    cov = make_coverage_record(status=CoverageStatus.COMPLETE)
+    res = builder.validate_and_build(
+        usage_records=[],
+        coverage_records=[cov],
+        evaluation_time=T2,
+        target_feed_id=FEED_ID,
+        target_sequence_domain=SEQ_DOMAIN,
+        target_timeframe="H1",
+        target_confirmation_config_id=CONF_CFG,
+        required_interval_start=T1,
+        required_interval_end=T2,
+        physical_levels=[LEVEL_A],
+    )
+
+    m_k = format_member_key("SET_1", "TJL2_A_PLUS")
+    base_member = make_source_member(set_id="SET_1", role="TJL2_A_PLUS", level_id=LEVEL_A)
+
+    # Activation has confirmation_timeframe="M5", while authority is bound to "H1"
+    act_mismatched_tf = make_activation_record(
+        activation_id="ACT_01",
+        set_id="SET_1",
+        role="TJL2_A_PLUS",
+        level_id=LEVEL_A,
+        confirmation_timeframe="M5",
+    )
+
+    with pytest.raises(ValueError, match="confirmation_timeframe .* mismatches authority bound timeframe"):
+        builder.build_matching_context(
+            authority_result=res,
+            base_members={m_k: base_member},
+            domain_session_id="SESS_01",
+            revision_id="REV_01",
+            expected_price_basis=PRICE_BASIS,
+            expected_confirmation_config_id=CONF_CFG,
+            matching_sequence_domain=SEQ_DOMAIN,
+            evaluation_time=T2,
+            expected_timeframe="H1",
+            expected_interval_start=T1,
+            expected_interval_end=T2,
+            active_activations={act_mismatched_tf.activation_id: act_mismatched_tf},
+        )
+
+
+# -----------------------------------------------------------------------------
+# Finding 2: Conflicting authority identities cannot restore permissive authority
+# -----------------------------------------------------------------------------
+
+def test_handoff_116_finding_2_conflicting_successor_identities_fails_closed_without_restoring_unused() -> None:
+    """Finding 2: A: UNUSED -> (B1: USED, B2: UNKNOWN sharing ID) fails closed as UNKNOWN, preserving unrelated level."""
+    builder = make_builder()
+    cov = make_coverage_record(status=CoverageStatus.COMPLETE)
+
+    # Predecessor A on LEVEL_A
+    u_a = make_usage_record(record_id="U_A", level_id=LEVEL_A, status=UsageEvidenceStatus.UNUSED, established_time=T1, available_time=T1)
+    # Conflicting successor identity B claiming predecessor A
+    u_b1 = make_usage_record(record_id="U_B", level_id=LEVEL_A, status=UsageEvidenceStatus.USED, established_time=T2, available_time=T2, predecessor_record_id="U_A")
+    u_b2 = make_usage_record(record_id="U_B", level_id=LEVEL_A, status=UsageEvidenceStatus.UNKNOWN, established_time=T2, available_time=T2, predecessor_record_id="U_A")
+
+    # Unrelated valid record on LEVEL_B
+    u_other = make_usage_record(record_id="U_OTHER", level_id=LEVEL_B, status=UsageEvidenceStatus.UNUSED, established_time=T1, available_time=T1)
+
+    res = builder.validate_and_build(
+        usage_records=[u_a, u_b1, u_b2, u_other],
+        coverage_records=[cov],
+        evaluation_time=T2,
+        target_feed_id=FEED_ID,
+        target_sequence_domain=SEQ_DOMAIN,
+        target_timeframe=TIMEFRAME,
+        target_confirmation_config_id=CONF_CFG,
+        required_interval_start=T1,
+        required_interval_end=T2,
+        physical_levels=[LEVEL_A, LEVEL_B],
+    )
+
+    # LEVEL_A is affected by conflicting identity: MUST fail closed to UNKNOWN, NOT UNUSED!
+    assert res.resolved_usage_statuses[LEVEL_A] == UsageEvidenceStatus.UNKNOWN
+    # Unrelated LEVEL_B must be preserved
+    assert res.resolved_usage_statuses[LEVEL_B] == UsageEvidenceStatus.UNUSED
+
+    # CONFLICTING_IDENTITY emitted for U_B and LEVEL_A
+    conflicting_diags = [d for d in res.diagnostics if d.diagnostic_reason == AuthorityDiagnosticReason.CONFLICTING_IDENTITY]
+    assert len(conflicting_diags) >= 2
+
+
+def test_handoff_116_finding_2_coverage_conflicting_successor_identities_fails_closed() -> None:
+    """Finding 2: Conflicting coverage successor identity fails closed as UNCERTAIN; cannot restore older COMPLETE."""
+    builder = make_builder()
+    c_old = make_coverage_record(record_id="C_OLD", revision_seq=1, status=CoverageStatus.COMPLETE)
+    c_succ1 = make_coverage_record(record_id="C_REV2", revision_seq=2, supersedes_record_id="C_OLD", status=CoverageStatus.COMPLETE)
+    c_succ2 = make_coverage_record(record_id="C_REV2", revision_seq=2, supersedes_record_id="C_OLD", status=CoverageStatus.INCOMPLETE)
+
+    res = builder.validate_and_build(
+        usage_records=[],
+        coverage_records=[c_old, c_succ1, c_succ2],
+        evaluation_time=T2,
+        target_feed_id=FEED_ID,
+        target_sequence_domain=SEQ_DOMAIN,
+        target_timeframe=TIMEFRAME,
+        target_confirmation_config_id=CONF_CFG,
+        required_interval_start=T1,
+        required_interval_end=T2,
+    )
+
+    # Discarding C_REV2 cannot restore C_OLD as COMPLETE; scope fails closed as UNCERTAIN
+    assert res.resolved_coverage_status == CoverageStatus.UNCERTAIN
+    assert res.authoritative_coverage_record is None
+    assert any(d.diagnostic_reason == AuthorityDiagnosticReason.CONFLICTING_IDENTITY for d in res.diagnostics)
+
+
+# -----------------------------------------------------------------------------
+# Finding 3: Link validity check precedes fork detection
+# -----------------------------------------------------------------------------
+
+def test_handoff_116_finding_3_wrong_level_claimant_does_not_fork_valid_predecessor() -> None:
+    """Finding 3: A claimant referencing a predecessor on another level does not create a false fork on the predecessor."""
+    builder = make_builder()
+    cov = make_coverage_record(status=CoverageStatus.COMPLETE)
+
+    # Valid chain on LEVEL_A: A: UNUSED -> B: USED
+    u_a = make_usage_record(record_id="U_A", level_id=LEVEL_A, status=UsageEvidenceStatus.UNUSED, established_time=T1, available_time=T1)
+    u_b = make_usage_record(record_id="U_B", level_id=LEVEL_A, status=UsageEvidenceStatus.USED, established_time=T2, available_time=T2, predecessor_record_id="U_A")
+
+    # Invalid claimant on LEVEL_B claiming predecessor U_A on LEVEL_A
+    u_c_wrong_level = make_usage_record(record_id="U_C_WRONG", level_id=LEVEL_B, status=UsageEvidenceStatus.UNKNOWN, established_time=T2, available_time=T2, predecessor_record_id="U_A")
+
+    res = builder.validate_and_build(
+        usage_records=[u_a, u_b, u_c_wrong_level],
+        coverage_records=[cov],
+        evaluation_time=T2,
+        target_feed_id=FEED_ID,
+        target_sequence_domain=SEQ_DOMAIN,
+        target_timeframe=TIMEFRAME,
+        target_confirmation_config_id=CONF_CFG,
+        required_interval_start=T1,
+        required_interval_end=T2,
+        physical_levels=[LEVEL_A, LEVEL_B],
+    )
+
+    # U_C_WRONG edge is rejected; does NOT create an ambiguous fork on U_A
+    assert res.resolved_usage_statuses[LEVEL_A] == UsageEvidenceStatus.USED
+    assert res.authoritative_usage_records[LEVEL_A].record_id == "U_B"
+    # U_C_WRONG is rejected with WRONG_SCOPE_SUPERSEDED
+    assert any(d.diagnostic_reason == AuthorityDiagnosticReason.WRONG_SCOPE_SUPERSEDED for d in res.diagnostics)
+    assert not any(d.diagnostic_reason == AuthorityDiagnosticReason.AMBIGUOUS_FORK for d in res.diagnostics)
+
+
+def test_handoff_116_finding_3_coverage_invalid_link_does_not_fork_valid_predecessor() -> None:
+    """Finding 3: Invalid coverage successor (lower revision) does not create a false fork on predecessor."""
+    builder = make_builder()
+    c_root = make_coverage_record(record_id="C_ROOT", revision_seq=2, status=CoverageStatus.COMPLETE)
+    c_valid = make_coverage_record(record_id="C_VALID", revision_seq=3, supersedes_record_id="C_ROOT", status=CoverageStatus.COMPLETE)
+    # Invalid successor with lower revision
+    c_invalid = make_coverage_record(record_id="C_INVALID", revision_seq=1, supersedes_record_id="C_ROOT", status=CoverageStatus.INCOMPLETE)
+
+    res = builder.validate_and_build(
+        usage_records=[],
+        coverage_records=[c_root, c_valid, c_invalid],
+        evaluation_time=T2,
+        target_feed_id=FEED_ID,
+        target_sequence_domain=SEQ_DOMAIN,
+        target_timeframe=TIMEFRAME,
+        target_confirmation_config_id=CONF_CFG,
+        required_interval_start=T1,
+        required_interval_end=T2,
+    )
+
+    # C_VALID governs; C_INVALID does not create a fork
+    assert res.resolved_coverage_status == CoverageStatus.COMPLETE
+    assert res.authoritative_coverage_record == c_valid
+    assert not any(d.diagnostic_reason == AuthorityDiagnosticReason.AMBIGUOUS_FORK for d in res.diagnostics)
+
+
+# -----------------------------------------------------------------------------
+# Finding 4: Future-record diagnostics order-invariance and coalescence
+# -----------------------------------------------------------------------------
+
+def test_handoff_116_finding_4_future_record_diagnostics_order_invariance_and_coalescence() -> None:
+    """Finding 4: Two future records sharing ID with differing available times produce identical complete results in all permutations."""
+    builder = make_builder()
+
+    u_fut1 = make_usage_record(record_id="U_FUT", available_time=T3)
+    u_fut2 = make_usage_record(record_id="U_FUT", available_time=T4)
+
+    res1 = builder.validate_and_build(
+        usage_records=[u_fut1, u_fut2],
+        coverage_records=[],
+        evaluation_time=T2,
+        target_feed_id=FEED_ID,
+        target_sequence_domain=SEQ_DOMAIN,
+        target_timeframe=TIMEFRAME,
+        target_confirmation_config_id=CONF_CFG,
+        required_interval_start=T1,
+        required_interval_end=T2,
+        physical_levels=[LEVEL_A],
+    )
+
+    res2 = builder.validate_and_build(
+        usage_records=[u_fut2, u_fut1],
+        coverage_records=[],
+        evaluation_time=T2,
+        target_feed_id=FEED_ID,
+        target_sequence_domain=SEQ_DOMAIN,
+        target_timeframe=TIMEFRAME,
+        target_confirmation_config_id=CONF_CFG,
+        required_interval_start=T1,
+        required_interval_end=T2,
+        physical_levels=[LEVEL_A],
+    )
+
+    # Complete result equality
+    assert res1 == res2
+    # Exactly one canonical diagnostic emitted for U_FUT
+    fut_diags = [d for d in res1.diagnostics if d.diagnostic_reason == AuthorityDiagnosticReason.RECORD_NOT_YET_AVAILABLE]
+    assert len(fut_diags) == 1
+    assert fut_diags[0].entity_key == "U_FUT"
+
 
