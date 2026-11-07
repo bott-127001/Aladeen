@@ -3696,3 +3696,35 @@ Last Updated: 2026-11-07 (Milestone 33 Interleaved Chronological Schedules & Spl
   - Pure offline read-only documentation and specification. Zero MT5 live trading calls, zero order execution, zero account modification.
   - Zero candidate arbitration, zero usage ledger writes, zero final signal publication, zero automated trading.
   - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
+
+## 69. Milestone 37 — Canonical Record ID, Causal Update Disambiguation & Chained Prefix Verification (HANDOFF-129)
+- **Active Branch**: `feature/confirmation-monitor`
+- **Parent Commit**: `3d8dc0c5e2ed96ead38136789a26850623bbdaa7` (HANDOFF-128)
+- **Accepted Milestone 36 Baseline**: `600925471e1fc56d01ba6621ed86f728d7eb76a0` (HANDOFF-125)
+- **Accepted Milestone 35 Requirements Baseline**: `ef71efdb67e56fb063803e10ba7332d53e112b16` (HANDOFF-119)
+- **Accepted Milestone 34 Requirements Baseline**: `7285a1d16a4413c051c4ecd032a53c49683f1600` (HANDOFF-113)
+- **Requirements Baseline Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d`
+- **Scope**: Implements all 4 corrections directed in Perplexity's review of HANDOFF-128:
+  1. *Unambiguous Length-Prefixed Record ID & Identity Layer Separation*:
+     - In `docs/requirements/source-resolution-authority.md` (§5.1, §5.2), defined canonical length-prefixed formatter: `format_source_resolution_record_id(schema_version, feed_id, run_id, source_engine_id, member_key, verified_iso)` -> `f"SRR[v{v}][{len(f)}:{f}][{len(r)}:{r}][{len(e)}:{e}][{len(m)}:{m}][{len(i)}:{i}]"`.
+     - Explicitly distinguished three identity layers: Entity/History Stream Identity (`feed_id`, `run_id`, `source_engine_id`, `member_key`), Record Identity (`record_id`), and Record Payload Equality.
+     - Conflicting payloads under an identical `record_id` trigger diagnostic `CONFLICTING_RECORD_PAYLOAD_IMMUTABILITY` and fail closed (key omitted).
+  2. *Causal Update Disambiguation & Later Unresolved Notices Without Boundary Advancement*:
+     - Decoupled verified boundary advancement from causal failure notices in §5.4: when an engine verified through candle 9 encounters ambiguity at candle 10, `verified_source_boundary` remains candle 9 close, but a causally later `UNRESOLVED_FROZEN` notice with advancing transition index ($idx_{\text{new}} > idx_{\text{old}}$) or availability immediately demotes the stream to `UNRESOLVED_FROZEN`. The earlier `RESOLVED` record cannot survive for subsequent evaluations.
+     - Defined deterministic causal ordering: transition index takes precedence; at equal timestamps, unresolved/invalidation states take deterministic fail-closed precedence. Rejected naive "latest timestamp wins".
+  3. *Verifiable Chained Transition-Prefix Extension*:
+     - Defined chained cumulative prefix hashing in §5.5: $H_{\text{prefix}}(-1) = \text{"0"*64}$, and $H_{\text{prefix}}(k) = \text{SHA256}(H_{\text{prefix}}(k-1) \,\|\, H(T_k))$.
+     - Updates claiming transition extension must verify by recomputing the cumulative chain over canonical transitions or snapshot history. Recomputation mismatch triggers `ALTERED_TRANSITION_HISTORY_PREFIX` fail-closed rejection.
+     - Explicitly distinguished structural history immutability (integrity) from strategy authority (`is_unresolved == False` and validated config).
+  4. *Decision Matrix Isolation Assumption Note & New Stable Acceptance Cases*:
+     - Added explicit isolation note to §6.4: matrix isolates the named condition with all other gates passing; Gate 2 membership absence emits `MEMBERSHIP_CANCELLED_OR_REPLACED` and sets status to `REJECTED`, but existing precedence rules elevate status to `BLOCKED` if another gate fails.
+     - Added 4 new stable acceptance cases: `SRC-RES-18` (later unresolved demotion without boundary advancement), `SRC-RES-19` (conflicting payload under same record ID), `SRC-RES-20` (prefix extension verification failure), `SRC-RES-21` (equal-availability tie-breaking). Total planned contracts: 21 cases.
+- **Verification Summary**:
+  - Modular integration suite: **14 / 14 passed** in 0.69s (`pytest tests/test_source_candidate_authority_*.py -v`).
+  - Authoritative established offline test suite: **740 / 740 passed** in 39.29s.
+  - Core strategy engine purity: **0 diff** against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`.
+  - Matcher logic purity: **0 diff** against `7285a1d16a4413c051c4ecd032a53c49683f1600`.
+- **Safety Boundary Maintained**:
+  - Pure offline read-only documentation and specification. Zero MT5 live trading calls, zero order execution, zero account modification.
+  - Zero candidate arbitration, zero usage ledger writes, zero final signal publication, zero automated trading.
+  - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.

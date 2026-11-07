@@ -15,11 +15,14 @@ However, upstream source-resolution authority in Milestone 36 remained an explic
 
 The objective of Milestone 37 is to:
 1. **Define Verified-Through vs. Required Resolution Horizons**: Strictly decouple initial member establishment from continuous calculation validity, preventing stale `RESOLVED` records from authorizing later candidates across subsequent ambiguous candles.
-2. **Exhaustively Inspect Actual Upstream State**: Attribute all claims to exact repository paths, classes, and fields, distinguishing existing source fields, derived engineering identities, caller-supplied offline metadata, and missing upstream contracts.
-3. **Reject False-Positive Heuristics**: Establish strict boundaries proving that current-set presence alone, valid zone geometry alone, closed-bar status alone, and cursor equality alone do **not** prove source resolution.
-4. **Define Deterministic Fail-Closed Mappings**: Provide unambiguous rules for conflicting records, stale/superseded members, and unknown-time invalidations aligned with accepted matcher behavior.
-5. **Catalogue Traceable Acceptance Inventory**: Group existing tests with exact pytest node IDs, preserve stable case IDs (`SRC-RES-01` through `SRC-RES-17`), proposed integration cases, blocked live gaps, and negative controls.
-6. **Restore Established Offline Test Boundary**: Formally document the accepted 8-exclusion test command yielding exactly 740 tests.
+2. **Specify Unambiguous Canonical Record Identity**: Establish length-prefixed canonical identifiers distinguishing stream identity, record identity, and payload equality.
+3. **Formalize Causal Updates & Later Unresolved Notices**: Explicitly define how later `UNRESOLVED_FROZEN` notices demote authority even when the last verified boundary does not advance, without relying on naive wall-clock comparisons.
+4. **Define Verifiable Chained Transition-Prefix Extension**: Specify cryptographic cumulative prefix hashing to verify that incoming history strictly extends previous transition history without alteration.
+5. **Exhaustively Inspect Upstream State & Attribute Fields**: Distinguish existing source fields, derived engineering identities, caller-supplied metadata, and missing contracts.
+6. **Reject False-Positive Heuristics**: Establish strict boundaries proving that current-set presence alone, valid zone geometry alone, closed-bar status alone, and cursor equality alone do **not** prove source resolution.
+7. **Define Code-Aligned Matcher Mappings**: Qualify decision matrix precedence with explicit isolation assumptions.
+8. **Catalogue Traceable Acceptance Inventory**: Catalogue existing tests with exact node IDs, stable cases `SRC-RES-01` through `SRC-RES-21`, integration cases, and controls.
+9. **Maintain Established Offline Baseline**: Reconcile authoritative 740-test suite execution.
 
 ---
 
@@ -139,8 +142,8 @@ The resolution-evidence contract specifies four separate temporal parameters:
    - The timestamp when the resolution evidence record was generated and made accessible to downstream consumers ($T_{\text{avail}} \ge T_{\text{verified}}$).
 
 ### 3.3 Horizon Provenance & Declaration
-- In offline execution, `required_source_boundary` cannot be inferred from `last_received_index` or wall-clock.
-- It derives from a declared canonical source schedule (`SourceScheduleDeclaration`) or an explicit offline candle collection with closed bar boundaries.
+- In offline execution, `required_source_boundary` cannot be inferred from `last_received_index` or wall-clock (doing so would recreate the paused-feed false positive).
+- It derives strictly from a declared canonical source schedule (`SourceScheduleDeclaration`) or an explicit offline candle collection with closed bar boundaries.
 
 ### 3.4 Complete Authorization Predicate
 A resolution authority record authorizes candidate evaluation at $T_{\text{eval}}$ **if and only if** all of the following conditions are met:
@@ -184,7 +187,7 @@ To maintain mathematical integrity, four heuristics are formally rejected:
 class ProposedSourceResolutionRecord:
     """Offline authority record establishing verified calculation resolution for a source member."""
     # 1. Identity & Schema Versioning
-    record_id: str                             # Canonical immutable ID: SRR[v1:run:engine:mk:verified_iso]
+    record_id: str                             # Canonical immutable ID: format_source_resolution_record_id(...)
     schema_version: int                        # Schema version integer (e.g. 1)
     source_engine_id: str                      # Existing field: e.g. "ENGINE_EURUSD_D1"
     symbol_feed_id: str                        # Existing field: e.g. "EURUSD"
@@ -210,20 +213,40 @@ class ProposedSourceResolutionRecord:
     # 4. Authority State
     resolution_state: SourceResolutionState    # RESOLVED, UNRESOLVED_FROZEN, or UNKNOWN
 
-    # 5. Provenance & History Integrity
-    transition_prefix_index: int               # Existing field: index in transition_history
-    transition_prefix_hash: str                # Derived engineering identity: hash of prefix transitions
+    # 5. Provenance & Chained History Integrity
+    transition_prefix_index: int               # Existing field: index in transition_history (-1 for initial)
+    transition_prefix_hash: str                # Chained SHA-256 hash of transitions [0..prefix_index]
     provenance_ref: str                        # Derived engineering string or caller-supplied batch ID
     diagnostic_reason: Optional[str] = None    # Descriptive reason if UNRESOLVED_FROZEN or UNKNOWN
 ```
 
-### 5.2 Canonical Member Key Encoding
-In strict accordance with accepted matcher types (`src/aladeen/strategy/activation_types.py:19`), `member_key` uses the accepted length-prefixed canonical format defined by `format_member_key(set_id, role)`:
-```python
-def format_member_key(set_id: str, role: str) -> str:
-    return f"MK[{len(set_id)}:{set_id}][{len(role)}:{role}]"
-```
-Example: For `set_id = "SET1"` and `role = "TJL1"`, the canonical key is `MK[4:SET1][4:TJL1]`.
+### 5.2 Canonical Formatting Functions
+In strict accordance with accepted strategy types:
+1. **Canonical Member Key Encoding (`src/aladeen/strategy/activation_types.py:19`)**:
+   ```python
+   def format_member_key(set_id: str, role: str) -> str:
+       return f"MK[{len(set_id)}:{set_id}][{len(role)}:{role}]"
+   ```
+   Example: `MK[4:SET1][4:TJL1]`.
+2. **Canonical Record Identifier Encoding**:
+   ```python
+   def format_source_resolution_record_id(
+       schema_version: int,
+       feed_id: str,
+       run_id: str,
+       source_engine_id: str,
+       member_key: str,
+       verified_iso: str,
+   ) -> str:
+       return (
+           f"SRR[v{schema_version}]"
+           f"[{len(feed_id)}:{feed_id}]"
+           f"[{len(run_id)}:{run_id}]"
+           f"[{len(source_engine_id)}:{source_engine_id}]"
+           f"[{len(member_key)}:{member_key}]"
+           f"[{len(verified_iso)}:{verified_iso}]"
+       )
+   ```
 
 ### 5.3 Tri-State Semantics (`SourceResolutionState`)
 1. **`RESOLVED`**:
@@ -239,11 +262,32 @@ Example: For `set_id = "SET1"` and `role = "TJL1"`, the canonical key is `MK[4:S
    - Missing record, scope mismatch, unproven engine, stale horizon, or future knowledge ($T_{\text{avail}} > T_{\text{eval}}$).
    - Maps to **omission from `source_resolution_status`** (key absent).
 
-### 5.4 Update vs. Contradiction vs. Rewritten Prefix
-The contract deterministically distinguishes:
-- **Legitimate Later Resolution Update**: Same `member_key`, same `source_engine_id`, same `run_id`, strictly advancing `verified_source_boundary` ($T_{\text{verified\_new}} > T_{\text{verified\_old}}$), advancing or equal `transition_prefix_index`, continuous transition prefix matching `transition_prefix_hash`, and advancing $T_{\text{avail}}$. Supersedes the older record.
-- **Contradictory Assertion**: Same `member_key`, same `verified_source_boundary`, but disagreeing `resolution_state` (e.g. `RESOLVED` vs `UNRESOLVED_FROZEN`) or incompatible geometry. Triggers preprocessor diagnostic `CONFLICTING_SOURCE_RESOLUTION_AUTHORITY` and maps to **omission from `source_resolution_status`** (key absent).
-- **Rewritten Transition Prefix**: Incoming update where transitions at existing indices differ from `transition_prefix_hash`. Triggers diagnostic `ALTERED_TRANSITION_HISTORY_PREFIX` and rejects fail-closed as invalid evidence attack, mapping to absent key.
+### 5.4 Three Identity Layers & Disambiguation Rules
+The contract strictly distinguishes three distinct identity concepts:
+1. **Entity / History Stream Identity**: Defined by the 4-tuple `(feed_id, run_id, source_engine_id, member_key)`. This represents the continuous state stream for a specific member across successive candle evaluations.
+2. **Record Identity (`record_id`)**: The immutable identifier of a specific assertion for a given verified source boundary in that stream.
+3. **Record Payload Equality**: Two records sharing the identical `record_id` must have identical payload attributes. If two records share the same `record_id` but differ in `resolution_state`, `level_id`, or `transition_prefix_index`, a **Conflicting Payload on Immutable Record ID** violation is detected $\rightarrow$ triggers diagnostic `CONFLICTING_RECORD_PAYLOAD_IMMUTABILITY` and maps to absent key.
+
+#### Disambiguation of Stream Updates:
+- **Advancement of Verified Resolution**: Same stream, strictly advancing `verified_source_boundary` ($T_{\text{verified\_new}} > T_{\text{verified\_old}}$), advancing or equal `transition_prefix_index`, valid chained transition-prefix extension, and advancing $T_{\text{avail}}$. Supersedes earlier records.
+- **Later Unresolved / Frozen Notice (Without Boundary Advancement)**: An upstream ambiguity encountered during the next bar leaves `verified_source_boundary` unchanged (frozen at the prior completed bar), but produces a causally later `UNRESOLVED_FROZEN` record with an advancing transition index ($idx_{\text{new}} > idx_{\text{old}}$) or advancing availability ($T_{\text{avail\_new}} > T_{\text{avail\_old}}$).
+  - **Decisive Invariant**: A causally later `UNRESOLVED_FROZEN` notice within the same stream **immediately demotes** the stream state to `UNRESOLVED_FROZEN` for any evaluation requiring a horizon beyond the freeze point. The earlier `RESOLVED` record **cannot survive**!
+- **Replacement / Invalidation Transition**: A transition of type `SET_REPLACEMENT` or `CHOCH_INVALIDATION` referencing `outgoing_cancelled_set_id` supersedes the predecessor member.
+- **Contradictory Assertion**: Competing records for the same horizon with conflicting states without causal progression trigger diagnostic `CONFLICTING_SOURCE_RESOLUTION_AUTHORITY` and map to **omission from `source_resolution_status`** (key absent).
+
+### 5.5 Verifiable Chained Transition-Prefix Extension
+A hash of a prefix cannot be directly compared against a hash of a longer prefix. To enable deterministic, verifiable history extension:
+1. **Canonical Transition Hash**: Each transition record $T_i$ has a canonical serialization hash:
+   $$H(T_i) = \text{SHA256}(\text{CanonicalJSON}(T_i))$$
+2. **Cumulative Chained Hash**:
+   - Initial empty prefix ($idx = -1$): $H_{\text{prefix}}(-1) = \text{"0"*64}$.
+   - Chained accumulation ($idx = k$):
+     $$H_{\text{prefix}}(k) = \text{SHA256}(H_{\text{prefix}}(k-1) \,\|\, H(T_k))$$
+3. **Verification of Extension**:
+   An update claiming transition index $m > k$ proves extension of the earlier prefix $k$ by supplying access to canonical transitions $T_{k+1} \dots T_m$ and iteratively verifying that accumulating from $H_{\text{prefix}}(k)$ yields $H_{\text{prefix}}(m)$, or by full recomputation over `snapshot.transition_history`.
+   - If recomputation through index $k$ does not yield $H_{\text{prefix}}(k)$, an altered prefix is detected $\rightarrow$ triggers diagnostic `ALTERED_TRANSITION_HISTORY_PREFIX` and rejects fail-closed as invalid evidence attack.
+4. **Integrity vs. Authority Distinction**:
+   A valid transition-prefix hash proves only structural history immutability (integrity). It does **not** prove strategy authority. Strategy authority requires verifying that `CoordinatorSnapshot.is_unresolved == False` and that the eligible set was legitimately established under validated configuration.
 
 ---
 
@@ -271,9 +315,12 @@ In `TJLTransitionRecord`, `transition_time` is `Optional[datetime]`. If upstream
 - In `activation_adapter.py`, cancellation events are sequenced via sequential integer sequence references (`sequence_ref`).
 - **No fabricated timestamp is permitted or required** to make a transition or cancellation effective.
 
-### 6.4 Matcher Decision Matrix (Aligned with Code)
+### 6.4 Matcher Decision Matrix
 
-| Source Resolution Record Condition | Context Mapping | Matcher Rejection Reason | Match Status | Candidate Output |
+> [!NOTE]
+> **Matrix Isolation Assumption**: This decision matrix isolates the named source-resolution condition with all other matcher gates held in their passing/neutral states (e.g. coverage COMPLETE, usage UNUSED, direction/timeframe concordant, touch sequence valid). In real matcher execution, Gate 2 membership absence emits `MEMBERSHIP_CANCELLED_OR_REPLACED` and sets status to `REJECTED`, but if another gating check concurrently fails with a BLOCKED condition (such as coverage INCOMPLETE or explicit source blocked), existing matcher precedence rules elevate the status to `ConfirmationMatchStatus.BLOCKED`.
+
+| Source Resolution Record Condition | Context Mapping | Matcher Rejection Reason | Match Status (Isolated) | Candidate Output |
 | :--- | :--- | :--- | :--- | :--- |
 | `RESOLVED` and $T_{\text{verified}} \ge T_{\text{req}}$ | `member_key: True` | None (Passes Gate 1) | Evaluates subsequent gates | Permitted if all pass |
 | `UNRESOLVED_FROZEN` | `member_key: False` | `BLOCKED_UNRESOLVED_SOURCE_DEPENDENCY` | `BLOCKED` | 0 Candidates |
@@ -301,13 +348,13 @@ The mapping explicitly classifies every field into one of four origin categories
 | `member_establishment_time` | **Existing Source Field** | `src/aladeen/strategy/tjl_types.py:84` | `CurrentEligibleSet.eligibility_available_time` (`Optional[datetime]`) |
 | `transition_prefix_index` | **Existing Source Field** | `src/aladeen/strategy/tjl_types.py:117` | Index in `TJLSnapshot.transition_history` |
 | `is_unresolved` | **Existing Source Field** | `src/aladeen/strategy/coordinator.py:23` | `CoordinatorSnapshot.is_unresolved` |
-| `record_id` | **Derived Engineering Identity** | Proposed Contract Formatter | Canonical format: `f"SRR[{v}:{run}:{eng}:{mk}:{iso}]"` |
+| `record_id` | **Derived Engineering Identity** | Proposed Contract Formatter | Canonical format: `format_source_resolution_record_id(...)` |
 | `schema_version` | **Derived Engineering Identity** | Proposed Contract Version | Constant integer `1` |
 | `member_key` | **Derived Engineering Identity** | `src/aladeen/strategy/activation_types.py:19` | `format_member_key(set_id, role)` -> `MK[len:set][len:role]` |
 | `level_id` | **Derived Engineering Identity** | `src/aladeen/strategy/tjl_types.py:34` | `StableLevelId(symbol_feed_id, source_timeframe, bar_time, side)` |
 | `sequence_domain` | **Derived Engineering Identity** | `src/aladeen/strategy/activation_types.py:88` | `SequenceDomain(feed_id, run_id)` |
 | `source_config_hash` | **Derived Engineering Identity** | `src/aladeen/strategy/coordinator.py:12` | Deterministic hash of `MSMConfig` fields |
-| `transition_prefix_hash` | **Derived Engineering Identity** | Proposed Prefix Hasher | Deterministic hash of transitions `[0..prefix_index]` |
+| `transition_prefix_hash` | **Derived Engineering Identity** | Proposed Prefix Hasher | Chained SHA-256 hash of transitions `[0..prefix_index]` |
 | `provenance_ref` | **Derived Engineering Identity** | `src/aladeen/strategy/activation_adapter.py:402` | Formatted event ID (e.g. `f"EVT_TJL_TRANS_{type}_{idx}"`) |
 | `data_source` | **Caller-Supplied Offline Metadata** | `src/aladeen/strategy/service.py:137` | `ActivationSessionCoordinator._bound_context_key[0]` (`"MT5"` or `"SYNTHETIC"`) |
 | `feed_id` | **Caller-Supplied Offline Metadata** | Offline Request Specification | Explicit feed identifier (e.g. `"FEED_EURUSD"`) |
@@ -322,7 +369,7 @@ The mapping explicitly classifies every field into one of four origin categories
 
 ## 8. Traceable Acceptance Inventory
 
-The inventory preserves all original case meanings, adds new horizon and scope cases under distinct IDs, and separates executable evidence from proposed planning.
+The inventory preserves all original case meanings, adds new horizon, scope, update, and integrity cases under distinct IDs, and separates executable evidence from proposed planning.
 
 ### 8.1 Group 1: Existing Executable Test Items (74 Exact Node IDs)
 
@@ -345,7 +392,7 @@ The inventory preserves all original case meanings, adds new horizon and scope c
 #### Unit Authority Preprocessing Suite (60 Tests in `tests/test_authority_context_builder.py`):
 - 60 distinct unit tests verifying `CoveragePreprocessor`, `UsagePreprocessor`, `TrustConfiguration`, and `AuthorityContextBuilder` request binding validation.
 
-### 8.2 Group 2: Proposed Synthetic Resolution Contracts (17 Proposed Cases)
+### 8.2 Group 2: Proposed Synthetic Resolution Contracts (21 Proposed Cases)
 - `SRC-RES-01`: Valid `RESOLVED` record maps to `True` in `source_resolution_status`.
 - `SRC-RES-02`: Explicit `UNRESOLVED_FROZEN` record maps to `False` in `source_resolution_status`.
 - `SRC-RES-03`: Missing record for member maps to absent key.
@@ -363,6 +410,10 @@ The inventory preserves all original case meanings, adds new horizon and scope c
 - `SRC-RES-15`: Cross-feed mismatch (`FEED_A` vs `FEED_B`) rejected fail-closed.
 - `SRC-RES-16`: Configuration hash mismatch (`source_config_hash`) rejected fail-closed.
 - `SRC-RES-17`: Rewritten transition prefix hash mismatch rejected fail-closed.
+- `SRC-RES-18`: Later `UNRESOLVED_FROZEN` notice with unchanged $T_{\text{verified}}$ but advancing transition index demotes stream to `UNRESOLVED_FROZEN` (earlier `RESOLVED` does not survive).
+- `SRC-RES-19`: Conflicting payload under identical `record_id` triggers diagnostic `CONFLICTING_RECORD_PAYLOAD_IMMUTABILITY` and maps to absent key.
+- `SRC-RES-20`: Transition-prefix extension verification failure (hash mismatch on prefix recomputation) triggers `ALTERED_TRANSITION_HISTORY_PREFIX` and rejects fail-closed.
+- `SRC-RES-21`: Equal-availability tie: at equal availability timestamps, an unresolved notice or invalidation takes deterministic fail-closed precedence over resolution.
 
 ### 8.3 Group 3: Proposed Integration Cases (4 Proposed Cases)
 - `SRC-INT-01`: Clean 3-way authority (Valid Source Resolution + COMPLETE Coverage + UNUSED Usage) produces valid candidate.
@@ -404,7 +455,7 @@ python -m pytest tests/ \
 - This represents the exact offline regression boundary accepted in Milestone 36. Zero tests were added or removed in this documentation-only milestone.
 
 ### 9.2 Author-Reported Alternate Execution (Informational)
-- An alternate exploratory run excluding live MT5/service files (`--ignore=tests/test_live_mt5_adapter.py --ignore=tests/test_mt5_smoke.py ...`) executed 742 passed tests.
+- An alternate exploratory run excluding live MT5/service files executed 742 passed tests.
 - This alternate execution is recorded purely as an exploratory run; it is **not** the accepted baseline. The authoritative offline suite remains the established 8-exclusion command producing 740 tests.
 
 ---
