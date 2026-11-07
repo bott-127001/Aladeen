@@ -15,13 +15,13 @@ However, upstream source-resolution authority in Milestone 36 remained an explic
 
 The objective of Milestone 37 is to:
 1. **Define Verified-Through vs. Required Resolution Horizons**: Strictly decouple initial member establishment from continuous calculation validity, preventing stale `RESOLVED` records from authorizing later candidates across subsequent ambiguous candles.
-2. **Specify Unambiguous Canonical Record Identity & Scope**: Establish length-prefixed canonical identifiers distinguishing full entity stream identity, immutable assertion identity (`assertion_seq`), and verified boundary.
-3. **Formalize Causal Assertion Ordering for Unresolved Notices**: Explicitly define an assertion-sequence ordering (`assertion_seq`) that accommodates `BLOCKED_UNRESOLVED` receipt diagnostics without requiring advancing transition indices or relying on naive wall-clock comparisons.
-4. **Define Verifiable Chained Transition-Prefix Extension**: Specify cryptographic cumulative prefix hashing with canonical JSON serialization, anchor binding, and explicit integrity vs. authority boundaries.
+2. **Specify Unambiguous Canonical Record Identity & Scope**: Establish length-prefixed canonical identifiers encoding the complete 9-component stream scope, immutable assertion sequence, and verified boundary.
+3. **Formalize Causal Assertion Ordering for Unresolved Notices**: Explicitly define an assertion-sequence ordering (`assertion_seq`) that accommodates `BLOCKED_UNRESOLVED` receipt diagnostics without requiring advancing transition indices, distinguishing ordered unresolved state from unordered contradictions.
+4. **Define Verifiable Chained Transition-Prefix Extension**: Specify cryptographic cumulative prefix hashing with unambiguous length-prefixed anchor binding, lossless price serialization, exact microsecond preservation, and explicit integrity vs. authority boundaries.
 5. **Exhaustively Inspect Upstream State & Attribute Fields**: Categorize all claims across existing source fields, derived engineering identities, caller-supplied metadata, and missing contracts.
 6. **Reject False-Positive Heuristics**: Establish strict boundaries proving that current-set presence alone, valid zone geometry alone, closed-bar status alone, and cursor equality alone do **not** prove source resolution.
 7. **Define Code-Aligned Matcher Mappings**: Qualify decision matrix precedence with exact implemented blocking conditions.
-8. **Catalogue Traceable Acceptance Inventory**: Group existing tests with exact node IDs, stable cases `SRC-RES-01` through `SRC-RES-23`, integration cases, and controls.
+8. **Catalogue Traceable Acceptance Inventory**: Group existing tests with exact node IDs, stable cases `SRC-RES-01` through `SRC-RES-25`, integration cases, and controls.
 9. **Maintain Established Offline Baseline**: Reconcile authoritative 740-test suite execution.
 
 ---
@@ -190,7 +190,7 @@ class ProposedSourceResolutionRecord:
     # 1. Identity & Schema Versioning
     record_id: str                             # Canonical immutable ID: format_source_resolution_record_id(...)
     schema_version: int                        # Schema version integer (e.g. 1)
-    assertion_seq: int                         # Monotonic assertion sequence number within stream
+    assertion_seq: int                         # Proposed caller-supplied sequence number within stream
     source_engine_id: str                      # Existing field: e.g. "ENGINE_EURUSD_D1"
     symbol_feed_id: str                        # Existing field: e.g. "EURUSD"
     source_timeframe: str                      # Existing field: e.g. "D1"
@@ -230,23 +230,33 @@ In strict accordance with accepted strategy types:
        return f"MK[{len(set_id)}:{set_id}][{len(role)}:{role}]"
    ```
    Example: `MK[4:SET1][4:TJL1]`.
-2. **Canonical Record Identifier Encoding**:
-   The record ID uniquely identifies the **specific assertion event** within the stream, incorporating `assertion_seq` so that subsequent assertions sharing the same `verified_source_boundary` do not collide:
+2. **Canonical Record Identifier Encoding (Full 9-Component Scope)**:
+   The record ID encodes the complete stream identity, `assertion_seq`, and `verified_iso` using unambiguous length-prefixed encoding:
    ```python
    def format_source_resolution_record_id(
        schema_version: int,
+       data_source: str,
        feed_id: str,
        run_id: str,
        source_engine_id: str,
+       symbol_feed_id: str,
+       source_timeframe: str,
+       source_config_hash: str,
+       structural_epoch: int,
        member_key: str,
        assertion_seq: int,
        verified_iso: str,
    ) -> str:
        return (
            f"SRR[v{schema_version}]"
+           f"[{len(data_source)}:{data_source}]"
            f"[{len(feed_id)}:{feed_id}]"
            f"[{len(run_id)}:{run_id}]"
            f"[{len(source_engine_id)}:{source_engine_id}]"
+           f"[{len(symbol_feed_id)}:{symbol_feed_id}]"
+           f"[{len(source_timeframe)}:{source_timeframe}]"
+           f"[{len(source_config_hash)}:{source_config_hash}]"
+           f"[epoch:{structural_epoch}]"
            f"[{len(member_key)}:{member_key}]"
            f"[seq:{assertion_seq}]"
            f"[{len(verified_iso)}:{verified_iso}]"
@@ -269,50 +279,74 @@ In strict accordance with accepted strategy types:
 
 ### 5.4 Three Identity Layers & Disambiguation Rules
 The contract strictly distinguishes three distinct identity concepts:
-1. **Entity / History Stream Identity**: Defined by the complete scope tuple `(feed_id, run_id, data_source, source_engine_id, symbol_feed_id, source_timeframe, source_config_hash, structural_epoch, member_key)`. This represents the continuous state stream for a specific member across successive candle evaluations.
-2. **Immutable Assertion Identity (`record_id`)**: The immutable identifier of a specific assertion event in that stream, distinguished by `assertion_seq`.
+1. **Entity / History Stream Identity**: Defined by the complete scope tuple `(feed_id, run_id, data_source, source_engine_id, symbol_feed_id, source_timeframe, source_config_hash, structural_epoch, member_key)`.
+2. **Immutable Assertion Identity (`record_id`)**: The immutable identifier of a specific assertion event in that stream, uniquely distinguished by `assertion_seq`.
 3. **Record Payload Equality**: Two records sharing the identical `record_id` must have identical payload attributes. If two records share the same `record_id` but differ in `resolution_state`, `level_id`, or `transition_prefix_index`, a **Conflicting Payload on Immutable Record ID** violation is detected $\rightarrow$ triggers diagnostic `CONFLICTING_RECORD_PAYLOAD_IMMUTABILITY` and maps to absent key (`SRC-RES-19`).
 
 #### Disambiguation of Stream Updates & Authoritative Ordering:
 - **Separation of Assertion Order from Transition Prefix**:
   In `TJLSynchronizer.sync()` (lines 344-351), a `BLOCKED_UNRESOLVED` receipt diagnostic is explicitly permitted without being appended to `transition_history`. Therefore, an unresolved notice cannot be assumed to advance `transition_prefix_index`.
-  - Authoritative ordering within a stream is established strictly by **`assertion_seq`** (a strictly increasing integer allocated per observation/calculation step in that stream).
-  - Transition prefix index tracks finalized structural history; `assertion_seq` tracks sequential calculation notices.
+  - `assertion_seq` is a proposed caller-supplied sequence number allocated per calculation step in the offline runner. It is **not** a self-authenticating upstream authority.
 - **Advancement of Verified Resolution**: Same stream, advancing `assertion_seq`, strictly advancing `verified_source_boundary` ($T_{\text{verified\_new}} > T_{\text{verified\_old}}$), advancing/equal `transition_prefix_index`, valid chained transition-prefix extension, and advancing $T_{\text{avail}}$. Supersedes earlier assertions.
 - **Later Unresolved / Frozen Notice (Without Boundary Advancement)**:
   An upstream ambiguity encountered during the next bar leaves `verified_source_boundary` unchanged (frozen at prior completed bar), but produces a causally later `UNRESOLVED_FROZEN` record with an advancing assertion sequence ($assertion\_seq_{\text{new}} > assertion\_seq_{\text{old}}$) and distinct `record_id`.
   - **Decisive Invariant**: A causally later `UNRESOLVED_FROZEN` notice within the same stream **immediately demotes** the stream state to `UNRESOLVED_FROZEN` (maps to `False`) for any evaluation requiring a horizon beyond the freeze point. The earlier `RESOLVED` record **cannot survive** (`SRC-RES-18`, `SRC-RES-22`).
-- **Unordered Contradictory Assertions vs. Proven Unresolved State**:
-  - **Proven Unresolved State**: A causally ordered assertion with `resolution_state == UNRESOLVED_FROZEN` maps to **`False`** (`BLOCKED_UNRESOLVED_SOURCE_DEPENDENCY`).
-  - **Contradictory Unordered Assertions**: Competing records for the same stream and horizon that lack authoritative sequence ordering or carry identical `assertion_seq` with conflicting states map to **omission from mapping** (`UNKNOWN_SOURCE_RESOLUTION_AUTHORITY`, `SRC-RES-10`, `SRC-RES-21`).
+- **Ordered Updates vs. Unordered Contradictions (`SRC-RES-21` Reconciliation)**:
+  Equal availability timestamps alone do NOT manufacture causality:
+  1. **Equal availability, valid differing assertion sequences (`assertion_seq_new > assertion_seq_old`)**: Authoritative assertion sequence determines causal order. The later assertion takes precedence. If the later assertion is `UNRESOLVED_FROZEN`, it demotes the stream to `UNRESOLVED_FROZEN` (maps to `False`).
+  2. **Same sequence with conflicting payloads, or un-sequenced competing records**: Contradictory, unordered assertions map to **omission from mapping** (`UNKNOWN_SOURCE_RESOLUTION_AUTHORITY`, key absent).
+  3. **Finalized structural invalidation**: Preserves structural membership cancellation at Gate 2 (`MEMBERSHIP_CANCELLED_OR_REPLACED`, rejecting candidate); it is not replaced with a resolution-only decision.
 
 ### 5.5 Canonical Serialization & Chained Transition-Prefix Extension
 A hash of a prefix cannot be directly compared against a hash of a longer prefix. To enable deterministic, verifiable history extension:
 
-1. **Scope Anchor Binding**:
-   The transition hash chain is bound to an initial context anchor:
-   $$\text{Anchor} = \text{SHA256}(\text{"ANCHOR:"} + \text{data\_source} + ":" + \text{feed\_id} + ":" + \text{run\_id} + ":" + \text{source\_engine\_id} + ":" + \text{symbol\_feed\_id} + ":" + \text{source\_timeframe} + ":" + \text{source\_config\_hash} + ":" + \text{str(structural\_epoch)})$$
-2. **Empty History Representation**:
-   For initial state with no transitions (`transition_prefix_index == -1`):
-   $$H_{\text{prefix}}(-1) = \text{Anchor}$$
-3. **Canonical Serialization of `TJLTransitionRecord` (`CanonicalJSON(T_i)`)**:
+1. **Unambiguous Length-Prefixed Anchor Binding**:
+   The transition hash chain is bound to an initial context anchor using length-prefixed bytes:
+   ```python
+   def format_transition_anchor_payload(
+       schema_version: int,
+       data_source: str,
+       feed_id: str,
+       run_id: str,
+       source_engine_id: str,
+       symbol_feed_id: str,
+       source_timeframe: str,
+       source_config_hash: str,
+       structural_epoch: int,
+   ) -> bytes:
+       payload_str = (
+           f"ANCHOR[v{schema_version}]"
+           f"[{len(data_source)}:{data_source}]"
+           f"[{len(feed_id)}:{feed_id}]"
+           f"[{len(run_id)}:{run_id}]"
+           f"[{len(source_engine_id)}:{source_engine_id}]"
+           f"[{len(symbol_feed_id)}:{symbol_feed_id}]"
+           f"[{len(source_timeframe)}:{source_timeframe}]"
+           f"[{len(source_config_hash)}:{source_config_hash}]"
+           f"[epoch:{structural_epoch}]"
+       )
+       return payload_str.encode("utf-8")
+   ```
+   Initial empty history representation:
+   $$H_{\text{prefix}}(-1) = \text{SHA256}(\text{format\_transition\_anchor\_payload}(...)).\text{hexdigest}().\text{lower}()$$
+2. **Lossless Canonical Serialization of `TJLTransitionRecord` (`CanonicalJSON(T_i)`)**:
    - **Encoding**: UTF-8 encoded JSON with keys strictly sorted lexicographically (`sort_keys=True`) and compact separators (`","`, `":"` with zero extraneous whitespace).
-   - **Timestamps**: Normalized UTC ISO-8601 with trailing `Z` and microsecond precision normalized (e.g. `YYYY-MM-DDTHH:MM:SS.000000Z`). `None` serialized as JSON `null`.
+   - **Lossless Timestamps**: Timestamps MUST be timezone-aware UTC (naive timestamps strictly rejected). Microseconds are preserved losslessly via `.astimezone(timezone.utc).isoformat()` (e.g. `2026-11-01T00:00:00.123456Z` or `2026-11-01T00:00:00Z` if zero microseconds). `None` serialized as JSON `null`.
    - **Enums**: Serialized strictly as uppercase string values (`trans.transition_type.value`, e.g. `"SET_REPLACEMENT"`).
-   - **Prices & Geometry**: Formatted as exact string representations (`f"{price:.6f}"`), preventing platform-dependent floating-point divergence.
+   - **Lossless Price Representation**: Prices are serialized losslessly via exact string representation of the Python `float` (e.g. `repr(float(price))` or exact lossless decimal string), preserving all precision bits without rounding or six-decimal truncation. Distinct values (e.g. `1.0000001` vs `1.0000002`) produce distinct string tokens (`SRC-RES-25`).
    - **Null Values**: Serialized as JSON `null`.
-4. **Chained Cumulative Hashing**:
+3. **Chained Cumulative Hashing**:
    - Each transition record is hashed to a 64-character lowercase hexadecimal digest:
      $$H(T_i) = \text{SHA256}(\text{CanonicalJSON}(T_i).\text{encode('utf-8')})$$
    - Chaining step accumulates hex string digests:
      $$H_{\text{prefix}}(k) = \text{SHA256}((H_{\text{prefix}}(k-1) + ":" + H(T_k)).\text{encode('utf-8')})$$
-5. **Prefix-Index Bounds**:
+4. **Prefix-Index Bounds**:
    $k \in [-1, N-1]$ where $N = \text{len}(\text{snapshot.transition\_history})$.
-6. **Verification of Extension**:
+5. **Verification of Extension**:
    An update claiming transition index $m > k$ proves extension of the earlier prefix $k$ by supplying access to canonical transitions $T_{k+1} \dots T_m$ and iteratively verifying that accumulating from $H_{\text{prefix}}(k)$ yields $H_{\text{prefix}}(m)$, or by full recomputation over `snapshot.transition_history`.
    - If recomputation through index $k$ does not yield $H_{\text{prefix}}(k)$, an altered prefix is detected $\rightarrow$ triggers diagnostic `ALTERED_TRANSITION_HISTORY_PREFIX` and rejects fail-closed (`SRC-RES-20`).
-7. **Integrity vs. Authority Distinction**:
-   A valid transition-prefix hash proves only structural history immutability (integrity). It does **not** prove strategy authority. Strategy authority requires verifying that `CoordinatorSnapshot.is_unresolved == False` and that the eligible set was legitimately established under validated configuration.
+6. **Narrow Consistency vs. Authority Boundary**:
+   The transition-prefix hash verifies structural consistency against a caller-declared anchor or supplied canonical history. A self-supplied anchor is **not** independent historical evidence of engine authority or broker execution. Strategy authority requires verifying that `CoordinatorSnapshot.is_unresolved == False` and that the eligible set was legitimately established under validated configuration.
 
 ---
 
@@ -390,7 +424,7 @@ The mapping explicitly classifies every field into one of four origin categories
 | `data_source` | **Caller-Supplied Offline Metadata** | `src/aladeen/strategy/service.py:137` | `ActivationSessionCoordinator._bound_context_key[0]` (`"MT5"` or `"SYNTHETIC"`) |
 | `feed_id` | **Caller-Supplied Offline Metadata** | Offline Request Specification | Explicit feed identifier (e.g. `"FEED_EURUSD"`) |
 | `run_id` | **Caller-Supplied Offline Metadata** | `src/aladeen/strategy/service.py:133` | `ActivationSessionCoordinator._current_run_id` |
-| `assertion_seq` | **Caller-Supplied Offline Metadata** | Observation Runner | Strictly monotonic integer sequence allocated per observation in stream |
+| `assertion_seq` | **Caller-Supplied Offline Metadata** | Observation Runner | Proposed runner sequence; **not** self-authenticating upstream authority |
 | `evidence_available_time` | **Caller-Supplied Offline Metadata** | Offline Request Specification | Emitted calculation completion timestamp ($T_{\text{avail}}$) |
 | `verified_source_boundary` | **Caller-Supplied Offline Metadata** | Offline Request Specification | Boundary timestamp through which resolution was calculated |
 | `required_source_boundary` | **Caller-Supplied Offline Metadata** | Offline Schedule Specification | Required boundary derived from canonical schedule |
@@ -401,7 +435,7 @@ The mapping explicitly classifies every field into one of four origin categories
 
 ## 8. Traceable Acceptance Inventory
 
-The inventory preserves all original case meanings, adds new horizon, scope, update, integrity, and diagnostic cases under distinct IDs, and separates executable evidence from proposed planning.
+The inventory preserves all original case meanings, adds new horizon, scope, update, integrity, isolation, and serialization cases under distinct IDs, and separates executable evidence from proposed planning.
 
 ### 8.1 Group 1: Existing Executable Test Items (74 Exact Node IDs)
 
@@ -424,7 +458,7 @@ The inventory preserves all original case meanings, adds new horizon, scope, upd
 #### Unit Authority Preprocessing Suite (60 Tests in `tests/test_authority_context_builder.py`):
 - 60 distinct unit tests verifying `CoveragePreprocessor`, `UsagePreprocessor`, `TrustConfiguration`, and `AuthorityContextBuilder` request binding validation.
 
-### 8.2 Group 2: Proposed Synthetic Resolution Contracts (23 Proposed Cases)
+### 8.2 Group 2: Proposed Synthetic Resolution Contracts (25 Proposed Cases)
 - `SRC-RES-01`: Valid `RESOLVED` record maps to `True` in `source_resolution_status`.
 - `SRC-RES-02`: Explicit `UNRESOLVED_FROZEN` record maps to `False` in `source_resolution_status`.
 - `SRC-RES-03`: Missing record for member maps to absent key.
@@ -445,9 +479,11 @@ The inventory preserves all original case meanings, adds new horizon, scope, upd
 - `SRC-RES-18`: Later `UNRESOLVED_FROZEN` notice with unchanged $T_{\text{verified}}$ but advancing transition index demotes stream to `UNRESOLVED_FROZEN` (earlier `RESOLVED` does not survive).
 - `SRC-RES-19`: Conflicting payload under identical `record_id` triggers diagnostic `CONFLICTING_RECORD_PAYLOAD_IMMUTABILITY` and maps to absent key.
 - `SRC-RES-20`: Transition-prefix extension verification failure (hash mismatch on prefix recomputation) triggers `ALTERED_TRANSITION_HISTORY_PREFIX` and rejects fail-closed.
-- `SRC-RES-21`: Equal-availability tie: at equal availability timestamps, an unresolved notice or invalidation takes deterministic fail-closed precedence over resolution.
+- `SRC-RES-21`: Ordered vs. unordered conflict reconciliation (equal availability with differing sequence follows sequence; equal sequence or unordered maps to absent key; structural invalidation preserves membership rejection).
 - `SRC-RES-22`: Later unresolved assertion sharing verified boundary with distinct `assertion_seq`/`record_id` within the same stream demotes state to `UNRESOLVED_FROZEN` without triggering duplicate-ID corruption.
 - `SRC-RES-23`: Assertion sequence order separates receipt diagnostic from transition index (receipt diagnostic increments `assertion_seq` while leaving `transition_prefix_index` unchanged, establishing authoritative order).
+- `SRC-RES-24`: Stream isolation: two streams differing only in configuration hash or epoch with identical `assertion_seq` and `verified_iso` generate distinct `record_id`s and remain strictly isolated without false collision.
+- `SRC-RES-25`: Lossless price serialization: distinct prices (e.g. `1.0000001` vs `1.0000002`) serialize to distinct canonical JSON tokens and produce distinct transition hashes.
 
 ### 8.3 Group 3: Proposed Integration Cases (4 Proposed Cases)
 - `SRC-INT-01`: Clean 3-way authority (Valid Source Resolution + COMPLETE Coverage + UNUSED Usage) produces valid candidate.

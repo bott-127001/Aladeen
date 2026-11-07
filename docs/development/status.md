@@ -3757,3 +3757,34 @@ Last Updated: 2026-11-07 (Milestone 33 Interleaved Chronological Schedules & Spl
   - Pure offline read-only documentation and specification. Zero MT5 live trading calls, zero order execution, zero account modification.
   - Zero candidate arbitration, zero usage ledger writes, zero final signal publication, zero automated trading.
   - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
+
+## 71. Milestone 37 — Full-Scope Record Identity, Length-Prefixed Anchoring & Lossless Price Serialization (HANDOFF-131)
+- **Active Branch**: `feature/confirmation-monitor`
+- **Parent Commit**: `2e18e6c76c86c3bdb85025ba17a6b654c38cdda6` (HANDOFF-130)
+- **Accepted Milestone 36 Baseline**: `600925471e1fc56d01ba6621ed86f728d7eb76a0` (HANDOFF-125)
+- **Accepted Milestone 35 Requirements Baseline**: `ef71efdb67e56fb063803e10ba7332d53e112b16` (HANDOFF-119)
+- **Accepted Milestone 34 Requirements Baseline**: `7285a1d16a4413c051c4ecd032a53c49683f1600` (HANDOFF-113)
+- **Requirements Baseline Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d`
+- **Scope**: Implements all 5 corrections directed in Perplexity's review of HANDOFF-130:
+  1. *Full 9-Component Stream Scope in Record ID*:
+     - In `docs/requirements/source-resolution-authority.md` (§5.1, §5.2), updated `format_source_resolution_record_id` to encode the complete 9-component stream scope (`data_source`, `feed_id`, `run_id`, `source_engine_id`, `symbol_feed_id`, `source_timeframe`, `source_config_hash`, `structural_epoch`, `member_key`), plus `assertion_seq` and `verified_iso`.
+     - Completely prevents record ID collisions across separate feeds, runs, configurations, or structural epochs sharing the same sequence number or boundary.
+  2. *Length-Prefixed Anchor Encoding*:
+     - In §5.5, replaced ambiguous colon-concatenated anchor formatting with unambiguous length-prefixed encoding (`format_transition_anchor_payload`), eliminating delimiter injection vulnerabilities.
+     - Narrowed scope claims to clarify that hash anchors verify consistency against declared anchors, not broad immutable history proof.
+  3. *Lossless Price Serialization & Microsecond Preservation*:
+     - Replaced rounded `f"{price:.6f}"` serialization with lossless exact string representation (`repr(float(price))` or exact decimal string), guaranteeing sub-pip price variations produce distinct hashes.
+     - Required exact microsecond preservation in UTC ISO-8601 timestamps and explicit rejection of naive timestamps.
+  4. *Reconciled SRC-RES-21 Subconditions*:
+     - In §5.4 and §8.2, split `SRC-RES-21` into 3 explicit subconditions: ordered sequence at equal availability follows `assertion_seq`; unordered contradictory claims fail closed to omitted key; structural invalidation preserves membership rejection.
+  5. *Caller-Supplied Metadata Classification & Acceptance Expansion*:
+     - In §7, explicitly categorized `assertion_seq` as proposed runner sequence metadata rather than self-authenticating upstream authority.
+     - Added stable acceptance cases `SRC-RES-24` (stream isolation across differing config/epoch) and `SRC-RES-25` (lossless price serialization distinguishing sub-pip variations). Total planned contracts: 25 cases.
+- **Verification Summary**:
+  - Authoritative established offline test suite: **740 / 740 passed**.
+  - Core strategy engine purity: **0 diff** against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`.
+  - Matcher logic purity: **0 diff** against `7285a1d16a4413c051c4ecd032a53c49683f1600`.
+- **Safety Boundary Maintained**:
+  - Pure offline read-only documentation and specification. Zero MT5 live trading calls, zero order execution, zero account modification.
+  - Zero candidate arbitration, zero usage ledger writes, zero final signal publication, zero automated trading.
+  - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
