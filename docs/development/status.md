@@ -3728,3 +3728,32 @@ Last Updated: 2026-11-07 (Milestone 33 Interleaved Chronological Schedules & Spl
   - Pure offline read-only documentation and specification. Zero MT5 live trading calls, zero order execution, zero account modification.
   - Zero candidate arbitration, zero usage ledger writes, zero final signal publication, zero automated trading.
   - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
+
+## 70. Milestone 37 — Scoped Assertion Identity, Receipt Order & Canonical Hashing Contract (HANDOFF-130)
+- **Active Branch**: `feature/confirmation-monitor`
+- **Parent Commit**: `d04f13ad813821e8f62a636892df2769fa1184ef` (HANDOFF-129)
+- **Accepted Milestone 36 Baseline**: `600925471e1fc56d01ba6621ed86f728d7eb76a0` (HANDOFF-125)
+- **Accepted Milestone 35 Requirements Baseline**: `ef71efdb67e56fb063803e10ba7332d53e112b16` (HANDOFF-119)
+- **Accepted Milestone 34 Requirements Baseline**: `7285a1d16a4413c051c4ecd032a53c49683f1600` (HANDOFF-113)
+- **Requirements Baseline Commit**: `3f6689c194c95ca3761833f8831bb8a3f5b4740d`
+- **Scope**: Implements all 4 corrections directed in Perplexity's review of HANDOFF-129:
+  1. *Resolved Assertion Identity vs. Unchanged Verified Boundary*:
+     - In `docs/requirements/source-resolution-authority.md` (§5.1, §5.2, §5.4), separated full stream scope (`feed_id`, `run_id`, `data_source`, `source_engine_id`, `symbol_feed_id`, `source_timeframe`, `source_config_hash`, `structural_epoch`, `member_key`), immutable assertion identity (`assertion_seq` incorporated into `format_source_resolution_record_id`), and verified boundary.
+     - Later unresolved notice after attempting candle 10 sharing verified boundary with candle 9 has distinct `record_id` (via `assertion_seq`) and is not misclassified as duplicate-ID corruption (`SRC-RES-22`).
+  2. *Separated Assertion Order from Structural-Transition-Prefix Order*:
+     - Accounting for `TJLSynchronizer` allowing `BLOCKED_UNRESOLVED` receipt diagnostics outside `transition_history`, defined monotonic `assertion_seq` per calculation notice in the stream.
+     - A later unresolved notice with advancing `assertion_seq` demotes stream to `UNRESOLVED_FROZEN` (`False`). Competing unordered assertions fail closed to omitted key (`SRC-RES-23`, `SRC-RES-21`).
+  3. *Completed Canonical Serialization & Hashing Contract*:
+     - Specified exact canonical serialization rules in §5.5: UTF-8 JSON, sorted keys, compact separators, normalized UTC ISO-8601 timestamps with `Z`, uppercase enums, prices as exact `f"{price:.6f}"` strings, and null encoding.
+     - Defined chained cumulative prefix hashing with scope anchor binding. Explicitly distinguished structural integrity from strategy authority.
+  4. *Corrected Matcher-Precedence Examples & Added Acceptance Cases*:
+     - In §6.4 note, replaced broad wording with exact implemented blocking conditions: `BLOCKED_UNRESOLVED_CONFIRMATION_GAP`, `BLOCKED_UNRESOLVED_SOURCE_DEPENDENCY`, `UNKNOWN_SOURCE_RESOLUTION_AUTHORITY`, and `UNRESOLVED_DEPENDENCY`. Clarified that `INCOMPLETE_COVERAGE` produces rejection.
+     - Added stable acceptance cases `SRC-RES-22` and `SRC-RES-23`. Total planned contracts: 23 cases.
+- **Verification Summary**:
+  - Authoritative established offline test suite: **740 / 740 passed** in 39.29s.
+  - Core strategy engine purity: **0 diff** against `3f6689c194c95ca3761833f8831bb8a3f5b4740d`.
+  - Matcher logic purity: **0 diff** against `7285a1d16a4413c051c4ecd032a53c49683f1600`.
+- **Safety Boundary Maintained**:
+  - Pure offline read-only documentation and specification. Zero MT5 live trading calls, zero order execution, zero account modification.
+  - Zero candidate arbitration, zero usage ledger writes, zero final signal publication, zero automated trading.
+  - Dedicated branch: `feature/confirmation-monitor`. Never merge into `main`.
